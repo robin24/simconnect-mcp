@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "simconnect-mcp"
+version = "0.1.0"
+description = "MCP server for MSFS SimConnect — add-on development companion"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "SimConnect>=0.4.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "ruff"]
+
+[project.scripts]
+simconnect-mcp = "simconnect_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simconnect_mcp"]
+artifacts = ["src/simconnect_mcp/data/*.json", "src/simconnect_mcp/docs/*.md"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
