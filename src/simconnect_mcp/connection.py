@@ -74,27 +74,27 @@ class SimConnectManager:
         try:
             from SimConnect import AircraftRequests, AircraftEvents
 
+            # Note: no _sim_lock here — connect/disconnect are only called
+            # from a single thread, and locking during init can deadlock
+            # because SimConnect's constructor starts a dispatch thread.
+
             # Prefer SimConnectMobiFlight — enables WASM client-data bridge
             try:
                 from simconnect_mcp.vendor.simconnect_mobiflight import SimConnectMobiFlight
-                with self._sim_lock:
-                    self.sm = SimConnectMobiFlight()
+                self.sm = SimConnectMobiFlight()
                 logger.info("Using SimConnectMobiFlight (WASM client-data enabled)")
             except Exception as e:
                 logger.info("SimConnectMobiFlight not available (%s), falling back to SimConnect", e)
                 from SimConnect import SimConnect
-                with self._sim_lock:
-                    self.sm = SimConnect()
+                self.sm = SimConnect()
 
-            with self._sim_lock:
-                self.aq = AircraftRequests(self.sm, _time=2000)
-                self.ae = AircraftEvents(self.sm)
+            self.aq = AircraftRequests(self.sm, _time=2000)
+            self.ae = AircraftEvents(self.sm)
 
             # Try to initialize FacilitiesRequests
             try:
                 from SimConnect import FacilitiesRequests
-                with self._sim_lock:
-                    self.fr = FacilitiesRequests(self.sm)
+                self.fr = FacilitiesRequests(self.sm)
             except Exception:
                 self.fr = None
                 logger.info("FacilitiesRequests not available")
@@ -102,11 +102,10 @@ class SimConnectManager:
             # Try MobiFlight variable requests (requires SimConnectMobiFlight + WASM module)
             try:
                 from simconnect_mcp.vendor.mobiflight_variable_requests import MobiFlightVariableRequests
-                with self._sim_lock:
-                    self.mobiflight = MobiFlightVariableRequests(self.sm)
-                    # Clear stale variable registrations from prior sessions —
-                    # without this, the WASM module returns 0 for all reads.
-                    self.mobiflight.clear_sim_variables()
+                self.mobiflight = MobiFlightVariableRequests(self.sm)
+                # Clear stale variable registrations from prior sessions —
+                # without this, the WASM module returns 0 for all reads.
+                self.mobiflight.clear_sim_variables()
                 self._mobiflight_available = True
                 logger.info("MobiFlight WASM variable requests initialized")
             except Exception as e:
@@ -142,9 +141,8 @@ class SimConnectManager:
         if self._state == ConnectionState.DISCONNECTED:
             return {"status": "ok", "message": "Already disconnected"}
         try:
-            with self._sim_lock:
-                if self.sm is not None:
-                    self.sm.exit()
+            if self.sm is not None:
+                self.sm.exit()
         except Exception as e:
             logger.warning("Error during disconnect: %s", e)
         finally:

@@ -27,8 +27,6 @@ async def lifespan(server: FastMCP) -> AsyncIterator[dict]:
 
 mcp = FastMCP(
     "SimConnect MCP",
-    description="MSFS SimConnect development companion — full read/write sim state, "
-    "L-var inspection, event triggering, calculator code, and embedded docs.",
     lifespan=lifespan,
 )
 
@@ -82,15 +80,19 @@ async def connect_to_sim() -> dict:
     Must be called before using any other tools. Automatically attempts
     to load MobiFlight WASM extension for L-var support.
     """
+    import asyncio
     manager = SimConnectManager()
-    return await manager.run_sync(manager.connect)
+    # Run in executor but NOT through run_sync — connect() manages
+    # the lock internally, and run_sync would double-lock (deadlock).
+    return await asyncio.get_event_loop().run_in_executor(None, manager.connect)
 
 
 @mcp.tool()
 async def disconnect_from_sim() -> dict:
     """Close the SimConnect connection to MSFS."""
+    import asyncio
     manager = SimConnectManager()
-    return await manager.run_sync(manager.disconnect)
+    return await asyncio.get_event_loop().run_in_executor(None, manager.disconnect)
 
 
 @mcp.tool()
