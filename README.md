@@ -1,11 +1,11 @@
 # SimConnect MCP Server
 
-An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that connects AI coding agents to Microsoft Flight Simulator via SimConnect. Unlike consumer flight assistants that offer read-only instrument data, this server is built for **add-on development** — full read/write access to SimVars, L-vars, events, calculator code execution, and embedded documentation.
+An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that connects AI coding agents to Microsoft Flight Simulator via SimConnect. This server is built for **add-on development** — full read/write access to SimVars, L-vars, events, calculator code execution, and embedded documentation.
 
 ## What It Does
 
 - **Read/write any SimVar** — altitude, heading, speed, autopilot settings, engine parameters, and 1,080+ more from a comprehensive built-in catalog
-- **Read/write L-vars** — aircraft-specific local variables used by add-on developers (Fenix A320, FlyByWire A32NX, Working Title, etc.)
+- **Read/write L-vars** — aircraft-specific local variables used by add-on developers (Fenix A320, FlyByWire A32NX, PMDG, etc.)
 - **Trigger events** — toggle switches, set autopilot modes, control lights, fire custom MobiFlight events
 - **Execute RPN calculator code** — run arbitrary Reverse Polish Notation code directly in the sim
 - **Search and discover variables** — searchable catalogs of SimVars, events, and aircraft-specific L-vars with human-readable names and valid values
@@ -24,7 +24,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/simconnect-mcp.git
+git clone https://github.com/robin24/simconnect-mcp.git
 cd simconnect-mcp
 
 # Create virtual environment and install
@@ -204,7 +204,7 @@ L-var catalogs provide searchable, human-readable databases for specific aircraf
 
 | Aircraft | Variables | Panels | Source |
 |----------|-----------|--------|--------|
-| Fenix A320/A321 | 1,433 | 26 | HubHop + manual curation |
+| Fenix A319/A320/A321 | 1,433 | 26 | HubHop + manual curation |
 
 Each variable includes a display name, category, writability flag, and (where applicable) a map of valid values.
 
@@ -311,4 +311,4 @@ uv run ruff check src/ tests/
 
 ## License
 
-MIT
+This project is licensed under the MIT License - see the LICENSE file for details.
