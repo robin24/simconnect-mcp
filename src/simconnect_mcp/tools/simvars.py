@@ -19,39 +19,61 @@ _FLAT_SIMVARS: list[dict] | None = None
 
 
 def _load_catalog() -> dict[str, list[dict]]:
-    """Load SimVar catalog from embedded docs or build from SimConnect package."""
+    """Load SimVar catalog from bundled JSON, SimConnect package, or builtin fallback."""
     global _SIMVAR_CATALOG, _FLAT_SIMVARS
     if _SIMVAR_CATALOG is not None:
         return _SIMVAR_CATALOG
 
     catalog: dict[str, list[dict]] = {}
 
-    # Try to build catalog from SimConnect package's internal data
-    try:
-        from SimConnect import SimConnect
-        from SimConnect.RequestList import SimVarList
+    # 1. Try bundled JSON catalog (comprehensive, ~850 vars)
+    json_path = Path(__file__).parent.parent / "data" / "simvars_catalog.json"
+    if json_path.exists():
+        try:
+            raw = json.loads(json_path.read_text(encoding="utf-8"))
+            for category_name, vars_list in raw.items():
+                entries = []
+                for v in vars_list:
+                    entries.append({
+                        "name": v["name"],
+                        "category": category_name,
+                        "description": v.get("description", ""),
+                        "units": v.get("unit", ""),
+                        "settable": v.get("settable", False),
+                    })
+                if entries:
+                    catalog[category_name] = entries
+        except Exception:
+            catalog = {}
 
-        for category_name in dir(SimVarList):
-            if category_name.startswith("_"):
-                continue
-            category_data = getattr(SimVarList, category_name, None)
-            if not isinstance(category_data, dict):
-                continue
-            entries = []
-            for var_name, var_info in category_data.items():
+    # 2. Fallback: try SimConnect package's AircraftRequests data
+    if not catalog:
+        try:
+            from SimConnect.RequestList import AircraftRequests
+            import re as _re
+
+            # Parse the inner class list dicts without instantiating (needs no connection)
+            import inspect
+            source = inspect.getsource(AircraftRequests)
+            for match in _re.finditer(
+                r'"(\w[\w:]*)":\s*\["([^"]*)",\s*b\'([^\']*)\',\s*b\'([^\']*)\',\s*\'([YN])\'\]',
+                source,
+            ):
+                name, desc, _simvar, unit, settable = match.groups()
+                cat = "SimConnect"
                 entry = {
-                    "name": var_name,
-                    "category": category_name,
+                    "name": name,
+                    "category": cat,
+                    "description": desc,
+                    "units": unit,
+                    "settable": settable == "Y",
                 }
-                if isinstance(var_info, dict):
-                    entry["description"] = var_info.get("description", "")
-                    entry["units"] = var_info.get("units", "")
-                    entry["settable"] = var_info.get("settable", False)
-                entries.append(entry)
-            if entries:
-                catalog[category_name] = entries
-    except Exception:
-        # Fallback: minimal catalog of common SimVars
+                catalog.setdefault(cat, []).append(entry)
+        except Exception:
+            pass
+
+    # 3. Last resort: minimal builtin catalog
+    if not catalog:
         catalog = _builtin_catalog()
 
     _SIMVAR_CATALOG = catalog

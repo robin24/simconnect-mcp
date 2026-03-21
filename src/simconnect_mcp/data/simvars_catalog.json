@@ -1,0 +1,6538 @@
+{
+  "Aircraft Engine": [
+    {
+      "name": "NUMBER_OF_ENGINES",
+      "description": "Number of engines (minimum 0, maximum 4)",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ENGINE_CONTROL_SELECT",
+      "description": "Selected engines (combination of bit flags); 1 = Engine 1; 2 = Engine 2; 4 = Engine 3; 8 = Engine 4",
+      "unit": "Mask",
+      "settable": true
+    },
+    {
+      "name": "THROTTLE_LOWER_LIMIT",
+      "description": "Percent throttle defining lower limit (negative for reverse thrust equipped airplanes)",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "ENGINE_TYPE",
+      "description": "Engine type:; 0 = Piston; 1 = Jet; 2 = None; 3 = Helo(Bell) turbine; 4 = Unsupported; 5 = Turboprop",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "MASTER_IGNITION_SWITCH",
+      "description": "Aircraft master ignition switch (grounds all engines magnetos)",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_COMBUSTION:index",
+      "description": "Combustion flag",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_MASTER_ALTERNATOR:index",
+      "description": "Alternator (generator) switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_FUEL_PUMP_SWITCH:index",
+      "description": "Fuel pump switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_FUEL_PUMP_ON:index",
+      "description": "Fuel pump on/off",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_RPM:index",
+      "description": "Engine rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_PCT_MAX_RPM:index",
+      "description": "Percent of max rated rpm",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_MAX_REACHED_RPM:index",
+      "description": "Maximum attained rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_THROTTLE_LEVER_POSITION:index",
+      "description": "Percent of max throttle position",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_MIXTURE_LEVER_POSITION:index",
+      "description": "Percent of max mixture lever position",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_PROPELLER_LEVER_POSITION:index",
+      "description": "Percent of max prop lever position",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_STARTER:index",
+      "description": "Engine starter on/off",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_EXHAUST_GAS_TEMPERATURE:index",
+      "description": "Engine exhaust gas temperature.",
+      "unit": "Rankine",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_OIL_PRESSURE:index",
+      "description": "Engine oil pressure",
+      "unit": "Psf",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_OIL_LEAKED_PERCENT:index",
+      "description": "Percent of max oil capacity leaked",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_COMBUSTION_SOUND_PERCENT:index",
+      "description": "Percent of maximum engine sound",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_DAMAGE_PERCENT:index",
+      "description": "Percent of total engine damage",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_OIL_TEMPERATURE:index",
+      "description": "Engine oil temperature",
+      "unit": "Rankine",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_FAILED:index",
+      "description": "Fail flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_GENERATOR_SWITCH:index",
+      "description": "Alternator (generator) switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_GENERATOR_ACTIVE:index",
+      "description": "Alternator (generator) on/off",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_ANTI_ICE_POSITION:index",
+      "description": "Engine anti-ice switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_FUEL_VALVE:index",
+      "description": "Fuel valve state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_FUEL_PRESSURE:index",
+      "description": "Engine fuel pressure",
+      "unit": "Psi",
+      "settable": true
+    },
+    {
+      "name": "GENERAL_ENG_ELAPSED_TIME:index",
+      "description": "Total engine elapsed time",
+      "unit": "Hours",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_COWL_FLAP_POSITION:index",
+      "description": "Percent cowl flap opened",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_PRIMER:index",
+      "description": "Engine primer position",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_MANIFOLD_PRESSURE:index",
+      "description": "Engine manifold pressure",
+      "unit": "Psi",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_ALTERNATE_AIR_POSITION:index",
+      "description": "Alternate air control",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_COOLANT_RESERVOIR_PERCENT:index",
+      "description": "Percent coolant available",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_LEFT_MAGNETO:index",
+      "description": "Left magneto state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_RIGHT_MAGNETO:index",
+      "description": "Right magneto state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_BRAKE_POWER:index",
+      "description": "Brake power produced by engine",
+      "unit": "Foot pounds per second",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_STARTER_TORQUE:index",
+      "description": "Torque produced by engine",
+      "unit": "Foot pound",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_TURBOCHARGER_FAILED:index",
+      "description": "Turbo failed state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_EMERGENCY_BOOST_ACTIVE:index",
+      "description": "War emergency power active",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_EMERGENCY_BOOST_ELAPSED_TIME:index",
+      "description": "Elapsed time war emergency power active",
+      "unit": "Hours",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_WASTEGATE_POSITION:index",
+      "description": "Percent turbo wastegate closed",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_TURBINE_INLET_TEMPERATURE:index",
+      "description": "Engine turbine inlet temperature",
+      "unit": "Celsius",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_CYLINDER_HEAD_TEMPERATURE:index",
+      "description": "Engine cylinder head temperature",
+      "unit": "Celsius",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_RADIATOR_TEMPERATURE:index",
+      "description": "Engine radiator temperature",
+      "unit": "Celsius",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_FUEL_AVAILABLE:index",
+      "description": "True if fuel is available",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_FUEL_FLOW:index",
+      "description": "Engine fuel flow",
+      "unit": "Pounds per hour",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_FUEL_TANK_SELECTOR:index",
+      "description": "Fuel tank selected for engine. See fuel tank list.",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "ENGINE_TYPE",
+      "description": "Engine type:; 0 = Piston; 1 = Jet; 2 = None; 3 = Helo(Bell) turbine; 4 = Unsupported; 5 = Turboprop",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_FUEL_NUMBER_TANKS_USED:index",
+      "description": "Number of tanks currently being used",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "RECIP_CARBURETOR_TEMPERATURE:index",
+      "description": "Carburetor temperature",
+      "unit": "Celsius",
+      "settable": true
+    },
+    {
+      "name": "RECIP_MIXTURE_RATIO:index",
+      "description": "Fuel / Air mixture ratio",
+      "unit": "Ratio",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_N1:index",
+      "description": "Turbine engine N1",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_N2:index",
+      "description": "Turbine engine N2",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_CORRECTED_N1:index",
+      "description": "Turbine engine corrected N1",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_CORRECTED_N2:index",
+      "description": "Turbine engine corrected N2",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_CORRECTED_FF:index",
+      "description": "Corrected fuel flow",
+      "unit": "Pounds per hour",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_MAX_TORQUE_PERCENT:index",
+      "description": "Percent of max rated torque",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_PRESSURE_RATIO:index",
+      "description": "Engine pressure ratio",
+      "unit": "Ratio",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_ITT:index",
+      "description": "Engine ITT",
+      "unit": "Rankine",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_AFTERBURNER:index",
+      "description": "Afterburner state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_JET_THRUST:index",
+      "description": "Engine jet thrust",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_BLEED_AIR:index",
+      "description": "Bleed air pressure",
+      "unit": "Psi",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_TANK_SELECTOR:index",
+      "description": "Fuel tank selected for engine. See fuel tank list.",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "ENGINE_TYPE",
+      "description": "Engine type:; 0 = Piston; 1 = Jet; 2 = None; 3 = Helo(Bell) turbine; 4 = Unsupported; 5 = Turboprop",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_NUM_TANKS_USED:index",
+      "description": "Number of tanks currently being used",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_FUEL_FLOW_PPH:index",
+      "description": "Engine fuel flow",
+      "unit": "Pounds per hour",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_FUEL_AVAILABLE:index",
+      "description": "True if fuel is available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_REVERSE_NOZZLE_PERCENT:index",
+      "description": "Percent thrust reverser nozzles deployed",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_VIBRATION:index",
+      "description": "Engine vibration value",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ENG_FAILED:index",
+      "description": "Failure flag",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ENG_RPM_ANIMATION_PERCENT:index",
+      "description": "Percent max rated rpm used for visual animation",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "ENG_ON_FIRE:index",
+      "description": "On fire state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "ENG_FUEL_FLOW_BUG_POSITION:index",
+      "description": "Fuel flow reference",
+      "unit": "Pounds per hour",
+      "settable": false
+    },
+    {
+      "name": "PROP_RPM:index",
+      "description": "Propeller rpm",
+      "unit": "Rpm",
+      "settable": true
+    },
+    {
+      "name": "PROP_MAX_RPM_PERCENT:index",
+      "description": "Percent of max rated rpm",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "PROP_THRUST:index",
+      "description": "Propeller thrust",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "PROP_BETA:index",
+      "description": "Prop blade pitch angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "PROP_FEATHERING_INHIBIT:index",
+      "description": "Feathering inhibit flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PROP_FEATHERED:index",
+      "description": "Feathered state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PROP_SYNC_DELTA_LEVER:index",
+      "description": "Corrected prop correction input on slaved engine",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "PROP_AUTO_FEATHER_ARMED:index",
+      "description": "Auto-feather armed state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PROP_FEATHER_SWITCH:index",
+      "description": "Prop feather switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PANEL_AUTO_FEATHER_SWITCH:index",
+      "description": "Auto-feather arming switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PROP_SYNC_ACTIVE:index",
+      "description": "True if prop sync is active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PROP_DEICE_SWITCH:index",
+      "description": "True if prop deice switch on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ENG_COMBUSTION",
+      "description": "True if the engine is running",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ENG_N1_RPM:index",
+      "description": "Engine N1 rpm",
+      "unit": "Rpm (0 to 16384 = 0 to 100%)",
+      "settable": false
+    },
+    {
+      "name": "ENG_N2_RPM:index",
+      "description": "Engine N2 rpm",
+      "unit": "Rpm(0 to 16384 = 0 to 100%)",
+      "settable": false
+    },
+    {
+      "name": "ENG_FUEL_FLOW_GPH:index",
+      "description": "Engine fuel flow",
+      "unit": "Gallons per hour",
+      "settable": false
+    },
+    {
+      "name": "ENG_FUEL_FLOW_PPH:index",
+      "description": "Engine fuel flow",
+      "unit": "Pounds per hour",
+      "settable": false
+    },
+    {
+      "name": "ENG_TORQUE:index",
+      "description": "Torque",
+      "unit": "Foot pounds",
+      "settable": false
+    },
+    {
+      "name": "ENG_ANTI_ICE:index",
+      "description": "Anti-ice switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ENG_PRESSURE_RATIO:index",
+      "description": "Engine pressure ratio",
+      "unit": "Ratio (0-16384)",
+      "settable": false
+    },
+    {
+      "name": "ENG_EXHAUST_GAS_TEMPERATURE:index",
+      "description": "Exhaust gas temperature",
+      "unit": "Rankine",
+      "settable": false
+    },
+    {
+      "name": "ENG_EXHAUST_GAS_TEMPERATURE_GES:index",
+      "description": "Governed engine setting",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "ENG_CYLINDER_HEAD_TEMPERATURE:index",
+      "description": "Engine cylinder head temperature",
+      "unit": "Rankine",
+      "settable": false
+    },
+    {
+      "name": "ENG_OIL_TEMPERATURE:index",
+      "description": "Engine oil temperature",
+      "unit": "Rankine",
+      "settable": false
+    },
+    {
+      "name": "ENG_OIL_PRESSURE:index",
+      "description": "Engine oil pressure",
+      "unit": "foot pounds",
+      "settable": false
+    },
+    {
+      "name": "ENG_OIL_QUANTITY:index",
+      "description": "Engine oil quantitiy as a percentage of full capacity",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "ENG_HYDRAULIC_PRESSURE:index",
+      "description": "Engine hydraulic pressure",
+      "unit": "foot pounds",
+      "settable": false
+    },
+    {
+      "name": "ENG_HYDRAULIC_QUANTITY:index",
+      "description": "Engine hydraulic fluid quantity, as a percentage of total capacity",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "ENG_MANIFOLD_PRESSURE:index",
+      "description": "Engine manifold pressure.",
+      "unit": "inHG.",
+      "settable": false
+    },
+    {
+      "name": "ENG_VIBRATION:index",
+      "description": "Engine vibration",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ENG_RPM_SCALER:index",
+      "description": "Obsolete",
+      "unit": "Scalar",
+      "settable": false
+    },
+    {
+      "name": "ENG_MAX_RPM",
+      "description": "Maximum rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_STARTER_ACTIVE",
+      "description": "True if engine starter is active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GENERAL_ENG_FUEL_USED_SINCE_START",
+      "description": "Fuel used since the engines were last started",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_PRIMARY_NOZZLE_PERCENT:index",
+      "description": "Percent thrust of primary nozzle",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_IGNITION_SWITCH",
+      "description": "True if the turbine engine ignition switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_MASTER_STARTER_SWITCH",
+      "description": "True if the turbine engine master starter switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TURB_ENG_AFTERBURNER_STAGE_ACTIVE",
+      "description": "The stage of the afterburner, or 0 if the afterburner is not active.",
+      "unit": "Number",
+      "settable": false
+    }
+  ],
+  "Aircraft Fuel": [
+    {
+      "name": "FUEL_TANK_CENTER_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_CENTER2_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_CENTER3_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_LEFT_MAIN_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_LEFT_AUX_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_LEFT_TIP_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_MAIN_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_AUX_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_TIP_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_EXTERNAL1_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_EXTERNAL2_LEVEL",
+      "description": "Percent of maximum capacity",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_CENTER_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_CENTER2_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_CENTER3_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_LEFT_MAIN_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_LEFT_AUX_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_LEFT_TIP_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_MAIN_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_AUX_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_TIP_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_EXTERNAL1_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_EXTERNAL2_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_LEFT_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_RIGHT_CAPACITY",
+      "description": "Maximum capacity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_CENTER_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_CENTER2_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_CENTER3_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_LEFT_MAIN_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_LEFT_AUX_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_LEFT_TIP_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_MAIN_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_AUX_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_RIGHT_TIP_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_EXTERNAL1_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_TANK_EXTERNAL2_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "FUEL_LEFT_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_RIGHT_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TOTAL_QUANTITY",
+      "description": "Current quantity in volume",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_WEIGHT_PER_GALLON",
+      "description": "Fuel weight per gallon",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TANK_SELECTOR:index",
+      "description": "Which tank is selected. See fuel tank list.",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "FUEL_CROSS_FEED",
+      "description": "Cross feed valve:; 0 = Closed; 1 = Open",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TOTAL_CAPACITY",
+      "description": "Total capacity of the aircraft",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_SELECTED_QUANTITY_PERCENT",
+      "description": "Percent or capacity for selected tank",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "FUEL_SELECTED_QUANTITY",
+      "description": "Quantity of selected tank",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "FUEL_TOTAL_QUANTITY_WEIGHT",
+      "description": "Current total fuel weight of the aircraft",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "NUM_FUEL_SELECTORS",
+      "description": "Number of selectors on the aircraft",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "UNLIMITED_FUEL",
+      "description": "Unlimited fuel flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ESTIMATED_FUEL_FLOW",
+      "description": "Estimated fuel flow at cruise",
+      "unit": "Pounds per hour",
+      "settable": false
+    }
+  ],
+  "Aircraft Lights": [
+    {
+      "name": "LIGHT_STROBE",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_PANEL",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_LANDING",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_TAXI",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_BEACON",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_NAV",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_LOGO",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_WING",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_RECOGNITION",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_CABIN",
+      "description": "Light switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_ON_STATES",
+      "description": "Bit mask:; 0x0001: Nav; 0x0002: Beacon; 0x0004: Landing; 0x0008: Taxi; 0x0010: Strobe; 0x0020: Panel; 0x0040: Recognition; 0x0080: Wing; 0x0100: Logo; 0x0200: Cabin",
+      "unit": "Mask",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_STATES",
+      "description": "Same as LIGHT ON STATES",
+      "unit": "Mask",
+      "settable": false
+    },
+    {
+      "name": "LANDING_LIGHT_PBH",
+      "description": "Landing light pitch bank and heading",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_TAXI_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_STROBE_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_PANEL_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_RECOGNITION_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_WING_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_LOGO_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_CABIN_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_HEAD_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_BRAKE_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_NAV_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_BEACON_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LIGHT_LANDING_ON",
+      "description": "Return true if the light is on.",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Aircraft Position and Speed": [
+    {
+      "name": "GROUND_VELOCITY",
+      "description": "Speed relative to the earths surface",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_WORLD_VELOCITY",
+      "description": "Speed relative to the earths center",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "VELOCITY_BODY_Z",
+      "description": "True longitudinal speed, relative to aircraft axis",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "VELOCITY_BODY_X",
+      "description": "True lateral speed, relative to aircraft axis",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "VELOCITY_BODY_Y",
+      "description": "True vertical speed, relative to aircraft axis",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "VELOCITY_WORLD_Z",
+      "description": "Speed relative to earth, in North/South direction",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "VELOCITY_WORLD_X",
+      "description": "Speed relative to earth, in East/West direction",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "VELOCITY_WORLD_Y",
+      "description": "Speed relative to earth, in vertical direction",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "ACCELERATION_WORLD_X",
+      "description": "Acceleration relative to earth, in east/west direction",
+      "unit": "Feet per second squared",
+      "settable": true
+    },
+    {
+      "name": "ACCELERATION_WORLD_Y",
+      "description": "Acceleration relative to earch, in vertical direction",
+      "unit": "Feet per second squared",
+      "settable": true
+    },
+    {
+      "name": "ACCELERATION_WORLD_Z",
+      "description": "Acceleration relative to earth, in north/south direction",
+      "unit": "Feet per second squared",
+      "settable": true
+    },
+    {
+      "name": "ACCELERATION_BODY_X",
+      "description": "Acceleration relative to aircraft axix, in east/west direction",
+      "unit": "Feet per second squared",
+      "settable": true
+    },
+    {
+      "name": "ACCELERATION_BODY_Y",
+      "description": "Acceleration relative to aircraft axis, in vertical direction",
+      "unit": "Feet per second squared",
+      "settable": true
+    },
+    {
+      "name": "ACCELERATION_BODY_Z",
+      "description": "Acceleration relative to aircraft axis, in north/south direction",
+      "unit": "Feet per second squared",
+      "settable": true
+    },
+    {
+      "name": "ROTATION_VELOCITY_BODY_X",
+      "description": "Rotation relative to aircraft axis",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "ROTATION_VELOCITY_BODY_Y",
+      "description": "Rotation relative to aircraft axis",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "ROTATION_VELOCITY_BODY_Z",
+      "description": "Rotation relative to aircraft axis",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "RELATIVE_WIND_VELOCITY_BODY_X",
+      "description": "Lateral speed relative to wind",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "RELATIVE_WIND_VELOCITY_BODY_Y",
+      "description": "Vertical speed relative to wind",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "RELATIVE_WIND_VELOCITY_BODY_Z",
+      "description": "Longitudinal speed relative to wind",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "PLANE_ALT_ABOVE_GROUND",
+      "description": "Altitude above the surface",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "PLANE_LATITUDE",
+      "description": "Latitude of aircraft, North is positive, South negative",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "PLANE_LONGITUDE",
+      "description": "Longitude of aircraft, East is positive, West negative",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "PLANE_ALTITUDE",
+      "description": "Altitude of aircraft",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "PLANE_PITCH_DEGREES",
+      "description": "Pitch angle, although the name mentions degrees the units used are radians",
+      "unit": "Radians",
+      "settable": true
+    },
+    {
+      "name": "PLANE_BANK_DEGREES",
+      "description": "Bank angle, although the name mentions degrees the units used are radians",
+      "unit": "Radians",
+      "settable": true
+    },
+    {
+      "name": "PLANE_HEADING_DEGREES_TRUE",
+      "description": "Heading relative to true north, although the name mentions degrees the units used are radians",
+      "unit": "Radians",
+      "settable": true
+    },
+    {
+      "name": "PLANE_HEADING_DEGREES_MAGNETIC",
+      "description": "Heading relative to magnetic north, although the name mentions degrees the units used are radians",
+      "unit": "Radians",
+      "settable": true
+    },
+    {
+      "name": "MAGVAR",
+      "description": "Magnetic variation",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GROUND_ALTITUDE",
+      "description": "Altitude of surface",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "SIM_ON_GROUND",
+      "description": "On ground flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "INCIDENCE_ALPHA",
+      "description": "Angle of attack",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "INCIDENCE_BETA",
+      "description": "Sideslip angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "WING_FLEX_PCT:index",
+      "description": "The current wing flex. Different values can be set for each wing (for example, during banking). Set an index of 1 for the left wing, and 2 for the right wing.",
+      "unit": "Percent over 100",
+      "settable": true
+    },
+    {
+      "name": "STRUCT_LATLONALT",
+      "description": "Returns the latitude, longitude and altitude of the user aircraft.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_LATLONALTPBH",
+      "description": "Returns the pitch, bank and heading of the user aircraft.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_SURFACE_RELATIVE_VELOCITY",
+      "description": "The relative surface velocity.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_WORLDVELOCITY",
+      "description": "The world velocity.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_WORLD_ROTATION_VELOCITY",
+      "description": "The world rotation velocity.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_BODY_VELOCITY",
+      "description": "The object body velocity.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_BODY_ROTATION_VELOCITY",
+      "description": "The body rotation velocity. Individual body rotation values are in the Aircraft Position and Speed section.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_WORLD_ACCELERATION",
+      "description": "The world acceleration for each axis. Individual world acceleration values are in the Aircraft Position and Speed section.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_ENGINE_POSITION:index",
+      "description": "The engine position relative to the reference datum position for the aircraft.",
+      "unit": "SIMCONNECT_DATA_XYZ.",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_EYEPOINT_DYNAMIC_ANGLE",
+      "description": "The angle of the eyepoint view. Zero, zero, zero is straight ahead.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_EYEPOINT_DYNAMIC_OFFSET",
+      "description": "A variable offset away from the EYEPOINT POSITION",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    },
+    {
+      "name": "EYEPOINT_POSITION",
+      "description": "The eyepoint position relative to the reference datum position for the aircraft.",
+      "unit": "SIMCONNECT_DATA_XYZ",
+      "settable": false
+    }
+  ],
+  "Flight Instrumentation": [
+    {
+      "name": "AIRSPEED_TRUE",
+      "description": "True airspeed",
+      "unit": "Knots",
+      "settable": true
+    },
+    {
+      "name": "AIRSPEED_INDICATED",
+      "description": "Indicated airspeed",
+      "unit": "Knots",
+      "settable": true
+    },
+    {
+      "name": "AIRSPEED_TRUE_CALIBRATE",
+      "description": "Angle of True calibration scale on airspeed indicator",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "AIRSPEED_BARBER_POLE",
+      "description": "Redline airspeed (dynamic on some aircraft)",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "AIRSPEED_MACH",
+      "description": "Current mach",
+      "unit": "Mach",
+      "settable": false
+    },
+    {
+      "name": "VERTICAL_SPEED",
+      "description": "Vertical speed indication",
+      "unit": "feet/minute",
+      "settable": true
+    },
+    {
+      "name": "MACH_MAX_OPERATE",
+      "description": "Maximum design mach",
+      "unit": "Mach",
+      "settable": false
+    },
+    {
+      "name": "STALL_WARNING",
+      "description": "Stall warning state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "OVERSPEED_WARNING",
+      "description": "Overspeed warning state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "BARBER_POLE_MACH",
+      "description": "Mach associated with maximum airspeed",
+      "unit": "Mach",
+      "settable": false
+    },
+    {
+      "name": "INDICATED_ALTITUDE",
+      "description": "Altimeter indication",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "KOHLSMAN_SETTING_MB",
+      "description": "Altimeter setting",
+      "unit": "Millibars",
+      "settable": true
+    },
+    {
+      "name": "KOHLSMAN_SETTING_HG",
+      "description": "Altimeter setting",
+      "unit": "inHg",
+      "settable": false
+    },
+    {
+      "name": "ATTITUDE_INDICATOR_PITCH_DEGREES",
+      "description": "AI pitch indication",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "ATTITUDE_INDICATOR_BANK_DEGREES",
+      "description": "AI bank indication",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "ATTITUDE_BARS_POSITION",
+      "description": "AI reference pitch reference bars",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "ATTITUDE_CAGE",
+      "description": "AI caged state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WISKEY_COMPASS_INDICATION_DEGREES",
+      "description": "Magnetic compass indication",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "PLANE_HEADING_DEGREES_GYRO",
+      "description": "Heading indicator (directional gyro) indication",
+      "unit": "Radians",
+      "settable": true
+    },
+    {
+      "name": "HEADING_INDICATOR",
+      "description": "Heading indicator (directional gyro) indication",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GYRO_DRIFT_ERROR",
+      "description": "Angular error of heading indicator",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "DELTA_HEADING_RATE",
+      "description": "Rate of turn of heading indicator",
+      "unit": "Radians per second",
+      "settable": true
+    },
+    {
+      "name": "TURN_COORDINATOR_BALL",
+      "description": "Turn coordinator ball position",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "ANGLE_OF_ATTACK_INDICATOR",
+      "description": "AoA indication",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "RADIO_HEIGHT",
+      "description": "Radar altitude",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PARTIAL_PANEL_ADF",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_AIRSPEED",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_ALTIMETER",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_ATTITUDE",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_COMM",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_COMPASS",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_ELECTRICAL",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_AVIONICS",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "PARTIAL_PANEL_ENGINE",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_FUEL_INDICATOR",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "PARTIAL_PANEL_HEADING",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_VERTICAL_VELOCITY",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_TRANSPONDER",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_NAV",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_PITOT",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "PARTIAL_PANEL_TURN_COORDINATOR",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "PARTIAL_PANEL_VACUUM",
+      "description": "Gauge fail flag (0 = ok, 1 = fail, 2 = blank)",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "MAX_G_FORCE",
+      "description": "Maximum G force attained",
+      "unit": "Gforce",
+      "settable": false
+    },
+    {
+      "name": "MIN_G_FORCE",
+      "description": "Minimum G force attained",
+      "unit": "Gforce",
+      "settable": false
+    },
+    {
+      "name": "SUCTION_PRESSURE",
+      "description": "Vacuum system suction pressure",
+      "unit": "inHg",
+      "settable": true
+    }
+  ],
+  "Aircraft Avionics": [
+    {
+      "name": "AVIONICS_MASTER_SWITCH",
+      "description": "Avionics switch state",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_SOUND:index",
+      "description": "Nav audio flag. Index of 1 or 2.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "DME_SOUND",
+      "description": "DME audio flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ADF_SOUND:index",
+      "description": "ADF audio flag. Index of 0 or 1.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "MARKER_SOUND",
+      "description": "Marker audio flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_TRANSMIT:index",
+      "description": "Audio panel com transmit state. Index of 1 or 2.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_RECIEVE_ALL",
+      "description": "Flag if all Coms receiving",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_ACTIVE_FREQUENCY:index",
+      "description": "Com frequency. Index is 1 or 2.",
+      "unit": "MHz",
+      "settable": false
+    },
+    {
+      "name": "COM_STANDBY_FREQUENCY:index",
+      "description": "Com standby frequency. Index is 1 or 2.",
+      "unit": "MHz",
+      "settable": false
+    },
+    {
+      "name": "NAV_AVAILABLE:index",
+      "description": "Flag if Nav equipped on aircraft",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_ACTIVE_FREQUENCY:index",
+      "description": "Nav active frequency. Index is 1 or 2.",
+      "unit": "MHz",
+      "settable": false
+    },
+    {
+      "name": "NAV_STANDBY_FREQUENCY:index",
+      "description": "Nav standby frequency. Index is 1 or 2.",
+      "unit": "MHz",
+      "settable": false
+    },
+    {
+      "name": "NAV_SIGNAL:index",
+      "description": "Nav signal strength",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_NAV:index",
+      "description": "Flag if Nav has signal",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_LOCALIZER:index",
+      "description": "Flag if tuned station is a localizer",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_DME:index",
+      "description": "Flag if tuned station has a DME",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_GLIDE_SLOPE:index",
+      "description": "Flag if tuned station has a glideslope",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_BACK_COURSE_FLAGS:index",
+      "description": "Returns the following bit flags:; BIT0: 1=back course available; BIT1: 1=localizer tuned in; BIT2: 1=on course; BIT7: 1=station active",
+      "unit": "Flags",
+      "settable": false
+    },
+    {
+      "name": "NAV_MAGVAR:index",
+      "description": "Magnetic variation of tuned nav station",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "NAV_RADIAL:index",
+      "description": "Radial that aircraft is on",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "NAV_RADIAL_ERROR:index",
+      "description": "Difference between current radial and OBS tuned radial",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "NAV_LOCALIZER:index",
+      "description": "Localizer course heading",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "NAV_GLIDE_SLOPE_ERROR:index",
+      "description": "Difference between current position and glideslope angle. Note that this provides 32 bit floating point precision, rather than the 8 bit integer precision of NAV GSI.",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "NAV_CDI:index",
+      "description": "CDI needle deflection (+/- 127)",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "NAV_GSI:index",
+      "description": "Glideslope needle deflection (+/- 119). Note that this provides only 8 bit precision, whereas NAV GLIDE SLOPE ERROR provides 32 bit floating point precision.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "NAV_GS_FLAG:index",
+      "description": "Glideslope flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_OBS:index",
+      "description": "OBS setting. Index of 1 or 2.",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "NAV_DME:index",
+      "description": "DME distance",
+      "unit": "Nautical miles",
+      "settable": false
+    },
+    {
+      "name": "NAV_DMESPEED:index",
+      "description": "DME speed",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "ADF_ACTIVE_FREQUENCY:index",
+      "description": "ADF frequency. Index of 1 or 2.",
+      "unit": "Frequency ADF BCD32",
+      "settable": false
+    },
+    {
+      "name": "ADF_STANDBY_FREQUENCY:index",
+      "description": "ADF standby frequency",
+      "unit": "Hz",
+      "settable": false
+    },
+    {
+      "name": "ADF_RADIAL:index",
+      "description": "Current direction from NDB station",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "ADF_SIGNAL:index",
+      "description": "Signal strength",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "TRANSPONDER_CODE:index",
+      "description": "4-digit code",
+      "unit": "BCO16",
+      "settable": false
+    },
+    {
+      "name": "MARKER_BEACON_STATE",
+      "description": "Marker beacon state:; 0 = None; 1 = Outer; 2 = Middle; 3 = Inner",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "INNER_MARKER",
+      "description": "Inner marker state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "MIDDLE_MARKER",
+      "description": "Middle marker state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "OUTER_MARKER",
+      "description": "Outer marker state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "NAV_RAW_GLIDE_SLOPE:index",
+      "description": "Glide slope angle",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "ADF_CARD",
+      "description": "ADF compass rose setting",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "HSI_CDI_NEEDLE",
+      "description": "Needle deflection (+/- 127)",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "HSI_GSI_NEEDLE",
+      "description": "Needle deflection (+/- 119)",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "HSI_CDI_NEEDLE_VALID",
+      "description": "Signal valid",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "HSI_GSI_NEEDLE_VALID",
+      "description": "Signal valid",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "HSI_TF_FLAGS",
+      "description": "Nav TO/FROM flag:; 0 = Off; 1 = TO; 2 = FROM",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "HSI_BEARING_VALID",
+      "description": "This will return true if the HSI BEARING variable contains valid data.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "HSI_BEARING",
+      "description": "If the GPS DRIVES NAV1 variable is true and the HSI BEARING VALID variable is true, this variable contains the HSI needle bearing. If the GPS DRIVES NAV1 variable is false and the HSI BEARING VALID variable is true, this variable contains the ADF1 frequency.",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "HSI_HAS_LOCALIZER",
+      "description": "Station is a localizer",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "HSI_SPEED",
+      "description": "DME/GPS speed",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "HSI_DISTANCE",
+      "description": "DME/GPS distance",
+      "unit": "Nautical miles",
+      "settable": false
+    },
+    {
+      "name": "GPS_POSITION_LAT",
+      "description": "Current GPS latitude",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_POSITION_LON",
+      "description": "Current GPS longitude",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_POSITION_ALT",
+      "description": "Current GPS altitude",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_MAGVAR",
+      "description": "Current GPS magnetic variation",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_ACTIVE_FLIGHT_PLAN",
+      "description": "Flight plan mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_ACTIVE_WAY_POINT",
+      "description": "Waypoint mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_ARRIVED",
+      "description": "Is flight plan destination reached",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_DIRECTTO_FLIGHTPLAN",
+      "description": "Is Direct To Waypoint mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_GROUND_SPEED",
+      "description": "Current ground speed",
+      "unit": "Meters per second",
+      "settable": false
+    },
+    {
+      "name": "GPS_GROUND_TRUE_HEADING",
+      "description": "Current true heading",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_GROUND_MAGNETIC_TRACK",
+      "description": "Current magnetic ground track",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_GROUND_TRUE_TRACK",
+      "description": "Current true ground track",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_DISTANCE",
+      "description": "Distance to waypoint",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_BEARING",
+      "description": "Magnetic bearing to waypoint",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_TRUE_BEARING",
+      "description": "True bearing to waypoint",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_CROSS_TRK",
+      "description": "Cross track distance",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_DESIRED_TRACK",
+      "description": "Desired track to waypoint",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_TRUE_REQ_HDG",
+      "description": "Required true heading to waypoint",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_VERTICAL_SPEED",
+      "description": "Vertical speed to waypoint",
+      "unit": "Meters per second",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_TRACK_ANGLE_ERROR",
+      "description": "Tracking angle error to waypoint",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_ETE",
+      "description": "Estimated time enroute to destination",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "GPS_ETA",
+      "description": "Estimated time of arrival at destination",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_NEXT_LAT",
+      "description": "Latitude of next waypoint",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_NEXT_LON",
+      "description": "Longitude of next waypoint",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_NEXT_ALT",
+      "description": "Altitude of next waypoint",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_PREV_VALID",
+      "description": "Is previous waypoint valid (i.e. current waypoint is not the first waypoint)",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_PREV_LAT",
+      "description": "Latitude of previous waypoint",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_PREV_LON",
+      "description": "Longitude of previous waypoint",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_PREV_ALT",
+      "description": "Altitude of previous waypoint",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_ETE",
+      "description": "Estimated time enroute to waypoint",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_ETA",
+      "description": "Estimated time of arrival at waypoint",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "GPS_COURSE_TO_STEER",
+      "description": "Suggested heading to steer (for autopilot)",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GPS_FLIGHT_PLAN_WP_INDEX",
+      "description": "Index of waypoint",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_FLIGHT_PLAN_WP_COUNT",
+      "description": "Number of waypoints",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_ACTIVE_WP_LOCKED",
+      "description": "Is switching to next waypoint locked",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_APPROACH_LOADED",
+      "description": "Is approach loaded",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_IS_APPROACH_ACTIVE",
+      "description": "Is approach mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_IS_WP_RUNWAY",
+      "description": "Waypoint is the runway",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_APPROACH_INDEX",
+      "description": "Index of approach for given airport",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_TRANSITION_INDEX",
+      "description": "Index of approach transition",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_IS_FINAL",
+      "description": "Is approach transition final approach segment",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_IS_MISSED",
+      "description": "Is approach segment missed approach segment",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_TIMEZONE_DEVIATION",
+      "description": "Deviation of local time from GMT",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_WP_INDEX",
+      "description": "Index of current waypoint",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_WP_COUNT",
+      "description": "Number of waypoints",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_DRIVES_NAV1",
+      "description": "GPS is driving Nav 1 indicator",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_RECEIVE_ALL",
+      "description": "Toggles all COM radios to receive on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_AVAILABLE",
+      "description": "True if either COM1 or COM2 is available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_TEST:index",
+      "description": "Enter an index of 1 or 2. True if the COM system is working.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TRANSPONDER_AVAILABLE",
+      "description": "True if a transponder is available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ADF_AVAILABLE",
+      "description": "True if ADF is available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ADF_FREQUENCY:index",
+      "description": "Legacy, use ADF ACTIVE FREQUENCY",
+      "unit": "Frequency BCD16",
+      "settable": false
+    },
+    {
+      "name": "ADF_EXT_FREQUENCY:index",
+      "description": "Legacy, use ADF ACTIVE FREQUENCY",
+      "unit": "Frequency BCD16",
+      "settable": false
+    },
+    {
+      "name": "ADF_IDENT",
+      "description": "ICAO code",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "ADF_NAME",
+      "description": "Descriptive name",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_IDENT",
+      "description": "ICAO code",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_NAME",
+      "description": "Descriptive name",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_CODES:index",
+      "description": "Returns bit flags with the following meaning:; BIT7: 0= VOR  1= Localizer; BIT6: 1= glideslope available; BIT5: 1= no localizer backcourse; BIT4: 1= DME transmitter at glide slope transmitter; BIT3: 1= no nav signal available; BIT2: 1= voice available; BIT1: 1 = TACAN available; BIT0: 1= DME available",
+      "unit": "Flags",
+      "settable": false
+    },
+    {
+      "name": "NAV_GLIDE_SLOPE",
+      "description": "The glide slope gradient.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "NAV_RELATIVE_BEARING_TO_STATION:index",
+      "description": "Relative bearing to station",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "SELECTED_DME",
+      "description": "Selected DME",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_NEXT_ID",
+      "description": "ID of next GPS waypoint",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_PREV_ID",
+      "description": "ID of previous GPS waypoint",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_TARGET_DISTANCE",
+      "description": "Distance to target",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_TARGET_ALTITUDE",
+      "description": "Altitude of GPS target",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "ADF_LATLONALT:index",
+      "description": "Returns the latitude, longitude and altitude of the station the radio equipment is currently tuned to, or zeros if the radio is not tuned to any ADF station. Index of 1 or 2 for ADF 1 and ADF 2.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "NAV_VOR_LATLONALT:index",
+      "description": "Returns the VOR station latitude, longitude and altitude.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "NAV_GS_LATLONALT:index",
+      "description": "Returns the glide slope.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "NAV_DME_LATLONALT:index",
+      "description": "Returns the DME station.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "INNER_MARKER_LATLONALT",
+      "description": "Returns the latitude, longitude and altitude of the inner marker of an approach to a runway, if the aircraft is within the required proximity, otherwise it will return zeros.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "MIDDLE_MARKER_LATLONALT",
+      "description": "Returns the latitude, longitude and altitude of the middle marker.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "OUTER_MARKER_LATLONALT",
+      "description": "Returns the latitude, longitude and altitude of the outer marker.",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    }
+  ],
+  "Aircraft Controls": [
+    {
+      "name": "YOKE_Y_POSITION",
+      "description": "Percent control deflection fore/aft (for animation)",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "YOKE_X_POSITION",
+      "description": "Percent control deflection left/right (for animation)",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "RUDDER_PEDAL_POSITION",
+      "description": "Percent rudder pedal deflection (for animation)",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "RUDDER_POSITION",
+      "description": "Percent rudder input deflection",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "ELEVATOR_POSITION",
+      "description": "Percent elevator input deflection",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "AILERON_POSITION",
+      "description": "Percent aileron input left/right",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "ELEVATOR_TRIM_POSITION",
+      "description": "Elevator trim deflection",
+      "unit": "Radians",
+      "settable": true
+    },
+    {
+      "name": "ELEVATOR_TRIM_INDICATOR",
+      "description": "Percent elevator trim (for indication)",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "ELEVATOR_TRIM_PCT",
+      "description": "Percent elevator trim",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "BRAKE_LEFT_POSITION",
+      "description": "Percent left brake",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "BRAKE_RIGHT_POSITION",
+      "description": "Percent right brake",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "BRAKE_INDICATOR",
+      "description": "Brake on indication",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "BRAKE_PARKING_POSITION",
+      "description": "Parking brake on",
+      "unit": "Position",
+      "settable": true
+    },
+    {
+      "name": "BRAKE_PARKING_INDICATOR",
+      "description": "Parking brake indicator",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SPOILERS_ARMED",
+      "description": "Auto-spoilers armed",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SPOILERS_HANDLE_POSITION",
+      "description": "Spoiler handle position",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "SPOILERS_LEFT_POSITION",
+      "description": "Percent left spoiler deflected",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "SPOILERS_RIGHT_POSITION",
+      "description": "Percent right spoiler deflected",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "FLAPS_HANDLE_PERCENT",
+      "description": "Percent flap handle extended",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "FLAPS_HANDLE_INDEX",
+      "description": "Index of current flap position",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "FLAPS_NUM_HANDLE_POSITIONS",
+      "description": "Number of flap positions",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "TRAILING_EDGE_FLAPS_LEFT_PERCENT",
+      "description": "Percent left trailing edge flap extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "TRAILING_EDGE_FLAPS_RIGHT_PERCENT",
+      "description": "Percent right trailing edge flap extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "TRAILING_EDGE_FLAPS_LEFT_ANGLE",
+      "description": "Angle left trailing edge flap extended. Use TRAILING EDGE FLAPS LEFT PERCENT to set a value.",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "TRAILING_EDGE_FLAPS_RIGHT_ANGLE",
+      "description": "Angle right trailing edge flap extended. Use TRAILING EDGE FLAPS RIGHT PERCENT to set a value.",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "LEADING_EDGE_FLAPS_LEFT_PERCENT",
+      "description": "Percent left leading edge flap extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "LEADING_EDGE_FLAPS_RIGHT_PERCENT",
+      "description": "Percent right leading edge flap extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "LEADING_EDGE_FLAPS_LEFT_ANGLE",
+      "description": "Angle left leading edge flap extended. Use LEADING EDGE FLAPS LEFT PERCENT to set a value.",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "LEADING_EDGE_FLAPS_RIGHT_ANGLE",
+      "description": "Angle right leading edge flap extended. Use LEADING EDGE FLAPS RIGHT PERCENT to set a value.",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AILERON_LEFT_DEFLECTION",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AILERON_LEFT_DEFLECTION_PCT",
+      "description": "Percent deflection",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "AILERON_RIGHT_DEFLECTION",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AILERON_RIGHT_DEFLECTION_PCT",
+      "description": "Percent deflection",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "AILERON_AVERAGE_DEFLECTION",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AILERON_TRIM",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AILERON_TRIM_PCT",
+      "description": "Percent deflection",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "RUDDER_DEFLECTION",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "RUDDER_DEFLECTION_PCT",
+      "description": "Percent deflection",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "RUDDER_TRIM",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "RUDDER_TRIM_PCT",
+      "description": "Percent deflection",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FLAPS_AVAILABLE",
+      "description": "True if flaps available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLAP_DAMAGE_BY_SPEED",
+      "description": "True if flagps are damaged by excessive speed",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLAP_SPEED_EXCEEDED",
+      "description": "True if safe speed limit for flaps exceeded",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ELEVATOR_DEFLECTION",
+      "description": "Angle deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "ELEVATOR_DEFLECTION_PCT",
+      "description": "Percent deflection",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "ALTERNATE_STATIC_SOURCE_OPEN",
+      "description": "Alternate static air source",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AILERON_TRIM_PCT",
+      "description": "The trim position of the ailerons. Zero is fully retracted.",
+      "unit": "Percent over 100",
+      "settable": true
+    },
+    {
+      "name": "RUDDER_TRIM_PCT",
+      "description": "The trim position of the rudder. Zero is no trim.",
+      "unit": "Percent over 100",
+      "settable": true
+    },
+    {
+      "name": "FOLDING_WING_HANDLE_POSITION",
+      "description": "True if the folding wing handle is engaged.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FUEL_DUMP_SWITCH",
+      "description": "If true the aircraft is dumping fuel at the rate set in the configuration file.",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Autopilot": [
+    {
+      "name": "AUTOPILOT_AVAILABLE",
+      "description": "Available flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_MASTER",
+      "description": "On/off flag",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_NAV_SELECTED",
+      "description": "Index of Nav radio selected",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_WING_LEVELER",
+      "description": "Wing leveler active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_NAV1_LOCK",
+      "description": "Lateral nav mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_HEADING_LOCK",
+      "description": "Heading mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_HEADING_LOCK_DIR",
+      "description": "Selected heading",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_ALTITUDE_LOCK",
+      "description": "Altitude hole active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_ALTITUDE_LOCK_VAR",
+      "description": "Selected altitude",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_ATTITUDE_HOLD",
+      "description": "Attitude hold active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_GLIDESLOPE_HOLD",
+      "description": "GS hold active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_PITCH_HOLD_REF",
+      "description": "Current reference pitch",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_APPROACH_HOLD",
+      "description": "Approach mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_BACKCOURSE_HOLD",
+      "description": "Back course mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_VERTICAL_HOLD_VAR",
+      "description": "Selected vertical speed",
+      "unit": "Feet/minute",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_PITCH_HOLD",
+      "description": "Set to True if the autopilot pitch hold has is engaged.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_FLIGHT_DIRECTOR_ACTIVE",
+      "description": "Flight director active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_FLIGHT_DIRECTOR_PITCH",
+      "description": "Reference pitch angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_FLIGHT_DIRECTOR_BANK",
+      "description": "Reference bank angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_AIRSPEED_HOLD",
+      "description": "Airspeed hold active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_AIRSPEED_HOLD_VAR",
+      "description": "Selected airspeed",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_MACH_HOLD",
+      "description": "Mach hold active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_MACH_HOLD_VAR",
+      "description": "Selected mach",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_YAW_DAMPER",
+      "description": "Yaw damper active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_RPM_HOLD_VAR",
+      "description": "Selected rpm",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_THROTTLE_ARM",
+      "description": "Autothrottle armed",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_TAKEOFF_POWER_ACTIVE",
+      "description": "Takeoff / Go Around power mode active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOTHROTTLE_ACTIVE",
+      "description": "Auto-throttle active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_NAV1_LOCK",
+      "description": "True if autopilot nav1 lock applied",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_VERTICAL_HOLD",
+      "description": "True if autopilot vertical hold applied",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_RPM_HOLD",
+      "description": "True if autopilot rpm hold applied",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_MAX_BANK",
+      "description": "True if autopilot max bank applied",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "FLY_BY_WIRE_ELAC_SWITCH",
+      "description": "True if the fly by wire Elevators and Ailerons computer is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLY_BY_WIRE_FAC_SWITCH",
+      "description": "True if the fly by wire Flight Augmentation computer is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLY_BY_WIRE_SEC_SWITCH",
+      "description": "True if the fly by wire Spoilers and Elevators computer is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLY_BY_WIRE_ELAC_FAILED",
+      "description": "True if the Elevators and Ailerons computer has failed.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLY_BY_WIRE_FAC_FAILED",
+      "description": "True if the Flight Augmentation computer has failed.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLY_BY_WIRE_SEC_FAILED",
+      "description": "True if the Spoilers and Elevators computer has failed.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AUTOPILOT_FLIGHT_LEVEL_CHANGE",
+      "description": "True if autopilot FLC mode applied",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Landing Gear": [
+    {
+      "name": "IS_GEAR_RETRACTABLE",
+      "description": "True if gear can be retracted",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "IS_GEAR_SKIS",
+      "description": "True if landing gear is skis",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "IS_GEAR_FLOATS",
+      "description": "True if landing gear is floats",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "IS_GEAR_SKIDS",
+      "description": "True if landing gear is skids",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "IS_GEAR_WHEELS",
+      "description": "True if landing gear is wheels",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GEAR_HANDLE_POSITION",
+      "description": "True if gear handle is applied",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "GEAR_HYDRAULIC_PRESSURE",
+      "description": "Gear hydraulic pressure",
+      "unit": "psf",
+      "settable": false
+    },
+    {
+      "name": "TAILWHEEL_LOCK_ON",
+      "description": "True if tailwheel lock applied",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GEAR_CENTER_POSITION",
+      "description": "Percent center gear extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "GEAR_LEFT_POSITION",
+      "description": "Percent left gear extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "GEAR_RIGHT_POSITION",
+      "description": "Percent right gear extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "GEAR_TAIL_POSITION",
+      "description": "Percent tail gear extended",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_AUX_POSITION",
+      "description": "Percent auxiliary gear extended",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_POSITION:index",
+      "description": "Position of landing gear:; 0 = unknown; 1 = up; 2 = down",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "GEAR_ANIMATION_POSITION:index",
+      "description": "Percent gear animation extended",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GEAR_TOTAL_PCT_EXTENDED",
+      "description": "Percent total gear extended",
+      "unit": "Percentage",
+      "settable": false
+    },
+    {
+      "name": "AUTO_BRAKE_SWITCH_CB",
+      "description": "Auto brake switch position",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "WATER_RUDDER_HANDLE_POSITION",
+      "description": "Position of the water rudder handle (0 handle retracted, 100 rudder handle applied)",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "WATER_LEFT_RUDDER_EXTENDED",
+      "description": "Percent extended",
+      "unit": "Percentage",
+      "settable": false
+    },
+    {
+      "name": "WATER_RIGHT_RUDDER_EXTENDED",
+      "description": "Percent extended",
+      "unit": "Percentage",
+      "settable": false
+    },
+    {
+      "name": "GEAR_CENTER_STEER_ANGLE",
+      "description": "Center wheel angle, negative to the left, positive to the right.",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_LEFT_STEER_ANGLE",
+      "description": "Left wheel angle, negative to the left, positive to the right.",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_RIGHT_STEER_ANGLE",
+      "description": "Right wheel angle, negative to the left, positive to the right.",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_AUX_STEER_ANGLE",
+      "description": "Aux wheel angle, negative to the left, positive to the right. The aux wheel is the fourth set of gear, sometimes used on helicopters.",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_STEER_ANGLE:index",
+      "description": "Alternative method of getting the steer angle. Index is; 0 = center; 1 = left; 2 = right; 3 = aux",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "WATER_LEFT_RUDDER_STEER_ANGLE",
+      "description": "Water left rudder angle, negative to the left, positive to the right.",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "WATER_RIGHT_RUDDER_STEER_ANGLE",
+      "description": "Water right rudder angle, negative to the left, positive to the right.",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_CENTER_STEER_ANGLE_PCT",
+      "description": "Center steer angle as a percentage",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_LEFT_STEER_ANGLE_PCT",
+      "description": "Left steer angle as a percentage",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_RIGHT_STEER_ANGLE_PCT",
+      "description": "Right steer angle as a percentage",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_AUX_STEER_ANGLE_PCT",
+      "description": "Aux steer angle as a percentage",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_STEER_ANGLE_PCT:index",
+      "description": "Alternative method of getting steer angle as a percentage. Index is; 0 = center; 1 = left; 2 = right; 3 = aux",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "WATER_LEFT_RUDDER_STEER_ANGLE_PCT",
+      "description": "Water left rudder angle as a percentage",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "WATER_RIGHT_RUDDER_STEER_ANGLE_PCT",
+      "description": "Water right rudder as a percentage",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "WHEEL_RPM:index",
+      "description": "Wheel rpm. Index is; 0 = center; 1 = left; 2 = right; 3 = aux",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "CENTER_WHEEL_RPM",
+      "description": "Center landing gear rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "LEFT_WHEEL_RPM",
+      "description": "Left landing gear rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "RIGHT_WHEEL_RPM",
+      "description": "Right landing gear rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "AUX_WHEEL_RPM",
+      "description": "Rpm of fourth set of gear wheels.",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "WHEEL_ROTATION_ANGLE:index",
+      "description": "Wheel rotation angle. Index is; 0 = center; 1 = left; 2 = right; 3 = aux",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "CENTER_WHEEL_ROTATION_ANGLE",
+      "description": "Center wheel rotation angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "LEFT_WHEEL_ROTATION_ANGLE",
+      "description": "Left wheel rotation angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "RIGHT_WHEEL_ROTATION_ANGLE",
+      "description": "Right wheel rotation angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "AUX_WHEEL_ROTATION_ANGLE",
+      "description": "Aux wheel rotation angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "GEAR_EMERGENCY_HANDLE_POSITION",
+      "description": "True if gear emergency handle applied",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GEAR_WARNING",
+      "description": "One of:; 0: unknown; 1: normal; 2: amphib",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "ANTISKID_BRAKES_ACTIVE",
+      "description": "True if antiskid brakes active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "RETRACT_FLOAT_SWITCH",
+      "description": "True if retract float switch on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "RETRACT_LEFT_FLOAT_EXTENDED",
+      "description": "If aircraft has retractable floats.",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "RETRACT_RIGHT_FLOAT_EXTENDED",
+      "description": "If aircraft has retractable floats.",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "STEER_INPUT_CONTROL",
+      "description": "Position of steering tiller",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "GEAR_DAMAGE_BY_SPEED",
+      "description": "True if gear has been damaged by excessive speed",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GEAR_SPEED_EXCEEDED",
+      "description": "True if safe speed limit for gear exceeded",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NOSEWHEEL_LOCK_ON",
+      "description": "True if the nosewheel lock is engaged.",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Aircraft Environment": [
+    {
+      "name": "AMBIENT_DENSITY",
+      "description": "Ambient density",
+      "unit": "Slugs per cubic feet",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_TEMPERATURE",
+      "description": "Ambient temperature",
+      "unit": "Celsius",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_PRESSURE",
+      "description": "Ambient pressure",
+      "unit": "inHg",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_WIND_VELOCITY",
+      "description": "Wind velocity",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_WIND_DIRECTION",
+      "description": "Wind direction",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_WIND_X",
+      "description": "Wind component in East/West direction.",
+      "unit": "Meters per second",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_WIND_Y",
+      "description": "Wind component in vertical direction.",
+      "unit": "Meters per second",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_WIND_Z",
+      "description": "Wind component in North/South direction.",
+      "unit": "Meters per second",
+      "settable": false
+    },
+    {
+      "name": "STRUCT_AMBIENT_WIND",
+      "description": "X (latitude), Y (vertical) and Z (longitude) components of the wind.",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "AIRCRAFT_WIND_X",
+      "description": "Wind component in aircraft lateral axis",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "AIRCRAFT_WIND_Y",
+      "description": "Wind component in aircraft vertical axis",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "AIRCRAFT_WIND_Z",
+      "description": "Wind component in aircraft longitudinal axis",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "BAROMETER_PRESSURE",
+      "description": "Barometric pressure",
+      "unit": "Millibars",
+      "settable": false
+    },
+    {
+      "name": "SEA_LEVEL_PRESSURE",
+      "description": "Barometric pressure at sea level",
+      "unit": "Millibars",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_AIR_TEMPERATURE",
+      "description": "Total air temperature is the air temperature at the front of the aircraft where the ram pressure from the speed of the aircraft is taken into account.",
+      "unit": "Celsius",
+      "settable": false
+    },
+    {
+      "name": "WINDSHIELD_RAIN_EFFECT_AVAILABLE",
+      "description": "Is visual effect available on this aircraft",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_IN_CLOUD",
+      "description": "True if the aircraft is in a cloud.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_VISIBILITY",
+      "description": "Ambient visibility",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "STANDARD_ATM_TEMPERATURE",
+      "description": "Outside temperature on the standard ATM scale",
+      "unit": "Rankine",
+      "settable": false
+    }
+  ],
+  "Helicopter": [
+    {
+      "name": "ROTOR_BRAKE_HANDLE_POS",
+      "description": "Percent actuated",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_BRAKE_ACTIVE",
+      "description": "Active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_CLUTCH_SWITCH_POS",
+      "description": "Switch position",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_CLUTCH_ACTIVE",
+      "description": "Active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_TEMPERATURE",
+      "description": "Main rotor transmission temperature",
+      "unit": "Rankine",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_CHIP_DETECTED",
+      "description": "Chip detection",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_GOV_SWITCH_POS",
+      "description": "Switch position",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_GOV_ACTIVE",
+      "description": "Active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_LATERAL_TRIM_PCT",
+      "description": "Trim percent",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_RPM_PCT",
+      "description": "Percent max rated rpm",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "ENG_TURBINE_TEMPERATURE",
+      "description": "Turbine temperature. Applies only to Bell helicopter.",
+      "unit": "Celsius",
+      "settable": false
+    },
+    {
+      "name": "ENG_TORQUE_PERCENT:index",
+      "description": "Torque. Returns main rotor torque for Bell helicopter, or the indexed rotor torque of other helicopters.",
+      "unit": "Percent scalar 16K (Ft/lbs * 16384)",
+      "settable": false
+    },
+    {
+      "name": "ENG_FUEL_PRESSURE",
+      "description": "Fuel pressure. Applies only to Bell helicopter.",
+      "unit": "PSI",
+      "settable": false
+    },
+    {
+      "name": "ENG_ELECTRICAL_LOAD",
+      "description": "Electrical load. Applies only to Bell helicopter.",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "ENG_TRANSMISSION_PRESSURE",
+      "description": "Transmission pressure. Applies only to Bell helicopter.",
+      "unit": "PSI",
+      "settable": false
+    },
+    {
+      "name": "ENG_TRANSMISSION_TEMPERATURE",
+      "description": "Transmission temperature. Applies only to Bell helicopter.",
+      "unit": "Celsius",
+      "settable": false
+    },
+    {
+      "name": "ENG_ROTOR_RPM:index",
+      "description": "Rotor rpm. Returns main rotor rpm for Bell helicopter, or the indexed rotor rpm of other helicopters.",
+      "unit": "Percent scalar 16K (Max rpm * 16384)",
+      "settable": false
+    },
+    {
+      "name": "COLLECTIVE_POSITION",
+      "description": "The position of the helicopter's collective. 0 is fully up, 100 fully depressed.",
+      "unit": "Percent over 100",
+      "settable": false
+    }
+  ],
+  "Slings and Hoists": [
+    {
+      "name": "NUM_SLING_CABLES",
+      "description": "The number of sling cables (not hoists) that are configured for the aircraft. Refer to the document Notes on Aircraft Systems.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "PAYLOAD_STATION_NUM_SIMOBJECTS:index",
+      "description": "The number of objects at the payload station (indexed from 1).",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "SLING_OBJECT_ATTACHED:index",
+      "description": "If units are set as boolean, returns True if a sling object is attached. If units are set as a string, returns the container title of the object. There can be multiple sling positions, indexed from 1. The sling positions are set in the Aircraft Configuration File.",
+      "unit": "Bool/String",
+      "settable": false
+    },
+    {
+      "name": "SLING_CABLE_BROKEN:index",
+      "description": "True if the cable is broken.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SLING_CABLE_EXTENDED_LENGTH:index",
+      "description": "The length of the cable extending from the aircraft.",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "SLING_ACTIVE_PAYLOAD_STATION:index",
+      "description": "The payload station (identified by the parameter) where objects will be placed from the sling (identified by the index).",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "SLING_HOIST_PERCENT_DEPLOYED:index",
+      "description": "The percentage of the full length of the sling cable deployed.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "IS_ATTACHED_TO_SLING",
+      "description": "Set to true if this object is attached to a sling.",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Miscellaneous Systems": [
+    {
+      "name": "SMOKE_ENABLE",
+      "description": "Set to True to activate the smoke system, if one is available (for example, on the Extra).",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "SMOKESYSTEM_AVAILABLE",
+      "description": "Smoke system available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PITOT_HEAT",
+      "description": "Pitot heat active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FOLDING_WING_LEFT_PERCENT",
+      "description": "Left folding wing position, 100 is fully folded",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FOLDING_WING_RIGHT_PERCENT",
+      "description": "Right folding wing position, 100 is fully folded",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "CANOPY_OPEN",
+      "description": "Percent primary door/exit open",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "TAILHOOK_POSITION",
+      "description": "Percent tail hook extended",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "EXIT_OPEN:index",
+      "description": "Percent door/exit open",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "STALL_HORN_AVAILABLE",
+      "description": "True if stall alarm available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ENGINE_MIXURE_AVAILABLE",
+      "description": "True if engine mixture is available for prop engines. Obsolete value as mixture is always available. Spelling error in variable name.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CARB_HEAT_AVAILABLE",
+      "description": "True if carb heat available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SPOILER_AVAILABLE",
+      "description": "True if spoiler system available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "IS_TAIL_DRAGGER",
+      "description": "True if the aircraft is a taildragger",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "STROBES_AVAILABLE",
+      "description": "True if strobe lights are available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TOE_BRAKES_AVAILABLE",
+      "description": "True if toe brakes are available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_STATE",
+      "description": "Type of pushback :; 0 = Straight; 1 = Left; 2 = Right",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_MASTER_BATTERY",
+      "description": "Battery switch position",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_TOTAL_LOAD_AMPS",
+      "description": "Total load amps",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_BATTERY_LOAD",
+      "description": "Battery load",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_BATTERY_VOLTAGE",
+      "description": "Battery voltage",
+      "unit": "Volts",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_MAIN_BUS_VOLTAGE",
+      "description": "Main bus voltage",
+      "unit": "Volts",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_MAIN_BUS_AMPS",
+      "description": "Main bus current",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_AVIONICS_BUS_VOLTAGE",
+      "description": "Avionics bus voltage",
+      "unit": "Volts",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_AVIONICS_BUS_AMPS",
+      "description": "Avionics bus current",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_HOT_BATTERY_BUS_VOLTAGE",
+      "description": "Voltage available when battery switch is turned off",
+      "unit": "Volts",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_HOT_BATTERY_BUS_AMPS",
+      "description": "Current available when battery switch is turned off",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_BATTERY_BUS_VOLTAGE",
+      "description": "Battery bus voltage",
+      "unit": "Volts",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_BATTERY_BUS_AMPS",
+      "description": "Battery bus current",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_GENALT_BUS_VOLTAGE:index",
+      "description": "Genalt bus voltage (takes engine index)",
+      "unit": "Volts",
+      "settable": true
+    },
+    {
+      "name": "ELECTRICAL_GENALT_BUS_AMPS:index",
+      "description": "Genalt bus current (takes engine index)",
+      "unit": "Amperes",
+      "settable": true
+    },
+    {
+      "name": "CIRCUIT_GENERAL_PANEL_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_FLAP_MOTOR_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_GEAR_MOTOR_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_AUTOPILOT_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_AVIONICS_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_PITOT_HEAT_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_PROP_SYNC_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_AUTO_FEATHER_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_AUTO_BRAKES_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_STANDY_VACUUM_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_MARKER_BEACON_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_GEAR_WARNING_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_HYDRAULIC_PUMP_ON",
+      "description": "Is electrical power available to this circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "HYDRAULIC_PRESSURE:index",
+      "description": "Hydraulic system pressure. Indexes start at 1.",
+      "unit": "Pound force per square foot",
+      "settable": false
+    },
+    {
+      "name": "HYDRAULIC_RESERVOIR_PERCENT:index",
+      "description": "Hydraulic pressure changes will follow changes to this variable. Indexes start at 1.",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "HYDRAULIC_SYSTEM_INTEGRITY",
+      "description": "Percent system functional",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "STRUCTURAL_DEICE_SWITCH",
+      "description": "True if the aircraft structure deice switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "APPLY_HEAT_TO_SYSTEMS",
+      "description": "Used when too close to a fire.",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "DROPPABLE_OBJECTS_TYPE:index",
+      "description": "The type of droppable object at the station number identified by the index.",
+      "unit": "String",
+      "settable": true
+    },
+    {
+      "name": "DROPPABLE_OBJECTS_COUNT:index",
+      "description": "The number of droppable objects at the station number identified by the index.",
+      "unit": "Number",
+      "settable": false
+    }
+  ],
+  "Miscellaneous": [
+    {
+      "name": "TOTAL_WEIGHT",
+      "description": "Total weight of the aircraft",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "MAX_GROSS_WEIGHT",
+      "description": "Maximum gross weight of the aircaft",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "EMPTY_WEIGHT",
+      "description": "Empty weight of the aircraft",
+      "unit": "Pounds",
+      "settable": false
+    },
+    {
+      "name": "IS_USER_SIM",
+      "description": "Is this the user loaded aircraft",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SIM_DISABLED",
+      "description": "Is sim disabled",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "G_FORCE",
+      "description": "Current g force",
+      "unit": "GForce",
+      "settable": true
+    },
+    {
+      "name": "ATC_HEAVY",
+      "description": "Is this aircraft recognized by ATC as heavy",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "AUTO_COORDINATION",
+      "description": "Is auto-coordination active",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "REALISM",
+      "description": "General realism percent",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "TRUE_AIRSPEED_SELECTED",
+      "description": "True if True Airspeed has been selected",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "DESIGN_SPEED_VS0",
+      "description": "Design speed at VS0",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "DESIGN_SPEED_VS1",
+      "description": "Design speed at VS1",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "DESIGN_SPEED_VC",
+      "description": "Design speed at VC",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "MIN_DRAG_VELOCITY",
+      "description": "Minimum drag velocity",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "ESTIMATED_CRUISE_SPEED",
+      "description": "Estimated cruise speed",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "CG_PERCENT",
+      "description": "Longitudinal CG position as a percent of reference chord",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "CG_PERCENT_LATERAL",
+      "description": "Lateral CG position as a percent of reference chord",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "IS_SLEW_ACTIVE",
+      "description": "True if slew is active",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "IS_SLEW_ALLOWED",
+      "description": "True if slew is enabled",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "ATC_SUGGESTED_MIN_RWY_TAKEOFF",
+      "description": "Suggested minimum runway length for takeoff. Used by ATC ",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "ATC_SUGGESTED_MIN_RWY_LANDING",
+      "description": "Suggested minimum runway length for landing. Used by ATC ",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PAYLOAD_STATION_WEIGHT:index",
+      "description": "Individual payload station weight",
+      "unit": "Pounds",
+      "settable": true
+    },
+    {
+      "name": "PAYLOAD_STATION_COUNT",
+      "description": "Number of payload stations",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "USER_INPUT_ENABLED",
+      "description": "Is input allowed from the user",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "TYPICAL_DESCENT_RATE",
+      "description": "Normal descent rate",
+      "unit": "Feet per minute",
+      "settable": false
+    },
+    {
+      "name": "VISUAL_MODEL_RADIUS",
+      "description": "Model radius",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "SIGMA_SQRT",
+      "description": "Sigma sqrt",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "DYNAMIC_PRESSURE",
+      "description": "Dynamic pressure",
+      "unit": "foot pounds",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_VELOCITY",
+      "description": "Velocity regardless of direction. For example, if a helicopter is ascending vertically at 100 fps, getting this variable will return 100.",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "AIRSPEED_SELECT_INDICATED_OR_TRUE",
+      "description": "The airspeed, whether true or indicated airspeed has been selected.",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "VARIOMETER_RATE",
+      "description": "Variometer rate",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "VARIOMETER_SWITCH",
+      "description": "True if the variometer switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PRESSURE_ALTITUDE",
+      "description": "Altitude reading",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "MAGNETIC_COMPASS",
+      "description": "Compass reading",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "TURN_INDICATOR_RATE",
+      "description": "Turn indicator reading",
+      "unit": "Radians per second",
+      "settable": false
+    },
+    {
+      "name": "TURN_INDICATOR_SWITCH",
+      "description": "True if turn indicator switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "YOKE_Y_INDICATOR",
+      "description": "Yoke position in vertical direction",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "YOKE_X_INDICATOR",
+      "description": "Yoke position in horizontal direction",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "RUDDER_PEDAL_INDICATOR",
+      "description": "Rudder pedal position",
+      "unit": "Position",
+      "settable": false
+    },
+    {
+      "name": "BRAKE_DEPENDENT_HYDRAULIC_PRESSURE",
+      "description": "Brake dependent hydraulic pressure reading",
+      "unit": "foot pounds",
+      "settable": false
+    },
+    {
+      "name": "PANEL_ANTI_ICE_SWITCH",
+      "description": "True if panel anti-ice switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WING_AREA",
+      "description": "Total wing area",
+      "unit": "Square feet",
+      "settable": false
+    },
+    {
+      "name": "WING_SPAN",
+      "description": "Total wing span",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "BETA_DOT",
+      "description": "Beta dot",
+      "unit": "Radians per second",
+      "settable": false
+    },
+    {
+      "name": "LINEAR_CL_ALPHA",
+      "description": "Linear CL alpha",
+      "unit": "Per radian",
+      "settable": false
+    },
+    {
+      "name": "STALL_ALPHA",
+      "description": "Stall alpha",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "ZERO_LIFT_ALPHA",
+      "description": "Zero lift alpha",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "CG_AFT_LIMIT",
+      "description": "Aft limit of CG",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "CG_FWD_LIMIT",
+      "description": "Forward limit of CG",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "CG_MAX_MACH",
+      "description": "Max mach CG",
+      "unit": "Machs",
+      "settable": false
+    },
+    {
+      "name": "CG_MIN_MACH",
+      "description": "Min mach CG",
+      "unit": "Machs",
+      "settable": false
+    },
+    {
+      "name": "PAYLOAD_STATION_NAME",
+      "description": "Descriptive name for payload station",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "ELEVON_DEFLECTION",
+      "description": "Elevon deflection",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "EXIT_TYPE",
+      "description": "One of:; 0: Main; 1: Cargo; 2: Emergency; 3: Unknown",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "EXIT_POSX",
+      "description": "Position of exit relative to datum reference point",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "EXIT_POSY",
+      "description": "Position of exit relative to datum reference point",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "EXIT_POSZ",
+      "description": "Position of exit relative to datum reference point",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "DECISION_HEIGHT",
+      "description": "Design decision height",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "DECISION_ALTITUDE_MSL",
+      "description": "Design decision altitude above mean sea level",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "EMPTY_WEIGHT_PITCH_MOI",
+      "description": "Empty weight pitch moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "EMPTY_WEIGHT_ROLL_MOI",
+      "description": "Empty weight roll moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "EMPTY_WEIGHT_YAW_MOI",
+      "description": "Empty weight yaw moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "EMPTY_WEIGHT_CROSS_COUPLED_MOI",
+      "description": "Empty weigth cross coupled moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_WEIGHT_PITCH_MOI",
+      "description": "Total weight pitch moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_WEIGHT_ROLL_MOI",
+      "description": "Total weight roll moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_WEIGHT_YAW_MOI",
+      "description": "Total weight yaw moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "TOTAL_WEIGHT_CROSS_COUPLED_MOI",
+      "description": "Total weight cross coupled moment of inertia",
+      "unit": "slug feet squared",
+      "settable": false
+    },
+    {
+      "name": "WATER_BALLAST_VALVE",
+      "description": "True if water ballast valve is available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "MAX_RATED_ENGINE_RPM",
+      "description": "Maximum rated rpm",
+      "unit": "Rpm",
+      "settable": false
+    },
+    {
+      "name": "FULL_THROTTLE_THRUST_TO_WEIGHT_RATIO",
+      "description": "Full throttle thrust to weight ratio",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "PROP_AUTO_CRUISE_ACTIVE",
+      "description": "True if prop auto cruise active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PROP_ROTATION_ANGLE",
+      "description": "Prop rotation angle",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "PROP_BETA_MAX",
+      "description": "Prop beta max",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "PROP_BETA_MIN",
+      "description": "Prop beta min",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "PROP_BETA_MIN_REVERSE",
+      "description": "Prop beta min reverse",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "FUEL_SELECTED_TRANSFER_MODE",
+      "description": "One of:; -1: off; 0: auto; 1: forward; 2: aft; 3: manual",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "DROPPABLE_OBJECTS_UI_NAME",
+      "description": "Descriptive name, used in User Interface dialogs, of a droppable object",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "MANUAL_FUEL_PUMP_HANDLE",
+      "description": "Position of manual fuel pump handle. 100 is fully deployed.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "BLEED_AIR_SOURCE_CONTROL",
+      "description": "One of:; 0: min; 1: auto; 2: off; 3: apu; 4: engines",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "ELECTRICAL_OLD_CHARGING_AMPS",
+      "description": "Legacy, use ELECTRICAL BATTERY LOAD",
+      "unit": "Amps",
+      "settable": false
+    },
+    {
+      "name": "HYDRAULIC_SWITCH",
+      "description": "True if hydraulic switch is on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CONCORDE_VISOR_POSITION_PERCENT",
+      "description": "0 = up, 1.0 = extended/down",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "CONCORDE_NOSE_ANGLE",
+      "description": "0 = up",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "REALISM_CRASH_WITH_OTHERS",
+      "description": "True indicates crashing with other aircraft is possible.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "REALISM_CRASH_DETECTION",
+      "description": "True indicates crash detection is turned on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "MANUAL_INSTRUMENT_LIGHTS",
+      "description": "True if instrument lights are set manually",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PITOT_ICE_PCT",
+      "description": "Amount of pitot ice. 100 is fully iced.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "SEMIBODY_LOADFACTOR_Y",
+      "description": "Semibody loadfactor x and z are not supported.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "SEMIBODY_LOADFACTOR_YDOT",
+      "description": "Semibody loadfactory ydot",
+      "unit": "Per second",
+      "settable": false
+    },
+    {
+      "name": "RAD_INS_SWITCH",
+      "description": "True if Rad INS switch on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SIMULATED_RADIUS",
+      "description": "Simulated radius",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "STRUCTURAL_ICE_PCT",
+      "description": "Amount of ice on aircraft structure. 100 is fully iced.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "ARTIFICIAL_GROUND_ELEVATION",
+      "description": "In case scenery is not loaded for AI planes, this variable can be used to set a default surface elevation.",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "SURFACE_INFO_VALID",
+      "description": "True indicates SURFACE CONDITION is meaningful.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SURFACE_CONDITION",
+      "description": "One of:; 0: Normal; 1: Wet; 2: Icy; 3: Snow",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_ANGLE",
+      "description": "Pushback angle (the heading of the tug)",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_CONTACTX",
+      "description": "The towpoint position, relative to the aircrafts datum reference point.",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_CONTACTY",
+      "description": "Pushback contact position in vertical direction",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_CONTACTZ",
+      "description": "Pushback contact position in fore/aft direction",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_WAIT",
+      "description": "True if waiting for pushback.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "YAW_STRING_ANGLE",
+      "description": "The yaw string angle. Yaw strings are attached to gliders as visible indicators of the yaw angle. An animation of this is not implemented in ESP.",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "YAW_STRING_PCT_EXTENDED",
+      "description": "Yaw string angle as a percentage",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "INDUCTOR_COMPASS_PERCENT_DEVIATION",
+      "description": "Inductor compass deviation reading",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "INDUCTOR_COMPASS_HEADING_REF",
+      "description": "Inductor compass heading",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "ANEMOMETER_PCT_RPM",
+      "description": "Anemometer rpm as a percentage",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "ROTOR_ROTATION_ANGLE",
+      "description": "Main rotor rotation angle (helicopters only)",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "DISK_PITCH_ANGLE",
+      "description": "Main rotor pitch angle (helicopters only)",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "DISK_BANK_ANGLE",
+      "description": "Main rotor bank angle (helicopters only)",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "DISK_PITCH_PCT",
+      "description": "Main rotor pitch percent (helicopters only)",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "DISK_BANK_PCT",
+      "description": "Main rotor bank percent (helicopters only)",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "DISK_CONING_PCT",
+      "description": "Main rotor coning percent (helicopters only)",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "NAV_VOR_LLAF64",
+      "description": "Nav VOR latitude, longitude, altitude",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "NAV_GS_LLAF64",
+      "description": "Nav GS latitude, longitude, altitude",
+      "unit": "SIMCONNECT_DATA_LATLONALT",
+      "settable": false
+    },
+    {
+      "name": "STATIC_CG_TO_GROUND",
+      "description": "Static CG to ground",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "STATIC_PITCH",
+      "description": "Static pitch",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "CRASH_SEQUENCE",
+      "description": "One of:; 0: off; 1: complete; 3: reset; 4: pause; 11: start",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "CRASH_FLAG",
+      "description": "One of:; 0: None; 2: Mountain; 4: General; 6: Building; 8: Splash; 10: Gear up; 12: Overstress; 14: Building; 16: Aircraft; 18: Fuel Truck",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "TOW_RELEASE_HANDLE",
+      "description": "Position of tow release handle. 100 is fully deployed.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "TOW_CONNECTION",
+      "description": "True if a towline is connected to both tow plane and glider.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "APU_PCT_RPM",
+      "description": "Auxiliary power unit rpm, as a percentage",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "APU_PCT_STARTER",
+      "description": "Auxiliary power unit starter, as a percentage",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "APU_VOLTS",
+      "description": "Auxiliary power unit voltage",
+      "unit": "Volts",
+      "settable": false
+    },
+    {
+      "name": "APU_GENERATOR_SWITCH",
+      "description": "True if APU generator switch on",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "APU_GENERATOR_ACTIVE",
+      "description": "True if APU generator active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "APU_ON_FIRE_DETECTED",
+      "description": "True if APU on fire",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PRESSURIZATION_CABIN_ALTITUDE",
+      "description": "The current altitude of the cabin pressurization..",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PRESSURIZATION_CABIN_ALTITUDE_GOAL",
+      "description": "The set altitude of the cabin pressurization.",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "PRESSURIZATION_CABIN_ALTITUDE_RATE",
+      "description": "The rate at which cabin pressurization changes.",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "PRESSURIZATION_PRESSURE_DIFFERENTIAL",
+      "description": "The difference in pressure between the set altitude pressurization and the current pressurization.",
+      "unit": "foot pounds",
+      "settable": false
+    },
+    {
+      "name": "PRESSURIZATION_DUMP_SWITCH",
+      "description": "True if the cabin pressurization dump switch is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FIRE_BOTTLE_SWITCH",
+      "description": "True if the fire bottle switch is on.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FIRE_BOTTLE_DISCHARGED",
+      "description": "True if the fire bottle is discharged.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CABIN_NO_SMOKING_ALERT_SWITCH",
+      "description": "True if the No Smoking switch is on.",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "CABIN_SEATBELTS_ALERT_SWITCH",
+      "description": "True if the Seatbelts switch is on.",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "GPWS_WARNING",
+      "description": "True if Ground Proximity Warning System installed.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPWS_SYSTEM_ACTIVE",
+      "description": "True if the Ground Proximity Warning System is active",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "CRASH_FLAG",
+      "description": "One of:; 0: None; 2: Mountain; 4: General; 6: Building; 8: Splash; 10: Gear up; 12: Overstress; 14: Building; 16: Aircraft; 18: Fuel Truck",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "IS_ALTITUDE_FREEZE_ON",
+      "description": "True if the altitude of the aircraft is frozen.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "IS_ATTITUDE_FREEZE_ON",
+      "description": "True if the attitude (pitch, bank and heading) of the aircraft is frozen.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SLING_HOOK_IN_PICKUP_MODE:index",
+      "description": " ",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_STATE",
+      "description": " ",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_ASSIGNED_PARKING",
+      "description": " ",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_FUEL_TANKS_USED:index",
+      "description": " ",
+      "unit": "Mask",
+      "settable": true
+    },
+    {
+      "name": "TURB_ENG_TANKS_USED:index",
+      "description": " ",
+      "unit": "Mask",
+      "settable": false
+    },
+    {
+      "name": "ENG_TURBINE_TEMPERATURE:index",
+      "description": " ",
+      "unit": "Celsius",
+      "settable": false
+    },
+    {
+      "name": "ENG_ELECTRICAL_LOAD:index",
+      "description": " ",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "ENG_TRANSMISSION_PRESSURE:index",
+      "description": " ",
+      "unit": "PSI",
+      "settable": false
+    },
+    {
+      "name": "ENG_TRANSMISSION_TEMPERATURE:index",
+      "description": " ",
+      "unit": "Celsius",
+      "settable": false
+    },
+    {
+      "name": "SURFACE_TYPE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "COM_STATUS:index",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "NAV_TOFROM:index",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_MODE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_WP_TYPE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_SEGMENT_TYPE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_APPROACH_TYPE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "AMBIENT_PRECIP_STATE",
+      "description": " ",
+      "unit": "Mask",
+      "settable": false
+    },
+    {
+      "name": "CATEGORY",
+      "description": " ",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "CONCORDE_VISOR_NOSE_HANDLE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "IS_LATITUDE_LONGITUDE_FREEZE_ON",
+      "description": " ",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TIME_OF_DAY",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "SIMULATION_RATE",
+      "description": " ",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "UNITS_OF_MEASURE",
+      "description": " ",
+      "unit": "Enum",
+      "settable": false
+    }
+  ],
+  "String Data": [
+    {
+      "name": "ATC_TYPE",
+      "description": "Type used by ATC",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "ATC_MODEL",
+      "description": "Model used by ATC",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "ATC_ID",
+      "description": "ID used by ATC",
+      "unit": "String",
+      "settable": true
+    },
+    {
+      "name": "ATC_AIRLINE",
+      "description": "Airline used by ATC",
+      "unit": "String",
+      "settable": true
+    },
+    {
+      "name": "ATC_FLIGHT_NUMBER",
+      "description": "Flight Number used by ATC",
+      "unit": "String",
+      "settable": true
+    },
+    {
+      "name": "TITLE",
+      "description": "Title from aircraft.cfg",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "HSI_STATION_IDENT",
+      "description": "Tuned station identifier",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_PREV_ID",
+      "description": "ID of previous GPS waypoint",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_WP_NEXT_ID",
+      "description": "ID of next GPS waypoint",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_AIRPORT_ID",
+      "description": "ID of airport",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_APPROACH_ID",
+      "description": "ID of approach",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "GPS_APPROACH_TRANSITION_ID",
+      "description": "ID of approach transition",
+      "unit": "String",
+      "settable": false
+    }
+  ],
+  "AI Controlled Aircraft": [
+    {
+      "name": "AI_DESIRED_SPEED",
+      "description": "Desired speed of the AI object.",
+      "unit": "Knots",
+      "settable": true
+    },
+    {
+      "name": "AI_WAYPOINT_LIST",
+      "description": "List of waypoints that an AI controlled object should follow.",
+      "unit": "SIMCONNECT_DATA_WAYPOINT",
+      "settable": true
+    },
+    {
+      "name": "AI_CURRENT_WAYPOINT",
+      "description": "Current waypoint in the list",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "AI_DESIRED_HEADING",
+      "description": "Desired heading of the AI object.",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "AI_GROUNDTURNTIME",
+      "description": "Time to make a 90 degree turn.",
+      "unit": "Seconds",
+      "settable": true
+    },
+    {
+      "name": "AI_GROUNDCRUISESPEED",
+      "description": "Cruising speed.",
+      "unit": "Knots",
+      "settable": true
+    },
+    {
+      "name": "AI_GROUNDTURNSPEED",
+      "description": "Turning speed.",
+      "unit": "Knots",
+      "settable": true
+    },
+    {
+      "name": "AI_TRAFFIC_ISIFR",
+      "description": "Request whether this aircraft is IFR or VFR See Note 1.",
+      "unit": "Boolean",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_CURRENT_AIRPORT",
+      "description": "ICAO code of current airport. See Note 1.",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_FROMAIRPORT",
+      "description": "ICAO code of the departure airport in the current schedule. See Note 2.",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_TOAIRPORT",
+      "description": "ICAO code of the destination airport in the current schedule. See Note 2.",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_ETD",
+      "description": "Estimated time of departure for the current schedule entry, given as the number of seconds difference from the current simulation time. This can be negative if ETD is earlier than the current simulation time. See Note 2.",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "AI_TRAFFIC_ETA",
+      "description": "Estimated time of arrival for the current schedule entry, given as the number of seconds difference from the current simulated time. This can be negative if ETA is earlier than the current simulated time. See Note 2.",
+      "unit": "Seconds",
+      "settable": false
+    }
+  ],
+  "Carrier Operations": [
+    {
+      "name": "LAUNCHBAR_POSITION",
+      "description": "Installed on aircraft before takeoff from a carrier catapult. Note that gear cannot retract with this extended. 100 = fully extended. Refer to the document Notes on Aircraft Systems.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "LAUNCHBAR_SWITCH",
+      "description": "If this is set to True the launch bar switch has been engaged.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "LAUNCHBAR_HELD_EXTENDED",
+      "description": "This will be True if the launchbar is fully extended, and can be used, for example, to change the color of an instrument light.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NUMBER_OF_CATAPULTS",
+      "description": "Maximum of 4. A model can contain more than 4 catapults, but only the first four will be read and recognized by the simulation.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "CATAPULT_STROKE_POSITION:index",
+      "description": "Catapults are indexed from 1. This value will be 0 before the catapult fires, and then up to 100 as the aircraft is propelled down the catapult. The aircraft may takeoff before the value reaches 100 (depending on the aircraft weight, power applied, and other factors), in which case this value will not be further updated. This value could be used to drive a bogie animation.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "HOLDBACK_BAR_INSTALLED",
+      "description": "Holdback bars allow build up of thrust before takeoff from a catapult, and are installed by the deck crew of an aircraft carrier.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "BLAST_SHIELD_POSITION:index",
+      "description": "Indexed from 1, 100 is fully deployed, 0 flat on deck",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "CABLE_CAUGHT_BY_TAILHOOK",
+      "description": "A number 1 through 4 for the cable number caught by the tailhook. Cable 1 is the one closest to the stern of the carrier. A value of 0 indicates no cable was caught.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "TAILHOOK_HANDLE",
+      "description": "True if the tailhook handle is engaged.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "SURFACE_RELATIVE_GROUND_SPEED",
+      "description": "The speed of the aircraft relative to the speed of the first surface directly underneath it. Use this to retrieve, for example, an aircraft's taxiing speed while it is moving on a moving carrier. It also applies to airborne aircraft, for example when a helicopter is successfully hovering above a moving ship, this value should be zero. The returned value will be the same as GROUND VELOCITY if the first surface beneath it is not moving.",
+      "unit": "Feet per second",
+      "settable": false
+    }
+  ],
+  "Racing": [
+    {
+      "name": "RECIP_ENG_DETONATING:index",
+      "description": "Indexed from 1. Set to True if the engine is detonating.",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_CYLINDER_HEALTH:index",
+      "description": "Index high 16 bits is engine number, low 16 cylinder number, both indexed from 1.",
+      "unit": "Percent over 100",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_NUM_CYLINDERS",
+      "description": "Indexed from 1. The number of engine cylinders.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_NUM_CYLINDERS_FAILED",
+      "description": "Indexed from 1. The number of cylinders that have failed.",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_ANTIDETONATION_TANK_VALVE:index",
+      "description": "Indexed from 1, each engine can have one antidetonation tank. Installed on racing aircraft. Refer to the document Notes on Aircraft Systems.",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_ANTIDETONATION_TANK_QUANTITY:index",
+      "description": "Indexed from 1. Refer to the Mission Creation documentationfor the procedure for refilling tanks.",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_ANTIDETONATION_TANK_MAX_QUANTITY:index",
+      "description": "Indexed from 1. This value set in the Aircraft Configuration File.",
+      "unit": "Gallons",
+      "settable": false
+    },
+    {
+      "name": "RECIP_ENG_NITROUS_TANK_VALVE:index",
+      "description": "Indexed from 1. Each engine can have one Nitrous fuel tank installed.",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_NITROUS_TANK_QUANTITY:index",
+      "description": "Indexed from 1. Refer to the Mission Creation documentationfor the procedure for refilling tanks.",
+      "unit": "Gallons",
+      "settable": true
+    },
+    {
+      "name": "RECIP_ENG_NITROUS_TANK_MAX_QUANTITY:index",
+      "description": "Indexed from 1. This value set in the Aircraft Configuration File.",
+      "unit": "Gallons",
+      "settable": false
+    }
+  ],
+  "Environment": [
+    {
+      "name": "ABSOLUTE_TIME",
+      "description": "Time, as referenced from 12:00 AM January 1, 0000",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "ZULU_TIME",
+      "description": "Greenwich Mean Time (GMT)",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "ZULU_DAY_OF_WEEK",
+      "description": "GMT day of week",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ZULU_DAY_OF_MONTH",
+      "description": "GMT day of month",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ZULU_MONTH_OF_YEAR",
+      "description": "GMT month of year",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ZULU_DAY_OF_YEAR",
+      "description": "GMT day of year",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "ZULU_YEAR",
+      "description": "GMT year",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "LOCAL_TIME",
+      "description": "Local time",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "LOCAL_DAY_OF_WEEK",
+      "description": "Local day of week",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "LOCAL_DAY_OF_MONTH",
+      "description": "Local day of month",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "LOCAL_MONTH_OF_YEAR",
+      "description": "Local month of year",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "LOCAL_DAY_OF_YEAR",
+      "description": "Local day of year",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "LOCAL_YEAR",
+      "description": "Local year",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "TIME_ZONE_OFFSET",
+      "description": "Local time difference from GMT",
+      "unit": "Seconds",
+      "settable": false
+    }
+  ],
+  "Camera": [
+    {
+      "name": "CAMERA_GAMEPLAY_PITCH_YAW",
+      "description": "Pitch or yaw of current gameplay camera",
+      "unit": "Radians",
+      "settable": false
+    },
+    {
+      "name": "CAMERA_REQUEST_ACTION",
+      "description": "Perform predefined camera actions",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "CAMERA_STATE",
+      "description": "Get or set the camera state",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "CAMERA_SUBSTATE",
+      "description": "Get or set camera sub-state",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "CAMERA_VIEW_TYPE_AND_INDEX",
+      "description": "Get or set view type and option index",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "CAMERA_VIEW_TYPE_AND_INDEX_MAX",
+      "description": "Number of option indices for camera view type",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GAMEPLAY_CAMERA_FOCUS",
+      "description": "Camera zoom focus mode",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "IS_CAMERA_RAY_INTERSECT_WITH_NODE",
+      "description": "Camera ray collision with model node",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CHASE_CAMERA_HEADLOOK",
+      "description": "Chase camera look state",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "CHASE_CAMERA_MOMENTUM",
+      "description": "Chase camera momentum modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "CHASE_CAMERA_SPEED",
+      "description": "Chase camera translation speed",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "CHASE_CAMERA_ZOOM",
+      "description": "Chase camera zoom/FOV modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "CHASE_CAMERA_ZOOM_SPEED",
+      "description": "Chase camera zoom speed modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "CAMERA_ACTION_COCKPIT_VIEW_RESET",
+      "description": "Reset cockpit camera",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "CAMERA_ACTION_COCKPIT_VIEW_SAVE",
+      "description": "Save cockpit camera to slot",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_HEADLOOK",
+      "description": "Cockpit camera look state",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_HEIGHT",
+      "description": "Cockpit camera height modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_INSTRUMENT_AUTOSELECT",
+      "description": "Auto camera movement to instruments",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_MOMENTUM",
+      "description": "Cockpit camera momentum modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_SPEED",
+      "description": "Cockpit camera translation speed",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_UPPER_POSITION",
+      "description": "Cockpit camera upper position toggle",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_ZOOM",
+      "description": "Cockpit camera zoom/FOV modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "COCKPIT_CAMERA_ZOOM_SPEED",
+      "description": "Cockpit camera zoom speed modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_FOCUS",
+      "description": "Drone camera focus modifier",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_FOCUS_MODE",
+      "description": "Drone camera focus mode",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_FOLLOW",
+      "description": "Drone camera follow mode",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_FOV",
+      "description": "Drone camera field of view",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_LOCKED",
+      "description": "Drone camera locked state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_SPEED_ROTATION",
+      "description": "Drone camera rotation speed",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "DRONE_CAMERA_SPEED_TRAVELLING",
+      "description": "Drone camera translation speed",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "SMART_CAMERA_ACTIVE",
+      "description": "Smart camera active state",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "SMART_CAMERA_INFO",
+      "description": "Smart camera system info",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "SMART_CAMERA_LIST",
+      "description": "Smart camera target type",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "SMART_CAMERA_LIST_DESCRIPTION",
+      "description": "Smart camera target description",
+      "unit": "String",
+      "settable": false
+    }
+  ],
+  "Services": [
+    {
+      "name": "BAGGAGELOADER_ANGLE_CURRENT",
+      "description": "Current baggage loader ramp angle",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "BAGGAGELOADER_ANGLE_TARGET",
+      "description": "Target baggage loader ramp angle",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "BAGGAGELOADER_END_RAMP_Y",
+      "description": "Baggage loader ramp endpoint Y",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BAGGAGELOADER_END_RAMP_Z",
+      "description": "Baggage loader ramp endpoint Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BAGGAGELOADER_PIVOT_Y",
+      "description": "Baggage loader ramp pivot Y",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BAGGAGELOADER_PIVOT_Z",
+      "description": "Baggage loader ramp pivot Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BOARDINGRAMP_ELEVATION_CURRENT",
+      "description": "Current boarding ramp elevation",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BOARDINGRAMP_ELEVATION_TARGET",
+      "description": "Target boarding ramp elevation",
+      "unit": "Meters",
+      "settable": true
+    },
+    {
+      "name": "BOARDINGRAMP_END_POSITION_Y",
+      "description": "Boarding ramp max extension Y",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BOARDINGRAMP_END_POSITION_Z",
+      "description": "Boarding ramp max extension Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BOARDINGRAMP_ORIENTATION_CURRENT",
+      "description": "Current boarding ramp orientation",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "BOARDINGRAMP_ORIENTATION_TARGET",
+      "description": "Target boarding ramp orientation",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "BOARDINGRAMP_START_POSITION_Y",
+      "description": "Boarding ramp minimal extension Y",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "BOARDINGRAMP_START_POSITION_Z",
+      "description": "Boarding ramp minimal extension Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "CATERINGTRUCK_AIRCRAFT_DOOR_CONTACT_OFFSET_Z",
+      "description": "Catering truck door contact Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "CATERINGTRUCK_ELEVATION_CURRENT",
+      "description": "Current catering truck elevation",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "CATERINGTRUCK_ELEVATION_TARGET",
+      "description": "Target catering truck elevation",
+      "unit": "Meters",
+      "settable": true
+    },
+    {
+      "name": "CATERINGTRUCK_OPENING_CURRENT",
+      "description": "Current catering truck opening",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "CATERINGTRUCK_OPENING_TARGET",
+      "description": "Target catering truck opening",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUELTRUCK_HOSE_DEPLOYED",
+      "description": "Fuel truck hose deployment",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "FUELTRUCK_HOSE_END_POSX",
+      "description": "Fuel truck hose end X",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "FUELTRUCK_HOSE_END_POSZ",
+      "description": "Fuel truck hose end Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "FUELTRUCK_HOSE_END_RELATIVE_HEADING",
+      "description": "Fuel truck hose heading",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GROUNDPOWERUNIT_HOSE_DEPLOYED",
+      "description": "Ground power unit hose deployment",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "GROUNDPOWERUNIT_HOSE_END_POSX",
+      "description": "Ground power unit hose X",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GROUNDPOWERUNIT_HOSE_END_POSZ",
+      "description": "Ground power unit hose Z",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GROUNDPOWERUNIT_HOSE_END_RELATIVE_HEADING",
+      "description": "Ground power unit hose heading",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "JETWAY_HOOD_LEFT_BEND",
+      "description": "Jetway hood left bend",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_HOOD_LEFT_DEPLOYMENT",
+      "description": "Jetway hood left deployment",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_HOOD_RIGHT_BEND",
+      "description": "Jetway hood right bend",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_HOOD_RIGHT_DEPLOYMENT",
+      "description": "Jetway hood right deployment",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_HOOD_TOP_HORIZONTAL",
+      "description": "Jetway hood top horizontal",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_HOOD_TOP_VERTICAL",
+      "description": "Jetway hood top vertical",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_MOVING",
+      "description": "Jetway body moving",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "JETWAY_WHEEL_ORIENTATION_CURRENT",
+      "description": "Current jetway wheel angle",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "JETWAY_WHEEL_ORIENTATION_TARGET",
+      "description": "Target jetway wheel angle",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "JETWAY_WHEEL_SPEED",
+      "description": "Jetway wheel speed",
+      "unit": "Meters per second",
+      "settable": false
+    },
+    {
+      "name": "MARSHALLER_AIRCRAFT_DISTANCE",
+      "description": "Marshaller to aircraft distance",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "MARSHALLER_AIRCRAFT_ENGINE_SHUTDOWN",
+      "description": "Aircraft engines shut down",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "MARSHALLER_AIRCRAFT_VELOCITY",
+      "description": "Aircraft velocity for marshaller",
+      "unit": "Knots",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_ATTACHED",
+      "description": "Pushback attached",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PUSHBACK_AVAILABLE",
+      "description": "Pushback available",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Aircraft Electrics": [
+    {
+      "name": "BUS_LOOKUP_INDEX",
+      "description": "Bus connection state lookup",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "BUS_BREAKER_PULLED",
+      "description": "Bus breaker pulled",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "BUS_CONNECTION_ON",
+      "description": "Bus connected",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ELECTRICAL_GENALT_LOAD",
+      "description": "Alternator load percent",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "ELECTRICAL_GENALT_BUS_AMPS",
+      "description": "Alternator bus current",
+      "unit": "Amperes",
+      "settable": false
+    },
+    {
+      "name": "ELECTRICAL_GENALT_BUS_VOLTAGE",
+      "description": "Alternator bus voltage",
+      "unit": "Volts",
+      "settable": false
+    },
+    {
+      "name": "NEW_ELECTRICAL_SYSTEM",
+      "description": "New electrical system",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ALTERNATOR_BREAKER_PULLED",
+      "description": "Alternator breaker pulled",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ALTERNATOR_CONNECTION_ON",
+      "description": "Alternator connected",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "APU_BLEED_PRESSURE_RECEIVED_BY_ENGINE",
+      "description": "APU bleed pressure to engine",
+      "unit": "PSI",
+      "settable": false
+    },
+    {
+      "name": "APU_GENERATOR_ACTIVE:index",
+      "description": "APU generator active",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "APU_GENERATOR_SWITCH:index",
+      "description": "APU generator switch",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "APU_SWITCH",
+      "description": "APU switch",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BLEED_AIR_APU",
+      "description": "APU bleed air active",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "BATTERY_BREAKER_PULLED",
+      "description": "Battery breaker pulled",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "BATTERY_CONNECTION_ON",
+      "description": "Battery connected",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ELECTRICAL_BATTERY_ESTIMATED_CAPACITY_PCT",
+      "description": "Battery charge percent",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "BREAKER_ADF",
+      "description": "ADF circuit breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_ALTFLD",
+      "description": "Alternator field breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_AUTOPILOT",
+      "description": "Autopilot circuit breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_AVNBUS1",
+      "description": "Avionics bus 1 breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_AVNBUS2",
+      "description": "Avionics bus 2 breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_AVNFAN",
+      "description": "Avionics fan breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_FLAP",
+      "description": "Flap breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_GPS",
+      "description": "GPS breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_INST",
+      "description": "Instrument breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_INSTLTS",
+      "description": "Instrument lights breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_LTS_PWR",
+      "description": "Lighting power breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_NAVCOM1",
+      "description": "NAVCOM1 breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_NAVCOM2",
+      "description": "NAVCOM2 breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_NAVCOM3",
+      "description": "NAVCOM3 breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_TURNCOORD",
+      "description": "Turn coordinator breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_WARN",
+      "description": "Warning breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "BREAKER_XPNDR",
+      "description": "Transponder breaker",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "CIRCUIT_BREAKER_PULLED",
+      "description": "Circuit breaker pulled",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_CONNECTION_ON",
+      "description": "Circuit connected",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_NAVCOM1_ON",
+      "description": "NAVCOM1 circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_NAVCOM2_ON",
+      "description": "NAVCOM2 circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_NAVCOM3_ON",
+      "description": "NAVCOM3 circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_ON:index",
+      "description": "Circuit status (indexed)",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_POWER_SETTING:index",
+      "description": "Circuit power setting",
+      "unit": "Percent",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_STANDBY_VACUUM_ON",
+      "description": "Standby vacuum circuit",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "CIRCUIT_SWITCH_ON:index",
+      "description": "Circuit switch (indexed)",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "EXTERNAL_POWER_AVAILABLE:index",
+      "description": "External power available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "EXTERNAL_POWER_BREAKER_PULLED:index",
+      "description": "External power breaker",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "EXTERNAL_POWER_CONNECTION_ON:index",
+      "description": "External power connected",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "EXTERNAL_POWER_ON:index",
+      "description": "External power switch",
+      "unit": "Bool",
+      "settable": true
+    }
+  ],
+  "Flight Model": [
+    {
+      "name": "DESIGN_CRUISE_ALT",
+      "description": "Design cruise altitude",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "DESIGN_SPAWN_ALTITUDE_CRUISE",
+      "description": "Spawn altitude cruise",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "DESIGN_SPAWN_ALTITUDE_DESCENT",
+      "description": "Spawn altitude descent",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "DESIGN_SPEED_CLIMB",
+      "description": "Design climb speed",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "DESIGN_SPEED_MIN_ROTATION",
+      "description": "Min rotation speed",
+      "unit": "Feet per second",
+      "settable": true
+    },
+    {
+      "name": "DESIGN_TAKEOFF_SPEED",
+      "description": "Design takeoff speed",
+      "unit": "Knots",
+      "settable": true
+    },
+    {
+      "name": "G_LIMITER_SETTING",
+      "description": "G-limiter setting",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "CG_FEET",
+      "description": "Longitudinal CG position",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "INTERACTIVE_POINT_GOAL:index",
+      "description": "Interactive point target opening",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "INTERACTIVE_POINT_OPEN:index",
+      "description": "Interactive point current opening",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "INTERACTIVE_POINT_TYPE:index",
+      "description": "Interactive point type",
+      "unit": "Enum",
+      "settable": false
+    }
+  ],
+  "Radio Navigation": [
+    {
+      "name": "ADF_AVAILABLE:index",
+      "description": "ADF availability",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ADF_CARD:index",
+      "description": "ADF compass rose setting",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "ADF_IDENT:index",
+      "description": "ADF station identifier",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "ADF_NAME:index",
+      "description": "ADF station name",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "ADF_VOLUME:index",
+      "description": "ADF volume",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "ATC_AIRPORT_IS_TOWERED",
+      "description": "Airport is controlled",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_CLEARED_IFR",
+      "description": "IFR clearance",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_CLEARED_LANDING",
+      "description": "Landing clearance",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_CLEARED_TAKEOFF",
+      "description": "Takeoff clearance",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_CLEARED_TAXI",
+      "description": "Taxi clearance",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_ON_PARKING_SPOT",
+      "description": "On parking position",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_RUNWAY_DISTANCE",
+      "description": "Distance to runway center",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "ATC_RUNWAY_LENGTH",
+      "description": "Assigned runway length",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "ATC_RUNWAY_SELECTED",
+      "description": "Runway selected",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "ATC_RUNWAY_WIDTH",
+      "description": "Assigned runway width",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "ATC_TAXIPATH_DISTANCE",
+      "description": "Distance from taxi path",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "COM_AVAILABLE:index",
+      "description": "COM radio availability",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "COM_RECEIVE:index",
+      "description": "COM receiver status",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "COM_SPACING_MODE:index",
+      "description": "COM frequency step mode",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "COM_VOLUME:index",
+      "description": "COM volume setting",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "FLARM_AVAILABLE",
+      "description": "FLARM system available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "FLARM_THREAT_BEARING",
+      "description": "FLARM bearing to threat",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "FLARM_THREAT_DISTANCE",
+      "description": "FLARM distance to threat",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "FLARM_THREAT_HEADING",
+      "description": "FLARM heading to threat",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "FLARM_THREAT_RELATIVE_ALTITUDE",
+      "description": "FLARM altitude diff",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "FLARM_THREAT_TIME_TO_COLLISION",
+      "description": "FLARM time to collision",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "FLARM_THREAT_VERTICAL_BEARING",
+      "description": "FLARM vertical bearing",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_CDI_NEEDLE",
+      "description": "GPS CDI needle deflection",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_OBS_ACTIVE",
+      "description": "GPS OBS mode active",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "GPS_OBS_VALUE",
+      "description": "GPS OBS course",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "GPS_OVERRIDDEN",
+      "description": "GPS override flag",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "GPS_VERTICAL_ANGLE",
+      "description": "GPS glidepath angle",
+      "unit": "Degrees",
+      "settable": false
+    },
+    {
+      "name": "GPS_VERTICAL_ERROR",
+      "description": "GPS vertical deviation",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_FLIGHTPLAN_TOTAL_DISTANCE",
+      "description": "GPS total plan distance",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "GPS_HAS_GLIDEPATH",
+      "description": "GPS glidepath available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GPS_HSI_NEEDLE",
+      "description": "GPS HSI glide needle",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "GPS_CDI_SCALING",
+      "description": "GPS CDI scaling",
+      "unit": "Meters",
+      "settable": true
+    },
+    {
+      "name": "GPS_GSI_SCALING",
+      "description": "GPS GSI scaling",
+      "unit": "Meters",
+      "settable": true
+    },
+    {
+      "name": "MARKER_AVAILABLE",
+      "description": "Marker beacon available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "MARKER_BEACON_SENSITIVITY_HIGH",
+      "description": "Marker high sensitivity",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "MARKER_BEACON_TEST_MUTE",
+      "description": "Marker test/mute",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "NAV_FREQUENCY:index",
+      "description": "NAV frequency",
+      "unit": "Hz",
+      "settable": false
+    },
+    {
+      "name": "NAV_GLIDE_SLOPE:index",
+      "description": "NAV glide slope",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_CLOSE_DME:index",
+      "description": "NAV close DME available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_CLOSE_LOCALIZER:index",
+      "description": "NAV close localizer",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_HAS_TACAN:index",
+      "description": "NAV TACAN available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "NAV_IDENT:index",
+      "description": "NAV station identifier",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_LOC_AIRPORT_IDENT:index",
+      "description": "NAV airport code",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_LOC_RUNWAY_NUMBER:index",
+      "description": "NAV runway number",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_NAME:index",
+      "description": "NAV station name",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "NAV_VOLUME:index",
+      "description": "NAV volume",
+      "unit": "Percent",
+      "settable": true
+    },
+    {
+      "name": "NAV_VOR_DISTANCE:index",
+      "description": "NAV VOR distance",
+      "unit": "Meters",
+      "settable": false
+    },
+    {
+      "name": "TACAN_ACTIVE_CHANNEL:index",
+      "description": "TACAN active channel",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "TACAN_ACTIVE_MODE:index",
+      "description": "TACAN mode X/Y",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "TACAN_AVAILABLE:index",
+      "description": "TACAN available",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "TACAN_DRIVES_NAV1:index",
+      "description": "TACAN drives NAV1",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "TACAN_OBS:index",
+      "description": "TACAN OBS setting",
+      "unit": "Degrees",
+      "settable": true
+    },
+    {
+      "name": "TACAN_STANDBY_CHANNEL:index",
+      "description": "TACAN standby channel",
+      "unit": "Number",
+      "settable": true
+    },
+    {
+      "name": "TACAN_STANDBY_MODE:index",
+      "description": "TACAN standby mode",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "TACAN_VOLUME:index",
+      "description": "TACAN volume",
+      "unit": "Percent Over 100",
+      "settable": true
+    },
+    {
+      "name": "TRANSPONDER_IDENT:index",
+      "description": "Transponder ident",
+      "unit": "Bool",
+      "settable": true
+    },
+    {
+      "name": "TRANSPONDER_STATE:index",
+      "description": "Transponder state",
+      "unit": "Enum",
+      "settable": true
+    },
+    {
+      "name": "COPILOT_TRANSMITTER_TYPE",
+      "description": "Copilot transmit channel",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "COPILOT_TRANSMITTING",
+      "description": "Copilot transmitting",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "PILOT_TRANSMITTER_TYPE",
+      "description": "Pilot transmit channel",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "PILOT_TRANSMITTING",
+      "description": "Pilot transmitting",
+      "unit": "Bool",
+      "settable": false
+    }
+  ],
+  "Aircraft Systems": [
+    {
+      "name": "ELT_ACTIVATED",
+      "description": "Emergency locator transmitter",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "GLASSCOCKPIT_AUTOMATIC_BRIGHTNESS",
+      "description": "Glass cockpit brightness",
+      "unit": "Number",
+      "settable": false
+    },
+    {
+      "name": "INDICATED_ALTITUDE_CALIBRATED",
+      "description": "Calibrated altitude",
+      "unit": "Feet",
+      "settable": false
+    },
+    {
+      "name": "KOHLSMAN_SETTING_HG:index",
+      "description": "Altimeter setting inHg",
+      "unit": "Inches of Mercury",
+      "settable": true
+    },
+    {
+      "name": "KOHLSMAN_SETTING_MB:index",
+      "description": "Altimeter setting mbar",
+      "unit": "Millibars",
+      "settable": true
+    },
+    {
+      "name": "WINDSHIELD_DEICE_SWITCH",
+      "description": "Windshield deice",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "VARIOMETER_MAC_CREADY_SETTING",
+      "description": "MacCready setting",
+      "unit": "Meters per second",
+      "settable": true
+    },
+    {
+      "name": "VARIOMETER_NETTO",
+      "description": "Variometer netto",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "VARIOMETER_TOTAL_ENERGY",
+      "description": "Variometer total energy",
+      "unit": "Feet per second",
+      "settable": false
+    },
+    {
+      "name": "HYDRAULIC_SWITCH:index",
+      "description": "Hydraulic switch",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "HYDRAULIC_SYSTEM_INTEGRITY:index",
+      "description": "Hydraulic integrity",
+      "unit": "Percent Over 100",
+      "settable": false
+    },
+    {
+      "name": "PAYLOAD_STATION_NAME:index",
+      "description": "Payload station name",
+      "unit": "String",
+      "settable": false
+    },
+    {
+      "name": "WARNING_FUEL",
+      "description": "Fuel warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WARNING_FUEL_LEFT",
+      "description": "Left fuel warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WARNING_FUEL_RIGHT",
+      "description": "Right fuel warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WARNING_LOW_HEIGHT",
+      "description": "Low height warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WARNING_OIL_PRESSURE",
+      "description": "Oil pressure warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WARNING_VACUUM",
+      "description": "Vacuum warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WARNING_VOLTAGE",
+      "description": "Voltage warning",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "EXIT_TYPE:index",
+      "description": "Exit type",
+      "unit": "Enum",
+      "settable": false
+    },
+    {
+      "name": "ANIMATION_DELTA_TIME",
+      "description": "Frame time delta",
+      "unit": "Seconds",
+      "settable": false
+    },
+    {
+      "name": "DENSITY_ALTITUDE",
+      "description": "Density altitude",
+      "unit": "Feet",
+      "settable": true
+    },
+    {
+      "name": "WATER_BALLAST_VALVE:index",
+      "description": "Water ballast valve",
+      "unit": "Bool",
+      "settable": false
+    },
+    {
+      "name": "WATER_BALLAST_EVERY_VALVE_OPEN",
+      "description": "All ballast valves open",
+      "unit": "Bool",
+      "settable": false
+    }
+  ]
+}

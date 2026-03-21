@@ -45,7 +45,9 @@ src/simconnect_mcp/
 │   └── templates.py       # debug_simvar, analyze_aircraft_vars, rpn_helper, etc.
 ├── data/
 │   ├── catalog.py         # L-var catalog loader and search engine
-│   └── fenix_a320.json    # Fenix A320/A321 catalog (862 vars, 53 panels)
+│   ├── hubhop.py          # MobiFlight HubHop API client (CLI + library)
+│   ├── fenix_a320.json    # Fenix A320/A321 catalog (1,433 vars, 26 panels)
+│   └── simvars_catalog.json  # Built-in SimVar catalog (1,080+ vars, 25 categories)
 ├── vendor/
 │   ├── simconnect_mobiflight.py          # Vendored from Koseng's repo
 │   └── mobiflight_variable_requests.py   # MobiFlight WASM bridge
