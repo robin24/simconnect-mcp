@@ -103,6 +103,71 @@ class PMDG_777X_CDU_Screen(ctypes.Structure):
 
 
 # ---------------------------------------------------------------------------
+# CDU rendering helpers
+# ---------------------------------------------------------------------------
+
+
+def render_cdu_text(screen: PMDG_777X_CDU_Screen) -> list[str] | None:
+    """Render CDU screen as 14 plain-text row strings (24 chars each).
+
+    Returns None if CDU is not powered.
+    """
+    if not screen.Powered:
+        return None
+
+    rows = []
+    for row in range(CDU_ROWS):
+        chars = []
+        for col in range(CDU_COLUMNS):
+            symbol = screen.Cells[col][row].Symbol
+            if symbol == 0xA1:
+                chars.append("\u2190")  # left arrow
+            elif symbol == 0xA2:
+                chars.append("\u2192")  # right arrow
+            elif 0x20 <= symbol <= 0x7E:
+                chars.append(chr(symbol))
+            else:
+                chars.append(" ")
+        rows.append("".join(chars))
+    return rows
+
+
+def render_cdu_grid(screen: PMDG_777X_CDU_Screen) -> list[list[dict]] | None:
+    """Render CDU screen as structured grid with per-cell color and flags.
+
+    Returns None if CDU is not powered.
+    Returns: list of 14 rows, each row a list of 24 cell dicts.
+    """
+    if not screen.Powered:
+        return None
+
+    grid = []
+    for row in range(CDU_ROWS):
+        row_cells = []
+        for col in range(CDU_COLUMNS):
+            cell = screen.Cells[col][row]
+            symbol = cell.Symbol
+            if symbol == 0xA1:
+                char = "\u2190"
+            elif symbol == 0xA2:
+                char = "\u2192"
+            elif 0x20 <= symbol <= 0x7E:
+                char = chr(symbol)
+            else:
+                char = " "
+
+            row_cells.append({
+                "char": char,
+                "color": CDU_COLOR_NAMES.get(cell.Color, "white"),
+                "small": bool(cell.Flags & CDU_FLAG_SMALL_FONT),
+                "reverse": bool(cell.Flags & CDU_FLAG_REVERSE),
+                "dim": bool(cell.Flags & CDU_FLAG_UNUSED),
+            })
+        grid.append(row_cells)
+    return grid
+
+
+# ---------------------------------------------------------------------------
 # Main data struct
 # ---------------------------------------------------------------------------
 

@@ -32,6 +32,8 @@ from simconnect_mcp.pmdg import (
     PMDG_777X_DATA_NAME,
     PMDG_777X_DataStruct,
     THIRD_PARTY_EVENT_ID_MIN,
+    render_cdu_text,
+    render_cdu_grid,
 )
 
 
@@ -287,3 +289,152 @@ class TestDataStruct:
         ds = PMDG_777X_DataStruct.from_buffer_copy(raw)
         assert ds.MCP_Heading == 0
         assert ds.ADIRU_Sw_On is False
+
+
+# ---------------------------------------------------------------------------
+# CDU rendering
+# ---------------------------------------------------------------------------
+
+class TestCDURender:
+    """Tests for render_cdu_text() and render_cdu_grid()."""
+
+    def _make_screen(self, text_rows: dict[int, str], powered: bool = True) -> PMDG_777X_CDU_Screen:
+        """Build a PMDG_777X_CDU_Screen from a dict mapping row index → text string.
+
+        The CDU grid is column-major: screen.Cells[col][row].
+        Characters in each string are written left-to-right starting at col 0.
+        Rows not present in text_rows are left as zero (Symbol=0x00).
+        """
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = powered
+        for row, text in text_rows.items():
+            for col, ch in enumerate(text[:CDU_COLUMNS]):
+                screen.Cells[col][row].Symbol = ord(ch)
+        return screen
+
+    # ------------------------------------------------------------------
+    # render_cdu_text
+    # ------------------------------------------------------------------
+
+    def test_render_text_rows(self):
+        """render_cdu_text returns 14 strings of 24 chars, with correct content."""
+        row0_text = "HELLO WORLD             "[:CDU_COLUMNS]
+        row2_text = "FL350  M.84  GW 555T    "[:CDU_COLUMNS]
+        screen = self._make_screen({0: row0_text, 2: row2_text})
+
+        result = render_cdu_text(screen)
+
+        assert result is not None
+        assert len(result) == CDU_ROWS  # 14 rows
+        for row_str in result:
+            assert len(row_str) == CDU_COLUMNS  # 24 chars each
+
+        # Row 0 content
+        assert result[0] == row0_text
+        # Row 2 content
+        assert result[2] == row2_text
+        # Row 1 should be all spaces (Symbol=0 → space fallback)
+        assert result[1] == " " * CDU_COLUMNS
+
+    def test_render_unpowered_screen(self):
+        """render_cdu_text returns None when CDU is not powered."""
+        screen = self._make_screen({0: "SOME TEXT"}, powered=False)
+        assert render_cdu_text(screen) is None
+
+    def test_render_text_left_arrow(self):
+        """Symbol 0xA1 is rendered as the Unicode left-arrow character."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = 0xA1
+        result = render_cdu_text(screen)
+        assert result is not None
+        assert result[0][0] == "\u2190"
+
+    def test_render_text_right_arrow(self):
+        """Symbol 0xA2 is rendered as the Unicode right-arrow character."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = 0xA2
+        result = render_cdu_text(screen)
+        assert result is not None
+        assert result[0][0] == "\u2192"
+
+    def test_render_text_non_printable_becomes_space(self):
+        """Symbols outside printable ASCII range (other than arrows) become spaces."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = 0x01  # non-printable, not an arrow
+        result = render_cdu_text(screen)
+        assert result is not None
+        assert result[0][0] == " "
+
+    # ------------------------------------------------------------------
+    # render_cdu_grid
+    # ------------------------------------------------------------------
+
+    def test_render_structured_grid(self):
+        """render_cdu_grid returns per-cell dicts with char, color, small, reverse, dim."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        # Place a specific cell at col=3, row=5 with known attributes
+        screen.Cells[3][5].Symbol = ord("X")
+        screen.Cells[3][5].Color = CDU_COLOR_CYAN
+        screen.Cells[3][5].Flags = CDU_FLAG_SMALL_FONT
+
+        result = render_cdu_grid(screen)
+
+        assert result is not None
+        assert len(result) == CDU_ROWS          # 14 rows
+        assert len(result[0]) == CDU_COLUMNS    # 24 cols per row
+
+        cell = result[5][3]  # row 5, col 3
+        assert cell["char"] == "X"
+        assert cell["color"] == "cyan"
+        assert cell["small"] is True
+        assert cell["reverse"] is False
+        assert cell["dim"] is False
+
+    def test_render_grid_flag_reverse(self):
+        """CDU_FLAG_REVERSE sets the 'reverse' field to True."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = ord("A")
+        screen.Cells[0][0].Color = CDU_COLOR_WHITE
+        screen.Cells[0][0].Flags = CDU_FLAG_REVERSE
+
+        result = render_cdu_grid(screen)
+        assert result is not None
+        cell = result[0][0]
+        assert cell["reverse"] is True
+        assert cell["small"] is False
+        assert cell["dim"] is False
+
+    def test_render_grid_flag_dim(self):
+        """CDU_FLAG_UNUSED sets the 'dim' field to True."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = ord("B")
+        screen.Cells[0][0].Color = CDU_COLOR_GREEN
+        screen.Cells[0][0].Flags = CDU_FLAG_UNUSED
+
+        result = render_cdu_grid(screen)
+        assert result is not None
+        cell = result[0][0]
+        assert cell["dim"] is True
+        assert cell["color"] == "green"
+
+    def test_render_grid_unpowered(self):
+        """render_cdu_grid returns None when CDU is not powered."""
+        screen = self._make_screen({}, powered=False)
+        assert render_cdu_grid(screen) is None
+
+    def test_render_grid_unknown_color_defaults_white(self):
+        """An unrecognised color byte maps to 'white' via CDU_COLOR_NAMES.get fallback."""
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = ord("Z")
+        screen.Cells[0][0].Color = 99  # not in CDU_COLOR_NAMES
+
+        result = render_cdu_grid(screen)
+        assert result is not None
+        assert result[0][0]["color"] == "white"
