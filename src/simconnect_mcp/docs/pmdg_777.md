@@ -47,6 +47,22 @@ EnableCDUBroadcast.2=1
 - Microsoft Store: `%LOCALAPPDATA%\Packages\Microsoft.FlightSimulator_8wekyb3d8bbwe\LocalState\packages\pmdg-aircraft-77w\work\777_Options.ini`
 - Steam: `%APPDATA%\Microsoft Flight Simulator\Packages\pmdg-aircraft-77w\work\777_Options.ini`
 
+### MCP Server Tools
+
+The simconnect-mcp server provides three PMDG-specific tools:
+
+| Tool | Purpose | Example |
+|------|---------|---------|
+| `get_pmdg_var(name)` | Read any SDK data field | `get_pmdg_var("MCP_Heading")` → 360 |
+| `get_pmdg_cdu(cdu)` | Read CDU screen as text + structured grid | `get_pmdg_cdu(0)` → 14 rows of 24 chars with colors |
+| `send_pmdg_event(event_name, parameter)` | Send control events | `send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")` |
+
+Use `search_lvars()` to discover available variables and events from the PMDG 777 catalog.
+
+### Binary Layout Note
+
+The `PMDG_777X_Data` struct uses **default MSVC alignment** (not `#pragma pack(1)`). The actual data area is **684 bytes**. The ctypes `PMDG_777X_DataStruct` class uses native alignment (no `_pack_` attribute) to match this layout. The CDU structs use `_pack_ = 1` since they consist only of byte-sized fields with no alignment-sensitive members.
+
 ---
 
 ## Variable Naming Conventions

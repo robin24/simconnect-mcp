@@ -18665,6 +18665,340 @@
       "prefix": "switch",
       "writable": false,
       "sdk_type": "lvar"
+    },
+    {
+      "name": "ICE_WindowHeatBackUp_Sw_OFF_1",
+      "display_name": "ICE WindowHeatBackUp Sw OFF (1)",
+      "category": "ANTI_ICE",
+      "prefix": "ICE",
+      "writable": true,
+      "sdk_field": "ICE_WindowHeatBackUp_Sw_OFF",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "ICE_WindowHeatBackUp_Sw_OFF_2",
+      "display_name": "ICE WindowHeatBackUp Sw OFF (2)",
+      "category": "ANTI_ICE",
+      "prefix": "ICE",
+      "writable": true,
+      "sdk_field": "ICE_WindowHeatBackUp_Sw_OFF",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "APU_Power_Sw_TEST",
+      "display_name": "APU Power Sw TEST",
+      "category": "OVERHEAD_MAINTENANCE",
+      "prefix": "APU",
+      "writable": true,
+      "sdk_field": "APU_Power_Sw_TEST",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "ENG_EECPower_Sw_TEST_1",
+      "display_name": "ENG EECPower Sw TEST (1)",
+      "category": "ENGINES",
+      "prefix": "ENG",
+      "writable": true,
+      "sdk_field": "ENG_EECPower_Sw_TEST",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "ENG_EECPower_Sw_TEST_2",
+      "display_name": "ENG EECPower Sw TEST (2)",
+      "category": "ENGINES",
+      "prefix": "ENG",
+      "writable": true,
+      "sdk_field": "ENG_EECPower_Sw_TEST",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "ELEC_TowingPower_Sw_BATT",
+      "display_name": "ELEC TowingPower Sw BATT",
+      "category": "ELECTRICAL",
+      "prefix": "ELEC",
+      "writable": true,
+      "sdk_field": "ELEC_TowingPower_Sw_BATT",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "ADIRU_Sw_On",
+      "display_name": "Adiru Sw On",
+      "category": "AVIONICS",
+      "prefix": "ADIRU",
+      "writable": true,
+      "sdk_field": "ADIRU_Sw_On",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "ADIRU_annunOFF",
+      "display_name": "Adiru annunOFF",
+      "category": "AVIONICS",
+      "prefix": "ADIRU",
+      "writable": false,
+      "sdk_field": "ADIRU_annunOFF",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "ADIRU_annunON_BAT",
+      "display_name": "Adiru annunON BAT",
+      "category": "AVIONICS",
+      "prefix": "ADIRU",
+      "writable": false,
+      "sdk_field": "ADIRU_annunON_BAT",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "ELEC_Battery_Sw_ON",
+      "display_name": "ELEC Battery Sw ON",
+      "category": "ELECTRICAL",
+      "prefix": "ELEC",
+      "writable": true,
+      "sdk_field": "ELEC_Battery_Sw_ON",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "ELEC_annunExtPowr_ON_1",
+      "display_name": "ELEC annunExtPowr ON (1)",
+      "category": "ELECTRICAL",
+      "prefix": "ELEC",
+      "writable": false,
+      "sdk_field": "ELEC_annunExtPowr_ON",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "ELEC_annunExtPowr_ON_2",
+      "display_name": "ELEC annunExtPowr ON (2)",
+      "category": "ELECTRICAL",
+      "prefix": "ELEC",
+      "writable": false,
+      "sdk_field": "ELEC_annunExtPowr_ON",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "ELEC_annunExtPowr_AVAIL_1",
+      "display_name": "ELEC annunExtPowr Avail (1)",
+      "category": "ELECTRICAL",
+      "prefix": "ELEC",
+      "writable": false,
+      "sdk_field": "ELEC_annunExtPowr_AVAIL",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "ELEC_annunExtPowr_AVAIL_2",
+      "display_name": "ELEC annunExtPowr Avail (2)",
+      "category": "ELECTRICAL",
+      "prefix": "ELEC",
+      "writable": false,
+      "sdk_field": "ELEC_annunExtPowr_AVAIL",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "OXY_PassOxygen_Sw_On",
+      "display_name": "OXY PassOxygen Sw On",
+      "category": "OXYGEN",
+      "prefix": "OXY",
+      "writable": true,
+      "sdk_field": "OXY_PassOxygen_Sw_On",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "HYD_annunDemandElecPumpFAULT_1",
+      "display_name": "HYD annunDemandElecPumpFAULT (1)",
+      "category": "HYDRAULIC",
+      "prefix": "HYD",
+      "writable": false,
+      "sdk_field": "HYD_annunDemandElecPumpFAULT",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "HYD_annunDemandElecPumpFAULT_2",
+      "display_name": "HYD annunDemandElecPumpFAULT (2)",
+      "category": "HYDRAULIC",
+      "prefix": "HYD",
+      "writable": false,
+      "sdk_field": "HYD_annunDemandElecPumpFAULT",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "HYD_annunDemandAirPumpFAULT_1",
+      "display_name": "HYD annunDemandAirPumpFAULT (1)",
+      "category": "HYDRAULIC",
+      "prefix": "HYD",
+      "writable": false,
+      "sdk_field": "HYD_annunDemandAirPumpFAULT",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "HYD_annunDemandAirPumpFAULT_2",
+      "display_name": "HYD annunDemandAirPumpFAULT (2)",
+      "category": "HYDRAULIC",
+      "prefix": "HYD",
+      "writable": false,
+      "sdk_field": "HYD_annunDemandAirPumpFAULT",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "FIRE_annunAPU_BTL_DISCH",
+      "display_name": "FIRE annunAPU BTL Disch",
+      "category": "FIRE_PROTECTION",
+      "prefix": "FIRE",
+      "writable": false,
+      "sdk_field": "FIRE_annunAPU_BTL_DISCH",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "FUEL_annunArmFAULT",
+      "display_name": "FUEL annunArmFAULT",
+      "category": "FUEL",
+      "prefix": "FUEL",
+      "writable": false,
+      "sdk_field": "FUEL_annunArmFAULT",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "AIR_EquipCooling_Sw_AUTO",
+      "display_name": "AIR EquipCooling Sw AUTO",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": true,
+      "sdk_field": "AIR_EquipCooling_Sw_AUTO",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "AIR_annunPackOFF_1",
+      "display_name": "AIR annunPackOFF (1)",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunPackOFF",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "AIR_annunPackOFF_2",
+      "display_name": "AIR annunPackOFF (2)",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunPackOFF",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "AIR_annunTrimAirFAULT_1",
+      "display_name": "AIR annunTrimAirFAULT (1)",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunTrimAirFAULT",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "AIR_annunTrimAirFAULT_2",
+      "display_name": "AIR annunTrimAirFAULT (2)",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunTrimAirFAULT",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "AIR_annunEquipCoolingOVRD",
+      "display_name": "AIR annunEquipCoolingOVRD",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunEquipCoolingOVRD",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "AIR_annunAPUBleedAirOFF",
+      "display_name": "AIR annunAPUBleedAirOFF",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunAPUBleedAirOFF",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "AIR_annunCtrIsolationValveCLOSED",
+      "display_name": "AIR annunCtrIsolationValveCLOSED",
+      "category": "AIR_CONDITIONING",
+      "prefix": "AIR",
+      "writable": false,
+      "sdk_field": "AIR_annunCtrIsolationValveCLOSED",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "GEAR_AltnGear_Sw_DOWN",
+      "display_name": "GEAR AltnGear Sw DOWN",
+      "category": "FORWARD_PANEL",
+      "prefix": "GEAR",
+      "writable": true,
+      "sdk_field": "GEAR_AltnGear_Sw_DOWN",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "DSP_L_INBD_Sw",
+      "display_name": "DSP L INBD Sw",
+      "category": "DISPLAY_SELECT",
+      "prefix": "DSP",
+      "writable": true,
+      "sdk_field": "DSP_L_INBD_Sw",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "FCTL_AltnFlaps_Sw_ARM",
+      "display_name": "FCTL AltnFlaps Sw ARM",
+      "category": "FLIGHT_CONTROLS",
+      "prefix": "FCTL",
+      "writable": true,
+      "sdk_field": "FCTL_AltnFlaps_Sw_ARM",
+      "sdk_type": "bool"
+    },
+    {
+      "name": "COMM_annunAM_1",
+      "display_name": "COMM annunAM (1)",
+      "category": "COMMUNICATION",
+      "prefix": "COMM",
+      "writable": false,
+      "sdk_field": "COMM_annunAM",
+      "sdk_type": "bool",
+      "sdk_index": 0
+    },
+    {
+      "name": "COMM_annunAM_2",
+      "display_name": "COMM annunAM (2)",
+      "category": "COMMUNICATION",
+      "prefix": "COMM",
+      "writable": false,
+      "sdk_field": "COMM_annunAM",
+      "sdk_type": "bool",
+      "sdk_index": 1
+    },
+    {
+      "name": "COMM_annunAM_3",
+      "display_name": "COMM annunAM (3)",
+      "category": "COMMUNICATION",
+      "prefix": "COMM",
+      "writable": false,
+      "sdk_field": "COMM_annunAM",
+      "sdk_type": "bool",
+      "sdk_index": 2
     }
   ],
   "panels": {
@@ -18755,7 +19089,13 @@
       "switch_161_a",
       "switch_163_a",
       "switch_150_a",
-      "switch_154_a"
+      "switch_154_a",
+      "ELEC_TowingPower_Sw_BATT",
+      "ELEC_Battery_Sw_ON",
+      "ELEC_annunExtPowr_ON_1",
+      "ELEC_annunExtPowr_ON_2",
+      "ELEC_annunExtPowr_AVAIL_1",
+      "ELEC_annunExtPowr_AVAIL_2"
     ],
     "FLIGHT_CONTROLS": [
       "FCTL_WingHydValve_Sw_SHUT_OFF_left",
@@ -18776,7 +19116,8 @@
       "FCTL_annunThrustAsymCompOFF",
       "FCTL_AileronTrim_Switches",
       "FCTL_RudderTrim_Knob",
-      "FCTL_RudderTrimCancel_Sw_Pushed"
+      "FCTL_RudderTrimCancel_Sw_Pushed",
+      "FCTL_AltnFlaps_Sw_ARM"
     ],
     "AIR_CONDITIONING": [
       "AIR_CargoTemp_Selector_1",
@@ -18869,7 +19210,15 @@
       "CABINTempKnob",
       "LDGALTRotate",
       "switch_148_a",
-      "switch_149_a"
+      "switch_149_a",
+      "AIR_EquipCooling_Sw_AUTO",
+      "AIR_annunPackOFF_1",
+      "AIR_annunPackOFF_2",
+      "AIR_annunTrimAirFAULT_1",
+      "AIR_annunTrimAirFAULT_2",
+      "AIR_annunEquipCoolingOVRD",
+      "AIR_annunAPUBleedAirOFF",
+      "AIR_annunCtrIsolationValveCLOSED"
     ],
     "MISCELLANEOUS": [
       "WIPERS_Selector_left",
@@ -19407,7 +19756,10 @@
       "switch_6282_a",
       "switch_6281_a",
       "switch_6292_a",
-      "switch_6291_a"
+      "switch_6291_a",
+      "COMM_annunAM_1",
+      "COMM_annunAM_2",
+      "COMM_annunAM_3"
     ],
     "OXYGEN": [
       "OXY_annunPassOxygenON",
@@ -19418,7 +19770,8 @@
       "EVT_OXY_NORM_EMER_L",
       "EVT_OXY_NORM_EMER_R",
       "EVT_OXY_NORM_EMER_OBS_R",
-      "EVT_OXY_NORM_EMER_OBS_L"
+      "EVT_OXY_NORM_EMER_OBS_L",
+      "OXY_PassOxygen_Sw_On"
     ],
     "ANTI_ICE": [
       "ICE_WindowHeat_Sw_ON_L-Side",
@@ -19449,7 +19802,9 @@
       "switch_48_c",
       "switch_111_a",
       "switch_112_a",
-      "switch_113_a"
+      "switch_113_a",
+      "ICE_WindowHeatBackUp_Sw_OFF_1",
+      "ICE_WindowHeatBackUp_Sw_OFF_2"
     ],
     "HYDRAULIC": [
       "HYD_RamAirTurbineSw",
@@ -19498,7 +19853,11 @@
       "switch_68_a",
       "switch_7111_a",
       "switch_73_a",
-      "switch_76_a"
+      "switch_76_a",
+      "HYD_annunDemandElecPumpFAULT_1",
+      "HYD_annunDemandElecPumpFAULT_2",
+      "HYD_annunDemandAirPumpFAULT_1",
+      "HYD_annunDemandAirPumpFAULT_2"
     ],
     "SIGNS": [
       "SIGNS_NoSmokingSelector",
@@ -19529,7 +19888,8 @@
       "FIRE_annunENG_BTL_DISCH_ENG_1",
       "FIRE_annunENG_BTL_DISCH_ENG2",
       "EVT_OH_FIRE_OVHT_TEST",
-      "switch_8412_a"
+      "switch_8412_a",
+      "FIRE_annunAPU_BTL_DISCH"
     ],
     "ENGINES": [
       "ENG_EECMode_Sw_NORM_left",
@@ -19558,7 +19918,9 @@
       "switch_96_a",
       "switch_520_a",
       "switch_521_a",
-      "switch_96_c"
+      "switch_96_c",
+      "ENG_EECPower_Sw_TEST_1",
+      "ENG_EECPower_Sw_TEST_2"
     ],
     "FUEL": [
       "FUEL_CrossFeedFwd_Sw",
@@ -19622,7 +19984,8 @@
       "switch_1011_a",
       "switch_98_a",
       "switch_100_a",
-      "FuelToRemainRotate"
+      "FuelToRemainRotate",
+      "FUEL_annunArmFAULT"
     ],
     "BLEED_AIR": [
       "AIR_EngBleedAir_Sw_AUTO_left_engine",
@@ -19706,7 +20069,8 @@
       "EVT_PED_R_CCD_SIDE",
       "switch_292_a",
       "switch_515_a",
-      "switch_316_a"
+      "switch_316_a",
+      "GEAR_AltnGear_Sw_DOWN"
     ],
     "EFIS": [
       "EFIS_MinsSelBARO_1",
@@ -19880,7 +20244,8 @@
       "DSP_CANC_RCL_Sw",
       "DSP_annunL_INBD",
       "DSP_annunR_INBD",
-      "DSP_annunLWR_CTR"
+      "DSP_annunLWR_CTR",
+      "DSP_L_INBD_Sw"
     ],
     "WARNING": [
       "WARN_Reset_Sw_Pushed_1",
@@ -20292,7 +20657,13 @@
       "switch_749_a",
       "switch_315_a",
       "switch_290_a",
-      "switch_291_a"
+      "switch_291_a",
+      "ADIRU_Sw_On",
+      "ADIRU_annunOFF",
+      "ADIRU_annunON_BAT"
+    ],
+    "OVERHEAD_MAINTENANCE": [
+      "APU_Power_Sw_TEST"
     ]
   }
 }
