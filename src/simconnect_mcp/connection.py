@@ -46,6 +46,7 @@ class SimConnectManager:
         self.fr = None
         self.mobiflight = None
         self._mobiflight_available = False
+        self.pmdg = None  # PmdgDataManager, lazy-initialized
 
     @property
     def state(self) -> ConnectionState:
@@ -151,6 +152,9 @@ class SimConnectManager:
             self.ae = None
             self.fr = None
             self.mobiflight = None
+            if self.pmdg is not None:
+                self.pmdg.cleanup()
+                self.pmdg = None
             self._mobiflight_available = False
             self._state = ConnectionState.DISCONNECTED
         return {"status": "ok", "message": "Disconnected"}
