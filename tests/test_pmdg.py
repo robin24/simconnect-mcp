@@ -185,9 +185,10 @@ class TestDataStruct:
         ds = PMDG_777X_DataStruct()
         assert ds is not None
 
-    def test_pack_1(self):
-        """Uses pack=1 to match PMDG SDK binary layout."""
-        assert PMDG_777X_DataStruct._pack_ == 1
+    def test_native_alignment(self):
+        """Uses native alignment (684 bytes) to match MSVC default packing."""
+        assert not hasattr(PMDG_777X_DataStruct, "_pack_")
+        assert ctypes.sizeof(PMDG_777X_DataStruct) == 684
 
     def test_bool_fields_accessible(self):
         ds = PMDG_777X_DataStruct()

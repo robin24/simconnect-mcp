@@ -220,12 +220,10 @@ class PMDG_777X_DataStruct(ctypes.Structure):
     raw byte buffer received from SimConnect can be parsed with
     ``PMDG_777X_DataStruct.from_buffer_copy(raw_bytes)``.
 
-    Uses _pack_ = 1 to match the PMDG SDK binary layout. Confirmed by
-    live testing: native alignment produces a larger struct (684 bytes)
-    that SimConnect rejects, while pack=1 (672 bytes) receives data correctly.
+    Uses native alignment (no _pack_) to match the default MSVC packing
+    used by the PMDG SDK. The actual data area is 684 bytes. Confirmed by
+    live testing: sizes up to 684 receive data, 688+ get OUT_OF_BOUNDS.
     """
-
-    _pack_ = 1
     _fields_ = [
         # ------------------------------------------------------------------
         # Overhead Maintenance Panel
