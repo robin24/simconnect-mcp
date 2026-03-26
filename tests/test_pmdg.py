@@ -186,6 +186,7 @@ class TestDataStruct:
         assert ds is not None
 
     def test_pack_1(self):
+        """Uses pack=1 to match PMDG SDK binary layout."""
         assert PMDG_777X_DataStruct._pack_ == 1
 
     def test_bool_fields_accessible(self):

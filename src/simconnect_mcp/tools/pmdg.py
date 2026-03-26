@@ -91,14 +91,17 @@ async def get_pmdg_var(name: str) -> dict:
 
     manager = SimConnectManager()
 
-    def _subscribe():
+    def _subscribe_and_request():
         pmdg.subscribe_data()
+        pmdg.request_data()
 
-    await manager.run_sync(_subscribe)
+    await manager.run_sync(_subscribe_and_request)
 
-    # Wait briefly for first data if just subscribed
-    if pmdg.data_age == float("inf"):
-        await asyncio.sleep(0.5)
+    # Wait for data to arrive
+    for _ in range(20):
+        if pmdg.data_age < 5.0:
+            break
+        await asyncio.sleep(0.1)
 
     if pmdg.data_age == float("inf"):
         return {
@@ -167,13 +170,16 @@ async def get_pmdg_cdu(cdu: int = 0) -> dict:
 
     manager = SimConnectManager()
 
-    def _subscribe():
+    def _subscribe_and_request():
         pmdg.subscribe_cdu(cdu)
+        pmdg.request_cdu(cdu)
 
-    await manager.run_sync(_subscribe)
+    await manager.run_sync(_subscribe_and_request)
 
-    if pmdg.cdu_age(cdu) == float("inf"):
-        await asyncio.sleep(0.5)
+    for _ in range(20):
+        if pmdg.cdu_age(cdu) < 5.0:
+            break
+        await asyncio.sleep(0.1)
 
     if pmdg.cdu_age(cdu) == float("inf"):
         return {

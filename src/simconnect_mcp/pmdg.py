@@ -219,6 +219,10 @@ class PMDG_777X_DataStruct(ctypes.Structure):
     Every field is in the exact order and type required by the SDK so that a
     raw byte buffer received from SimConnect can be parsed with
     ``PMDG_777X_DataStruct.from_buffer_copy(raw_bytes)``.
+
+    Uses _pack_ = 1 to match the PMDG SDK binary layout. Confirmed by
+    live testing: native alignment produces a larger struct (684 bytes)
+    that SimConnect rejects, while pack=1 (672 bytes) receives data correctly.
     """
 
     _pack_ = 1
@@ -651,12 +655,13 @@ class PmdgDataManager:
             0,
             SIMCONNECT_UNUSED,
         )
+        # Initial one-time read to get current state immediately
         self._sm.dll.RequestClientData(
             self._sm.hSimConnect,
             PMDG_777X_DATA_ID,
             PMDG_777X_DATA_DEFINITION,
             PMDG_777X_DATA_DEFINITION,
-            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET,
+            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ONCE,
             0, 0, 0, 0,
         )
         self._data_struct = PMDG_777X_DataStruct()
@@ -680,14 +685,44 @@ class PmdgDataManager:
             self._sm.hSimConnect, def_id, 0,
             ctypes.sizeof(PMDG_777X_CDU_Screen), 0, SIMCONNECT_UNUSED,
         )
+        # Initial one-time read to get current screen immediately
         self._sm.dll.RequestClientData(
             self._sm.hSimConnect, area_id, def_id, def_id,
-            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET,
+            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ONCE,
             0, 0, 0, 0,
         )
         self._cdu_screens[cdu] = PMDG_777X_CDU_Screen()
         self.cdu_subscribed[cdu] = True
         log.info("Subscribed to %s", area_name)
+
+    def request_data(self) -> None:
+        """Request a fresh one-time read of the Data area."""
+        if not self.data_subscribed or self._sm is None:
+            return
+        from SimConnect.Enum import SIMCONNECT_CLIENT_DATA_PERIOD
+
+        self._sm.dll.RequestClientData(
+            self._sm.hSimConnect,
+            PMDG_777X_DATA_ID,
+            PMDG_777X_DATA_DEFINITION,
+            PMDG_777X_DATA_DEFINITION,
+            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ONCE,
+            0, 0, 0, 0,
+        )
+
+    def request_cdu(self, cdu: int) -> None:
+        """Request a fresh one-time read of a CDU screen."""
+        if not self.cdu_subscribed[cdu] or self._sm is None:
+            return
+        from SimConnect.Enum import SIMCONNECT_CLIENT_DATA_PERIOD
+
+        def_id = PMDG_777X_CDU_DEFINITIONS[cdu]
+        area_id = PMDG_777X_CDU_IDS[cdu]
+        self._sm.dll.RequestClientData(
+            self._sm.hSimConnect, area_id, def_id, def_id,
+            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ONCE,
+            0, 0, 0, 0,
+        )
 
     def client_data_handler(self, client_data) -> None:
         """Handle incoming client data from SimConnect dispatch."""
