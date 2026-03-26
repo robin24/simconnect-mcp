@@ -172,33 +172,26 @@ def render_cdu_grid(screen: PMDG_777X_CDU_Screen) -> list[list[dict]] | None:
 # ---------------------------------------------------------------------------
 
 
-def _compute_rotor_param(offset: int, event_name: str) -> int:
-    """Compute the ROTOR_BRAKE parameter for a PMDG event.
+def _is_direct_set_event(offset: int) -> bool:
+    """Check if an event is a direct-set event that needs the Control data area.
 
-    Panel events use: offset + 100
-    CDU/pedestal events (offset >= 328) use: offset * 100 + 1
+    Direct-set events (like EVT_MCP_ALT_SET) take a value parameter and must
+    be sent via the PMDG_777X_Control data area, not via ROTOR_BRAKE.
+    These are the MCP direct control events at offsets 14502-14507+.
     """
-    # CDU and pedestal events use a different parameter scheme
-    # discovered via HubHop community presets
-    if offset >= 328:
-        return offset * 100 + 1
-    return offset + ROTOR_BRAKE_OFFSET
+    return offset >= 14500
 
 
-def resolve_pmdg_event(event_name: str, parameter: int | None = None) -> str:
-    """Resolve a PMDG event name to ROTOR_BRAKE calculator code.
+def resolve_pmdg_event(event_name: str, parameter: int | None = None) -> dict:
+    """Resolve a PMDG event name to dispatch information.
 
-    Looks up the event in the pmdg_777 catalog to get the event ID,
-    then computes the ROTOR_BRAKE parameter. Panel events (overhead,
-    glareshield, etc.) use offset+100. CDU and pedestal events use
-    offset*100+1.
+    Returns a dict with dispatch method and parameters:
+    - {"method": "rotor_brake", "code": "101 (>K:ROTOR_BRAKE)"}
+    - {"method": "control_data", "event_id": 84137, "parameter": 5000}
 
-    Args:
-        event_name: EVT_* event name from the PMDG SDK
-        parameter: Optional position value for the event
-
-    Returns:
-        RPN calculator code string like "101 (>K:ROTOR_BRAKE)"
+    The ROTOR_BRAKE parameter formula is: offset * 100 + 1 (for left click).
+    This works for all standard cockpit events. Direct-set events (MCP value
+    setters) must use the PMDG_777X_Control data area instead.
     """
     from simconnect_mcp.data.catalog import get_catalog
 
@@ -212,10 +205,24 @@ def resolve_pmdg_event(event_name: str, parameter: int | None = None) -> str:
             if evt["name"] == event_name:
                 event_id = evt["id"]
                 offset = event_id - THIRD_PARTY_EVENT_ID_MIN
-                rotor_param = _compute_rotor_param(offset, event_name)
+
+                if _is_direct_set_event(offset):
+                    return {
+                        "method": "control_data",
+                        "event_id": event_id,
+                        "parameter": parameter or 0,
+                    }
+
+                rotor_param = offset * 100 + 1
                 if parameter is not None:
-                    return f"{rotor_param} {parameter} (>K:ROTOR_BRAKE)"
-                return f"{rotor_param} (>K:ROTOR_BRAKE)"
+                    return {
+                        "method": "rotor_brake",
+                        "code": f"{rotor_param} {parameter} (>K:ROTOR_BRAKE)",
+                    }
+                return {
+                    "method": "rotor_brake",
+                    "code": f"{rotor_param} (>K:ROTOR_BRAKE)",
+                }
 
     raise ValueError(
         f"Event '{event_name}' not found in PMDG 777 catalog. "
@@ -648,6 +655,7 @@ class PmdgDataManager:
         self._cdu_screens: list[PMDG_777X_CDU_Screen | None] = [None, None, None]
         self._cdu_timestamps: list[float] = [0.0, 0.0, 0.0]
         self._valid_fields = {f[0] for f in PMDG_777X_DataStruct._fields_}
+        self._control_registered = False
 
     def subscribe_data(self) -> None:
         """Subscribe to PMDG_777X_Data client data area."""
@@ -735,6 +743,41 @@ class PmdgDataManager:
             self._sm.hSimConnect, area_id, def_id, def_id,
             SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ONCE,
             0, 0, 0, 0,
+        )
+
+    def send_control(self, event_id: int, parameter: int) -> None:
+        """Write an event to the PMDG_777X_Control data area.
+
+        Used for direct-set events (e.g., EVT_MCP_ALT_SET) that need
+        both an event ID and a value parameter.
+        """
+        if self._sm is None:
+            return
+        import struct as pystruct
+        from SimConnect.Enum import SIMCONNECT_UNUSED
+
+        if not self._control_registered:
+            self._sm.dll.MapClientDataNameToID(
+                self._sm.hSimConnect,
+                PMDG_777X_CONTROL_NAME.encode("ascii"),
+                PMDG_777X_CONTROL_ID,
+            )
+            self._sm.dll.AddToClientDataDefinition(
+                self._sm.hSimConnect,
+                PMDG_777X_CONTROL_DEFINITION,
+                0,
+                8,  # sizeof(PMDG_777X_Control) = 2 * uint32
+                0,
+                SIMCONNECT_UNUSED,
+            )
+            self._control_registered = True
+
+        data = pystruct.pack("<II", event_id, parameter)
+        self._sm.dll.SetClientData(
+            self._sm.hSimConnect,
+            PMDG_777X_CONTROL_ID,
+            PMDG_777X_CONTROL_DEFINITION,
+            0, 0, 8, data,
         )
 
     def client_data_handler(self, client_data) -> None:

@@ -18,28 +18,32 @@ MobiFlight creates L-vars (like `switch_01_a`) as **read-only annunciator output
 - `switch_NN_a` — primary annunciator (e.g., battery ON light)
 - `switch_NN_c` — secondary annunciator (e.g., battery OFF light)
 
-**To send commands**, PMDG events are triggered via the `ROTOR_BRAKE` carrier event. Two parameter schemes exist depending on the event type:
+**To send commands**, there are two dispatch methods depending on the event type:
 
-| Event Type | Offset Range | Parameter Formula | Example |
-|------------|-------------|-------------------|---------|
-| Panel events (overhead, glareshield, MCP) | < 328 | `offset + 100` | Battery (offset 1) → `101` |
-| CDU / pedestal events | >= 328 | `offset * 100 + 1` | CDU L1 (offset 328) → `32801` |
-
+**Standard events** (switches, buttons, CDU keys) use the `ROTOR_BRAKE` carrier:
 ```
-# Panel event example (battery toggle):
-101 (>K:ROTOR_BRAKE)
-
-# CDU key example (left CDU, line select key L1):
-32801 (>K:ROTOR_BRAKE)
+(offset * 100 + 1) (>K:ROTOR_BRAKE)
 ```
 
-The `send_pmdg_event` tool handles this automatically — just pass the event name:
+| Event Type | Example | Parameter |
+|------------|---------|-----------|
+| Battery toggle (offset 1) | `101 (>K:ROTOR_BRAKE)` | 1\*100+1 |
+| Landing light L (offset 22) | `2201 (>K:ROTOR_BRAKE)` | 22\*100+1 |
+| CDU L1 key (offset 328) | `32801 (>K:ROTOR_BRAKE)` | 328\*100+1 |
+
+**Direct-set events** (MCP value setters like `EVT_MCP_ALT_SET`) write to the `PMDG_777X_Control` data area with the event ID and value:
 ```
-send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")   # panel event
-send_pmdg_event("EVT_CDU_L_L1")                  # CDU key press
+send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000)
 ```
 
-This `ROTOR_BRAKE` carrier pattern is the community-standard method (via MobiFlight HubHop) for controlling PMDG aircraft from external tools.
+The `send_pmdg_event` tool handles both methods automatically:
+```
+send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")   # ROTOR_BRAKE
+send_pmdg_event("EVT_CDU_L_L1")                  # ROTOR_BRAKE
+send_pmdg_event("EVT_MCP_ALT_SET", parameter=35000)  # Control data area
+```
+
+The `ROTOR_BRAKE` carrier pattern is the community-standard method (via MobiFlight HubHop) for controlling PMDG aircraft from external tools. Direct-set events bypass this and use the native PMDG SDK Control data area.
 
 ### Setup Requirements
 

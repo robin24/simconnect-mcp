@@ -240,21 +240,33 @@ async def send_pmdg_event(event_name: str, parameter: int | None = None) -> dict
     """
     from simconnect_mcp.pmdg import resolve_pmdg_event
 
-    code = resolve_pmdg_event(event_name, parameter)
+    dispatch = resolve_pmdg_event(event_name, parameter)
 
     manager = SimConnectManager()
 
-    if not manager.mobiflight_available:
-        return {
-            "status": "error",
-            "error": "MOBIFLIGHT_NOT_AVAILABLE",
-            "message": "MobiFlight WASM extension required for PMDG events.",
-        }
+    if dispatch["method"] == "control_data":
+        # Direct-set events (e.g., EVT_MCP_ALT_SET) — write to PMDG_777X_Control
+        pmdg, err = _ensure_pmdg_manager()
+        if err:
+            return err
 
-    def _execute():
-        manager.mobiflight.set(code)
+        def _send_control():
+            pmdg.send_control(dispatch["event_id"], dispatch["parameter"])
 
-    await manager.run_sync(_execute)
+        await manager.run_sync(_send_control)
+    else:
+        # Standard cockpit events — use ROTOR_BRAKE via MobiFlight RPN
+        if not manager.mobiflight_available:
+            return {
+                "status": "error",
+                "error": "MOBIFLIGHT_NOT_AVAILABLE",
+                "message": "MobiFlight WASM extension required for PMDG events.",
+            }
+
+        def _execute():
+            manager.mobiflight.set(dispatch["code"])
+
+        await manager.run_sync(_execute)
 
     return {
         "status": "ok",

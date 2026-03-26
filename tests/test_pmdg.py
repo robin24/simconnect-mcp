@@ -531,22 +531,33 @@ class TestPmdgDataManager:
 # ---------------------------------------------------------------------------
 
 class TestEventResolution:
-    def test_resolve_event_by_name(self):
+    def test_resolve_panel_event(self):
         from simconnect_mcp.pmdg import resolve_pmdg_event
-        code = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")
-        # Event offset 1 + ROTOR_BRAKE_OFFSET 100 = 101
-        assert code == "101 (>K:ROTOR_BRAKE)"
+        result = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")
+        # offset 1, formula: 1*100+1 = 101
+        assert result["method"] == "rotor_brake"
+        assert result["code"] == "101 (>K:ROTOR_BRAKE)"
 
-    def test_resolve_event_by_name_with_parameter(self):
+    def test_resolve_panel_event_with_parameter(self):
         from simconnect_mcp.pmdg import resolve_pmdg_event
-        code = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH", parameter=1)
-        assert code == "101 1 (>K:ROTOR_BRAKE)"
+        result = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH", parameter=1)
+        assert result["method"] == "rotor_brake"
+        assert result["code"] == "101 1 (>K:ROTOR_BRAKE)"
 
-    def test_resolve_cdu_event_uses_multiplied_offset(self):
+    def test_resolve_cdu_event(self):
         from simconnect_mcp.pmdg import resolve_pmdg_event
-        code = resolve_pmdg_event("EVT_CDU_L_L1")
-        # CDU L1 offset=328, CDU events use offset*100+1 = 32801
-        assert code == "32801 (>K:ROTOR_BRAKE)"
+        result = resolve_pmdg_event("EVT_CDU_L_L1")
+        # CDU L1 offset=328, formula: 328*100+1 = 32801
+        assert result["method"] == "rotor_brake"
+        assert result["code"] == "32801 (>K:ROTOR_BRAKE)"
+
+    def test_resolve_direct_set_event(self):
+        from simconnect_mcp.pmdg import resolve_pmdg_event
+        result = resolve_pmdg_event("EVT_MCP_ALT_SET", parameter=5000)
+        # Direct-set events use Control data area
+        assert result["method"] == "control_data"
+        assert result["event_id"] == 69632 + 14505
+        assert result["parameter"] == 5000
 
     def test_resolve_unknown_event_raises(self):
         from simconnect_mcp.pmdg import resolve_pmdg_event
