@@ -542,6 +542,12 @@ class TestEventResolution:
         code = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH", parameter=1)
         assert code == "101 1 (>K:ROTOR_BRAKE)"
 
+    def test_resolve_cdu_event_uses_multiplied_offset(self):
+        from simconnect_mcp.pmdg import resolve_pmdg_event
+        code = resolve_pmdg_event("EVT_CDU_L_L1")
+        # CDU L1 offset=328, CDU events use offset*100+1 = 32801
+        assert code == "32801 (>K:ROTOR_BRAKE)"
+
     def test_resolve_unknown_event_raises(self):
         from simconnect_mcp.pmdg import resolve_pmdg_event
         with pytest.raises(ValueError, match="not found in PMDG 777 catalog"):

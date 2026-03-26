@@ -172,11 +172,26 @@ def render_cdu_grid(screen: PMDG_777X_CDU_Screen) -> list[list[dict]] | None:
 # ---------------------------------------------------------------------------
 
 
+def _compute_rotor_param(offset: int, event_name: str) -> int:
+    """Compute the ROTOR_BRAKE parameter for a PMDG event.
+
+    Panel events use: offset + 100
+    CDU/pedestal events (offset >= 328) use: offset * 100 + 1
+    """
+    # CDU and pedestal events use a different parameter scheme
+    # discovered via HubHop community presets
+    if offset >= 328:
+        return offset * 100 + 1
+    return offset + ROTOR_BRAKE_OFFSET
+
+
 def resolve_pmdg_event(event_name: str, parameter: int | None = None) -> str:
     """Resolve a PMDG event name to ROTOR_BRAKE calculator code.
 
     Looks up the event in the pmdg_777 catalog to get the event ID,
-    then computes the ROTOR_BRAKE parameter (offset + 100).
+    then computes the ROTOR_BRAKE parameter. Panel events (overhead,
+    glareshield, etc.) use offset+100. CDU and pedestal events use
+    offset*100+1.
 
     Args:
         event_name: EVT_* event name from the PMDG SDK
@@ -197,7 +212,7 @@ def resolve_pmdg_event(event_name: str, parameter: int | None = None) -> str:
             if evt["name"] == event_name:
                 event_id = evt["id"]
                 offset = event_id - THIRD_PARTY_EVENT_ID_MIN
-                rotor_param = offset + ROTOR_BRAKE_OFFSET
+                rotor_param = _compute_rotor_param(offset, event_name)
                 if parameter is not None:
                     return f"{rotor_param} {parameter} (>K:ROTOR_BRAKE)"
                 return f"{rotor_param} (>K:ROTOR_BRAKE)"
