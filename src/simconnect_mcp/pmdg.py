@@ -568,3 +568,149 @@ class PMDG_777X_DataStruct(ctypes.Structure):
         ("ECL_ChecklistComplete", ctypes.c_bool * 10),
         ("reserved", ctypes.c_ubyte * 84),
     ]
+
+
+# ---------------------------------------------------------------------------
+# PmdgDataManager — lazy subscription and caching
+# ---------------------------------------------------------------------------
+
+
+class PmdgDataManager:
+    """Manages lazy subscription to PMDG 777 client data areas.
+
+    Subscribes on first use, caches latest state, serves reads from cache.
+    """
+
+    def __init__(self, sm) -> None:
+        self._sm = sm  # SimConnectMobiFlight instance (or None for testing)
+        self.data_subscribed = False
+        self.cdu_subscribed = [False, False, False]
+        self._data_struct: PMDG_777X_DataStruct | None = None
+        self._data_timestamp: float = 0.0
+        self._cdu_screens: list[PMDG_777X_CDU_Screen | None] = [None, None, None]
+        self._cdu_timestamps: list[float] = [0.0, 0.0, 0.0]
+        self._valid_fields = {f[0] for f in PMDG_777X_DataStruct._fields_}
+
+    def subscribe_data(self) -> None:
+        """Subscribe to PMDG_777X_Data client data area."""
+        if self.data_subscribed or self._sm is None:
+            return
+        from SimConnect.Enum import SIMCONNECT_CLIENT_DATA_PERIOD, SIMCONNECT_UNUSED
+
+        self._sm.dll.MapClientDataNameToID(
+            self._sm.hSimConnect,
+            PMDG_777X_DATA_NAME.encode("ascii"),
+            PMDG_777X_DATA_ID,
+        )
+        self._sm.dll.AddToClientDataDefinition(
+            self._sm.hSimConnect,
+            PMDG_777X_DATA_DEFINITION,
+            0,
+            ctypes.sizeof(PMDG_777X_DataStruct),
+            0,
+            SIMCONNECT_UNUSED,
+        )
+        self._sm.dll.RequestClientData(
+            self._sm.hSimConnect,
+            PMDG_777X_DATA_ID,
+            PMDG_777X_DATA_DEFINITION,
+            PMDG_777X_DATA_DEFINITION,
+            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET,
+            0, 0, 0, 0,
+        )
+        self._data_struct = PMDG_777X_DataStruct()
+        self.data_subscribed = True
+        log.info("Subscribed to PMDG_777X_Data")
+
+    def subscribe_cdu(self, cdu: int) -> None:
+        """Subscribe to a CDU screen client data area (0, 1, or 2)."""
+        if self.cdu_subscribed[cdu] or self._sm is None:
+            return
+        from SimConnect.Enum import SIMCONNECT_CLIENT_DATA_PERIOD, SIMCONNECT_UNUSED
+
+        area_name = PMDG_777X_CDU_NAMES[cdu]
+        area_id = PMDG_777X_CDU_IDS[cdu]
+        def_id = PMDG_777X_CDU_DEFINITIONS[cdu]
+
+        self._sm.dll.MapClientDataNameToID(
+            self._sm.hSimConnect, area_name.encode("ascii"), area_id,
+        )
+        self._sm.dll.AddToClientDataDefinition(
+            self._sm.hSimConnect, def_id, 0,
+            ctypes.sizeof(PMDG_777X_CDU_Screen), 0, SIMCONNECT_UNUSED,
+        )
+        self._sm.dll.RequestClientData(
+            self._sm.hSimConnect, area_id, def_id, def_id,
+            SIMCONNECT_CLIENT_DATA_PERIOD.SIMCONNECT_CLIENT_DATA_PERIOD_ON_SET,
+            0, 0, 0, 0,
+        )
+        self._cdu_screens[cdu] = PMDG_777X_CDU_Screen()
+        self.cdu_subscribed[cdu] = True
+        log.info("Subscribed to %s", area_name)
+
+    def client_data_handler(self, client_data) -> None:
+        """Handle incoming client data from SimConnect dispatch."""
+        def_id = client_data.dwDefineID
+
+        if def_id == PMDG_777X_DATA_DEFINITION and self._data_struct is not None:
+            ctypes.memmove(
+                ctypes.addressof(self._data_struct),
+                ctypes.addressof(client_data.dwData),
+                ctypes.sizeof(PMDG_777X_DataStruct),
+            )
+            self._data_timestamp = time.time()
+            return
+
+        for i, cdu_def in enumerate(PMDG_777X_CDU_DEFINITIONS):
+            if def_id == cdu_def and self._cdu_screens[i] is not None:
+                ctypes.memmove(
+                    ctypes.addressof(self._cdu_screens[i]),
+                    ctypes.addressof(client_data.dwData),
+                    ctypes.sizeof(PMDG_777X_CDU_Screen),
+                )
+                self._cdu_timestamps[i] = time.time()
+                return
+
+    def read_field(self, field_name: str, index: int | None = None):
+        """Read a field from the cached Data struct."""
+        if self._data_struct is None:
+            return None
+        if field_name not in self._valid_fields:
+            raise ValueError(f"Unknown field: {field_name}")
+
+        value = getattr(self._data_struct, field_name)
+        if index is not None:
+            value = value[index]
+        return value
+
+    def read_cdu(self, cdu: int) -> PMDG_777X_CDU_Screen | None:
+        """Return the cached CDU screen struct, or None if not subscribed."""
+        if not self.cdu_subscribed[cdu]:
+            return None
+        return self._cdu_screens[cdu]
+
+    @property
+    def data_age(self) -> float:
+        """Seconds since last data update."""
+        if self._data_timestamp == 0:
+            return float("inf")
+        return time.time() - self._data_timestamp
+
+    def cdu_age(self, cdu: int) -> float:
+        """Seconds since last CDU update."""
+        if self._cdu_timestamps[cdu] == 0:
+            return float("inf")
+        return time.time() - self._cdu_timestamps[cdu]
+
+    def cleanup(self) -> None:
+        """Unregister handler and clear state."""
+        if self._sm is not None:
+            try:
+                self._sm.unregister_client_data_handler(self.client_data_handler)
+            except Exception:
+                pass
+        self._data_struct = None
+        self._cdu_screens = [None, None, None]
+        self.data_subscribed = False
+        self.cdu_subscribed = [False, False, False]
+        log.info("PMDG data manager cleaned up")

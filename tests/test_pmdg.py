@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import struct
+import time
 
 import pytest
 
@@ -438,3 +439,86 @@ class TestCDURender:
         result = render_cdu_grid(screen)
         assert result is not None
         assert result[0][0]["color"] == "white"
+
+
+# ---------------------------------------------------------------------------
+# PmdgDataManager
+# ---------------------------------------------------------------------------
+
+class TestPmdgDataManager:
+    def test_init_sets_empty_state(self):
+        from simconnect_mcp.pmdg import PmdgDataManager
+        mgr = PmdgDataManager(sm=None)
+        assert mgr.data_subscribed is False
+        assert mgr.cdu_subscribed == [False, False, False]
+        assert mgr._data_struct is None
+
+    def test_read_field_bool(self):
+        from simconnect_mcp.pmdg import PmdgDataManager, PMDG_777X_DataStruct
+        mgr = PmdgDataManager(sm=None)
+        mgr._data_struct = PMDG_777X_DataStruct()
+        mgr._data_struct.ELEC_Battery_Sw_ON = True
+        mgr._data_timestamp = time.time()
+        mgr.data_subscribed = True
+        assert mgr.read_field("ELEC_Battery_Sw_ON") is True
+
+    def test_read_field_array(self):
+        from simconnect_mcp.pmdg import PmdgDataManager, PMDG_777X_DataStruct
+        mgr = PmdgDataManager(sm=None)
+        mgr._data_struct = PMDG_777X_DataStruct()
+        mgr._data_struct.ELEC_BusTie_Sw_AUTO[0] = True
+        mgr._data_struct.ELEC_BusTie_Sw_AUTO[1] = False
+        mgr._data_timestamp = time.time()
+        mgr.data_subscribed = True
+        assert mgr.read_field("ELEC_BusTie_Sw_AUTO", index=0) is True
+        assert mgr.read_field("ELEC_BusTie_Sw_AUTO", index=1) is False
+
+    def test_read_field_float(self):
+        from simconnect_mcp.pmdg import PmdgDataManager, PMDG_777X_DataStruct
+        mgr = PmdgDataManager(sm=None)
+        mgr._data_struct = PMDG_777X_DataStruct()
+        mgr._data_struct.MCP_IASMach = 250.0
+        mgr._data_timestamp = time.time()
+        mgr.data_subscribed = True
+        assert mgr.read_field("MCP_IASMach") == pytest.approx(250.0)
+
+    def test_read_field_unknown_raises(self):
+        from simconnect_mcp.pmdg import PmdgDataManager, PMDG_777X_DataStruct
+        mgr = PmdgDataManager(sm=None)
+        mgr._data_struct = PMDG_777X_DataStruct()
+        mgr._data_timestamp = time.time()
+        mgr.data_subscribed = True
+        with pytest.raises(ValueError, match="Unknown field"):
+            mgr.read_field("NONEXISTENT_FIELD")
+
+    def test_read_field_not_subscribed_returns_none(self):
+        from simconnect_mcp.pmdg import PmdgDataManager
+        mgr = PmdgDataManager(sm=None)
+        assert mgr.read_field("ELEC_Battery_Sw_ON") is None
+
+    def test_read_cdu_not_subscribed_returns_none(self):
+        from simconnect_mcp.pmdg import PmdgDataManager
+        mgr = PmdgDataManager(sm=None)
+        assert mgr.read_cdu(0) is None
+
+    def test_data_age_infinity_when_no_data(self):
+        from simconnect_mcp.pmdg import PmdgDataManager
+        mgr = PmdgDataManager(sm=None)
+        assert mgr.data_age == float("inf")
+
+    def test_data_age_recent(self):
+        from simconnect_mcp.pmdg import PmdgDataManager
+        mgr = PmdgDataManager(sm=None)
+        mgr._data_timestamp = time.time()
+        assert mgr.data_age < 1.0
+
+    def test_cleanup_resets_state(self):
+        from simconnect_mcp.pmdg import PmdgDataManager, PMDG_777X_DataStruct
+        mgr = PmdgDataManager(sm=None)
+        mgr._data_struct = PMDG_777X_DataStruct()
+        mgr.data_subscribed = True
+        mgr.cdu_subscribed = [True, False, True]
+        mgr.cleanup()
+        assert mgr._data_struct is None
+        assert mgr.data_subscribed is False
+        assert mgr.cdu_subscribed == [False, False, False]
