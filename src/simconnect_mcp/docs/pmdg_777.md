@@ -18,18 +18,28 @@ MobiFlight creates L-vars (like `switch_01_a`) as **read-only annunciator output
 - `switch_NN_a` — primary annunciator (e.g., battery ON light)
 - `switch_NN_c` — secondary annunciator (e.g., battery OFF light)
 
-**To send commands**, PMDG events are triggered via the `ROTOR_BRAKE` carrier event with an offset parameter:
+**To send commands**, PMDG events are triggered via the `ROTOR_BRAKE` carrier event. Two parameter schemes exist depending on the event type:
+
+| Event Type | Offset Range | Parameter Formula | Example |
+|------------|-------------|-------------------|---------|
+| Panel events (overhead, glareshield, MCP) | < 328 | `offset + 100` | Battery (offset 1) → `101` |
+| CDU / pedestal events | >= 328 | `offset * 100 + 1` | CDU L1 (offset 328) → `32801` |
 
 ```
-(event_offset + 100) (>K:ROTOR_BRAKE)
+# Panel event example (battery toggle):
+101 (>K:ROTOR_BRAKE)
+
+# CDU key example (left CDU, line select key L1):
+32801 (>K:ROTOR_BRAKE)
 ```
 
-For example, the battery switch (event offset 1):
-- **Toggle:** `101 (>K:ROTOR_BRAKE)`
-- **Turn ON:** `(L:switch_01_a) ! if{ 101 (>K:ROTOR_BRAKE) }`
-- **Turn OFF:** `(L:switch_01_a) if{ 101 (>K:ROTOR_BRAKE) }`
+The `send_pmdg_event` tool handles this automatically — just pass the event name:
+```
+send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")   # panel event
+send_pmdg_event("EVT_CDU_L_L1")                  # CDU key press
+```
 
-This `ROTOR_BRAKE` carrier pattern is the community-standard method (via MobiFlight HubHop) for controlling PMDG aircraft from external tools. The parameter formula is `THIRD_PARTY_EVENT_OFFSET + 100`, where the offset comes from the SDK `EVT_*` defines.
+This `ROTOR_BRAKE` carrier pattern is the community-standard method (via MobiFlight HubHop) for controlling PMDG aircraft from external tools.
 
 ### Setup Requirements
 
