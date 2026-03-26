@@ -1,0 +1,289 @@
+"""Tests for PMDG 777 ctypes struct definitions."""
+
+from __future__ import annotations
+
+import ctypes
+import struct
+
+import pytest
+
+from simconnect_mcp.pmdg import (
+    CDU_COLUMNS,
+    CDU_COLOR_AMBER,
+    CDU_COLOR_CYAN,
+    CDU_COLOR_GREEN,
+    CDU_COLOR_MAGENTA,
+    CDU_COLOR_NAMES,
+    CDU_COLOR_RED,
+    CDU_COLOR_WHITE,
+    CDU_FLAG_REVERSE,
+    CDU_FLAG_SMALL_FONT,
+    CDU_FLAG_UNUSED,
+    CDU_ROWS,
+    CDU_Grid,
+    CDU_Row,
+    PMDG_777X_CDU_DEFINITIONS,
+    PMDG_777X_CDU_IDS,
+    PMDG_777X_CDU_NAMES,
+    PMDG_777X_CDU_Screen,
+    PMDG_777X_CDU_Cell,
+    PMDG_777X_DATA_DEFINITION,
+    PMDG_777X_DATA_ID,
+    PMDG_777X_DATA_NAME,
+    PMDG_777X_DataStruct,
+    THIRD_PARTY_EVENT_ID_MIN,
+)
+
+
+# ---------------------------------------------------------------------------
+# CDU Cell struct
+# ---------------------------------------------------------------------------
+
+class TestCDUCell:
+    def test_size_is_3_bytes(self):
+        assert ctypes.sizeof(PMDG_777X_CDU_Cell) == 3
+
+    def test_fields_accessible(self):
+        cell = PMDG_777X_CDU_Cell()
+        cell.Symbol = 65   # 'A'
+        cell.Color = CDU_COLOR_CYAN
+        cell.Flags = CDU_FLAG_SMALL_FONT
+        assert cell.Symbol == 65
+        assert cell.Color == CDU_COLOR_CYAN
+        assert cell.Flags == CDU_FLAG_SMALL_FONT
+
+    def test_pack_1(self):
+        """No padding — each byte is immediately after the previous."""
+        assert PMDG_777X_CDU_Cell._pack_ == 1
+
+    def test_field_order_in_memory(self):
+        """Symbol, Color, Flags must be packed in that order without gaps."""
+        raw = bytes([0x41, 0x02, 0x01])  # Symbol=0x41, Color=2, Flags=1
+        cell = PMDG_777X_CDU_Cell.from_buffer_copy(raw)
+        assert cell.Symbol == 0x41
+        assert cell.Color == 2
+        assert cell.Flags == 1
+
+
+# ---------------------------------------------------------------------------
+# CDU Row / Grid type aliases
+# ---------------------------------------------------------------------------
+
+class TestCDUDimensions:
+    def test_constants(self):
+        assert CDU_COLUMNS == 24
+        assert CDU_ROWS == 14
+
+    def test_cdu_row_length(self):
+        row = CDU_Row()
+        assert len(row) == CDU_ROWS  # 14 cells
+
+    def test_cdu_grid_length(self):
+        grid = CDU_Grid()
+        assert len(grid) == CDU_COLUMNS  # 24 columns
+
+    def test_cdu_grid_element_is_row(self):
+        grid = CDU_Grid()
+        assert isinstance(grid[0], CDU_Row)
+
+    def test_cdu_grid_cell_accessible(self):
+        grid = CDU_Grid()
+        grid[3][7].Symbol = 0x42
+        assert grid[3][7].Symbol == 0x42
+
+
+# ---------------------------------------------------------------------------
+# CDU Screen struct
+# ---------------------------------------------------------------------------
+
+class TestCDUScreen:
+    def test_cells_field_is_grid(self):
+        screen = PMDG_777X_CDU_Screen()
+        # Cells should be a CDU_Grid (24 columns × 14 rows)
+        assert len(screen.Cells) == CDU_COLUMNS
+
+    def test_powered_field(self):
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        assert screen.Powered is True
+        screen.Powered = False
+        assert screen.Powered is False
+
+    def test_size(self):
+        # 24 columns × 14 rows × 3 bytes per cell + 1 byte for Powered
+        expected = CDU_COLUMNS * CDU_ROWS * 3 + 1
+        assert ctypes.sizeof(PMDG_777X_CDU_Screen) == expected
+
+    def test_pack_1(self):
+        assert PMDG_777X_CDU_Screen._pack_ == 1
+
+    def test_cell_write_read_roundtrip(self):
+        screen = PMDG_777X_CDU_Screen()
+        screen.Cells[0][0].Symbol = ord("H")
+        screen.Cells[0][0].Color = CDU_COLOR_GREEN
+        screen.Cells[0][0].Flags = CDU_FLAG_REVERSE
+        assert screen.Cells[0][0].Symbol == ord("H")
+        assert screen.Cells[0][0].Color == CDU_COLOR_GREEN
+        assert screen.Cells[0][0].Flags == CDU_FLAG_REVERSE
+
+    def test_from_bytes(self):
+        """Verify we can parse a raw byte buffer into a CDU screen."""
+        # Build a raw buffer: all cells zero, Powered = 1
+        size = ctypes.sizeof(PMDG_777X_CDU_Screen)
+        raw = bytearray(size)
+        raw[-1] = 1  # Powered byte is last
+        screen = PMDG_777X_CDU_Screen.from_buffer_copy(bytes(raw))
+        assert screen.Powered is True
+        assert screen.Cells[0][0].Symbol == 0
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+class TestConstants:
+    def test_color_constants(self):
+        assert CDU_COLOR_WHITE == 0
+        assert CDU_COLOR_CYAN == 1
+        assert CDU_COLOR_GREEN == 2
+        assert CDU_COLOR_MAGENTA == 3
+        assert CDU_COLOR_AMBER == 4
+        assert CDU_COLOR_RED == 5
+
+    def test_color_names_mapping(self):
+        assert CDU_COLOR_NAMES[0] == "white"
+        assert CDU_COLOR_NAMES[5] == "red"
+
+    def test_flag_constants(self):
+        assert CDU_FLAG_SMALL_FONT == 0x01
+        assert CDU_FLAG_REVERSE == 0x02
+        assert CDU_FLAG_UNUSED == 0x04
+
+    def test_data_name_and_id(self):
+        assert PMDG_777X_DATA_NAME == "PMDG_777X_Data"
+        assert PMDG_777X_DATA_ID == 0x504D4447
+
+    def test_cdu_names_and_ids(self):
+        assert len(PMDG_777X_CDU_NAMES) == 3
+        assert PMDG_777X_CDU_NAMES[0] == "PMDG_777X_CDU_0"
+        assert len(PMDG_777X_CDU_IDS) == 3
+        assert len(PMDG_777X_CDU_DEFINITIONS) == 3
+
+    def test_third_party_event_id_min(self):
+        assert THIRD_PARTY_EVENT_ID_MIN == 0x00011000
+
+
+# ---------------------------------------------------------------------------
+# DataStruct — structure integrity
+# ---------------------------------------------------------------------------
+
+class TestDataStruct:
+    def test_instantiates(self):
+        ds = PMDG_777X_DataStruct()
+        assert ds is not None
+
+    def test_pack_1(self):
+        assert PMDG_777X_DataStruct._pack_ == 1
+
+    def test_bool_fields_accessible(self):
+        ds = PMDG_777X_DataStruct()
+        ds.ADIRU_Sw_On = True
+        assert ds.ADIRU_Sw_On is True
+        ds.ADIRU_Sw_On = False
+        assert ds.ADIRU_Sw_On is False
+
+    def test_array_bool_fields(self):
+        """Bool array fields should be indexable."""
+        ds = PMDG_777X_DataStruct()
+        ds.MCP_FD_Sw_On[0] = True
+        ds.MCP_FD_Sw_On[1] = False
+        assert ds.MCP_FD_Sw_On[0] is True
+        assert ds.MCP_FD_Sw_On[1] is False
+
+    def test_mcp_ias_mach_float(self):
+        ds = PMDG_777X_DataStruct()
+        ds.MCP_IASMach = 0.82
+        assert abs(ds.MCP_IASMach - 0.82) < 1e-5
+
+    def test_mcp_heading_ushort(self):
+        ds = PMDG_777X_DataStruct()
+        ds.MCP_Heading = 270
+        assert ds.MCP_Heading == 270
+
+    def test_mcp_altitude_ushort(self):
+        ds = PMDG_777X_DataStruct()
+        ds.MCP_Altitude = 35000
+        assert ds.MCP_Altitude == 35000
+
+    def test_mcp_vert_speed_short(self):
+        ds = PMDG_777X_DataStruct()
+        ds.MCP_VertSpeed = -2000
+        assert ds.MCP_VertSpeed == -2000
+
+    def test_door_state_array(self):
+        """DOOR_state is a 16-element ubyte array."""
+        ds = PMDG_777X_DataStruct()
+        assert len(ds.DOOR_state) == 16
+        ds.DOOR_state[0] = 3
+        assert ds.DOOR_state[0] == 3
+
+    def test_cockpit_door_bool(self):
+        ds = PMDG_777X_DataStruct()
+        ds.DOOR_CockpitDoorOpen = True
+        assert ds.DOOR_CockpitDoorOpen is True
+
+    def test_fmc_flight_number_char_array(self):
+        """FMC_flightNumber is a 9-byte char array.
+
+        ctypes c_char arrays return bytes values (null-terminated strings).
+        Writing b"AA001" stores 5 bytes; reading back gives b"AA001".
+        """
+        ds = PMDG_777X_DataStruct()
+        ds.FMC_flightNumber = b"AA001"
+        assert ds.FMC_flightNumber == b"AA001"
+
+    def test_fmc_flight_number_length(self):
+        """The field descriptor reports a size of 9 bytes."""
+        # ctypes sizeof on an instance field value (bytes) is not supported;
+        # use the struct type's field descriptor instead.
+        assert PMDG_777X_DataStruct.FMC_flightNumber.size == 9
+
+    def test_elec_apuselector_ubyte(self):
+        ds = PMDG_777X_DataStruct()
+        ds.ELEC_APU_Selector = 2
+        assert ds.ELEC_APU_Selector == 2
+
+    def test_gear_lever_ubyte(self):
+        ds = PMDG_777X_DataStruct()
+        ds.GEAR_Lever = 1
+        assert ds.GEAR_Lever == 1
+
+    def test_brakes_pressure_needle_int(self):
+        ds = PMDG_777X_DataStruct()
+        ds.BRAKES_BrakePressNeedle = -50
+        assert ds.BRAKES_BrakePressNeedle == -50
+
+    def test_reserved_field(self):
+        """Reserved field should be 84 bytes."""
+        ds = PMDG_777X_DataStruct()
+        assert len(ds.reserved) == 84
+
+    def test_ecl_checklist_complete_array(self):
+        """ECL_ChecklistComplete is a 10-element bool array."""
+        ds = PMDG_777X_DataStruct()
+        assert len(ds.ECL_ChecklistComplete) == 10
+        ds.ECL_ChecklistComplete[0] = True
+        assert ds.ECL_ChecklistComplete[0] is True
+
+    def test_fuel_qty_fields_float(self):
+        ds = PMDG_777X_DataStruct()
+        ds.FUEL_QtyCenter = 12345.6
+        assert abs(ds.FUEL_QtyCenter - 12345.6) < 0.1
+
+    def test_from_bytes_roundtrip(self):
+        """We should be able to zero-fill a buffer and parse it."""
+        size = ctypes.sizeof(PMDG_777X_DataStruct)
+        raw = bytes(size)
+        ds = PMDG_777X_DataStruct.from_buffer_copy(raw)
+        assert ds.MCP_Heading == 0
+        assert ds.ADIRU_Sw_On is False
