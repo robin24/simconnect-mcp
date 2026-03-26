@@ -168,6 +168,47 @@ def render_cdu_grid(screen: PMDG_777X_CDU_Screen) -> list[list[dict]] | None:
 
 
 # ---------------------------------------------------------------------------
+# Event resolution
+# ---------------------------------------------------------------------------
+
+
+def resolve_pmdg_event(event_name: str, parameter: int | None = None) -> str:
+    """Resolve a PMDG event name to ROTOR_BRAKE calculator code.
+
+    Looks up the event in the pmdg_777 catalog to get the event ID,
+    then computes the ROTOR_BRAKE parameter (offset + 100).
+
+    Args:
+        event_name: EVT_* event name from the PMDG SDK
+        parameter: Optional position value for the event
+
+    Returns:
+        RPN calculator code string like "101 (>K:ROTOR_BRAKE)"
+    """
+    from simconnect_mcp.data.catalog import get_catalog
+
+    catalog = get_catalog("pmdg_777")
+    if catalog is None:
+        raise ValueError("PMDG 777 catalog not loaded")
+
+    for var in catalog["variables"]:
+        events = var.get("events", [])
+        for evt in events:
+            if evt["name"] == event_name:
+                event_id = evt["id"]
+                offset = event_id - THIRD_PARTY_EVENT_ID_MIN
+                rotor_param = offset + ROTOR_BRAKE_OFFSET
+                if parameter is not None:
+                    return f"{rotor_param} {parameter} (>K:ROTOR_BRAKE)"
+                return f"{rotor_param} (>K:ROTOR_BRAKE)"
+
+    raise ValueError(
+        f"Event '{event_name}' not found in PMDG 777 catalog. "
+        "Use search_lvars to find available events."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Main data struct
 # ---------------------------------------------------------------------------
 

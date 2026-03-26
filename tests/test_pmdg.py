@@ -522,3 +522,25 @@ class TestPmdgDataManager:
         assert mgr._data_struct is None
         assert mgr.data_subscribed is False
         assert mgr.cdu_subscribed == [False, False, False]
+
+
+# ---------------------------------------------------------------------------
+# Event resolution
+# ---------------------------------------------------------------------------
+
+class TestEventResolution:
+    def test_resolve_event_by_name(self):
+        from simconnect_mcp.pmdg import resolve_pmdg_event
+        code = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")
+        # Event offset 1 + ROTOR_BRAKE_OFFSET 100 = 101
+        assert code == "101 (>K:ROTOR_BRAKE)"
+
+    def test_resolve_event_by_name_with_parameter(self):
+        from simconnect_mcp.pmdg import resolve_pmdg_event
+        code = resolve_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH", parameter=1)
+        assert code == "101 1 (>K:ROTOR_BRAKE)"
+
+    def test_resolve_unknown_event_raises(self):
+        from simconnect_mcp.pmdg import resolve_pmdg_event
+        with pytest.raises(ValueError, match="not found in PMDG 777 catalog"):
+            resolve_pmdg_event("EVT_NONEXISTENT")
