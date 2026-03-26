@@ -6,11 +6,12 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 - **Read/write any SimVar** — altitude, heading, speed, autopilot settings, engine parameters, and 1,080+ more from a comprehensive built-in catalog
 - **Read/write L-vars** — aircraft-specific local variables used by add-on developers (Fenix A320, FlyByWire A32NX, PMDG, etc.)
+- **PMDG 777 native SDK support** — direct access to all 600+ aircraft data fields, CDU screen reading with colors/formatting, and control events via the PMDG SDK Client Data Areas
 - **Trigger events** — toggle switches, set autopilot modes, control lights, fire custom MobiFlight events
 - **Execute RPN calculator code** — run arbitrary Reverse Polish Notation code directly in the sim
 - **Search and discover variables** — searchable catalogs of SimVars, events, and aircraft-specific L-vars with human-readable names and valid values
 - **Embedded documentation** — SimConnect reference docs served as MCP resources, available offline
-- **Aircraft-specific catalogs** — pre-built L-var databases with panel groupings, display names, and value descriptions. Ships with 1,433 Fenix A320/A321 variables across 26 panels.
+- **Aircraft-specific catalogs** — pre-built L-var databases with panel groupings, display names, and value descriptions. Ships with 1,433 Fenix A320/A321 variables and 1,607 PMDG 777 variables.
 - **HubHop integration** — built-in client for the [MobiFlight HubHop](https://hubhop.mobiflight.com) community database to generate and extend L-var catalogs for any supported aircraft
 
 ## Prerequisites
@@ -111,7 +112,7 @@ uv run mcp dev src/simconnect_mcp/server.py
 
 > **Note:** Replace `/path/to/simconnect-mcp` with the actual absolute path to your clone of this repository.
 
-## Tools (26)
+## Tools (29)
 
 ### Connection (3)
 
@@ -174,6 +175,16 @@ uv run mcp dev src/simconnect_mcp/server.py
 | `send_sim_text` | Display a text overlay in the simulator |
 | `set_aircraft_position` | Teleport aircraft to a specific position |
 
+### PMDG 777 (3)
+
+| Tool | Description |
+|------|-------------|
+| `get_pmdg_var` | Read any PMDG 777 data field (switches, MCP values, fuel qty, FMC data) |
+| `get_pmdg_cdu` | Read CDU screen as text rows with per-cell color and formatting |
+| `send_pmdg_event` | Send PMDG control events (toggle switches, press buttons, set selectors) |
+
+These tools use the PMDG SDK Client Data Areas for direct binary access to the aircraft state — bypassing the MobiFlight L-var bridge. Requires `EnableDataBroadcast=1` and `EnableCDUBroadcast.N=1` in `777_Options.ini`. See [PMDG 777 SDK Reference](src/simconnect_mcp/docs/pmdg_777.md) for details.
+
 ## Variable Catalogs
 
 The server ships with comprehensive variable catalogs for search and discovery, so that AI agents can find the right variable names without guessing.
@@ -205,6 +216,7 @@ L-var catalogs provide searchable, human-readable databases for specific aircraf
 | Aircraft | Variables | Panels | Source |
 |----------|-----------|--------|--------|
 | Fenix A319/A320/A321 | 1,433 | 26 | HubHop + manual curation |
+| PMDG 777 (all variants) | 1,607 | 27 | SDK header parse + HubHop |
 
 Each variable includes a display name, category, writability flag, and (where applicable) a map of valid values.
 
@@ -273,11 +285,13 @@ Or create catalogs manually by placing a JSON file in `src/simconnect_mcp/data/`
 src/simconnect_mcp/
 ├── server.py              # FastMCP instance, lifespan, tool registration
 ├── connection.py          # SimConnectManager singleton + native set_lvar
+├── pmdg.py                # PMDG 777 SDK structs, CDU rendering, data manager
 ├── tools/
 │   ├── __init__.py        # @handle_simconnect_errors, @require_connection decorators
 │   ├── simvars.py         # SimVar CRUD + catalog loading (1,080+ vars)
 │   ├── events.py          # Event trigger/search + built-in catalog
 │   ├── lvars.py           # L-var read/write/search/panels/calculator code
+│   ├── pmdg.py            # PMDG 777 tools (get_pmdg_var, get_pmdg_cdu, send_pmdg_event)
 │   ├── aircraft.py        # State snapshots (position, systems)
 │   ├── facilities.py      # Airport/navaid lookup
 │   └── utilities.py       # send_sim_text, set_aircraft_position
@@ -285,17 +299,19 @@ src/simconnect_mcp/
 │   ├── catalog.py         # L-var catalog loader and search engine
 │   ├── hubhop.py          # MobiFlight HubHop API client
 │   ├── fenix_a320.json    # Fenix A320/A321 catalog (1,433 vars, 26 panels)
+│   ├── pmdg_777.json      # PMDG 777 catalog (1,607 vars, 27 panels)
 │   └── simvars_catalog.json  # Built-in SimVar catalog (1,080+ vars, 25 categories)
 ├── vendor/
 │   ├── simconnect_mobiflight.py
 │   └── mobiflight_variable_requests.py
 └── docs/                  # Embedded documentation served as MCP resources
+    └── pmdg_777.md        # PMDG 777 SDK reference (architecture, naming, CDU, events)
 ```
 
 ## Development
 
 ```bash
-# Run tests (47 tests, no MSFS required)
+# Run tests (110 tests, no MSFS required)
 uv run pytest
 
 # Run tests with verbose output
