@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Parse PMDG 777X SDK header and generate a variable catalog JSON.
+"""Parse a PMDG SDK header and generate a variable catalog JSON.
 
-Reads PMDG_777X_SDK.h and extracts:
-  - All PMDG_777X_Data struct fields (state variables)
+Reads any PMDG SDK header (777X, NG3, etc.) and extracts:
+  - All struct PMDG_<X>_Data fields (state variables)
   - All EVT_* event defines (control events)
   - Section comments (panel/system groupings)
 
-Then merges with HubHop community presets to produce a comprehensive
-catalog JSON file compatible with simconnect-mcp's catalog system.
+Then optionally merges with HubHop community presets to produce a
+comprehensive catalog JSON compatible with simconnect-mcp's catalog system.
+
+The struct name and data-area constants are auto-detected from the header.
+Pass the corresponding CLI flags to override.
 
 Usage:
     python scripts/parse_pmdg_sdk.py <sdk_header_path> [-o output.json] [--hubhop]
@@ -89,7 +92,9 @@ _TYPE_MAP = {
 
 # Panel category mapping from SDK section comments
 # Uses prefix-based matching: if a comment line starts with the key, use that category
+# Matching is sorted longest-first, so specific 777 keys win over shorter NG3 aliases.
 _SECTION_TO_CATEGORY = {
+    # --- PMDG 777 subsections ---
     # Overhead Maintenance Panel subsections
     "Backup Window Heat": "OVERHEAD_MAINTENANCE",
     "Standby Power": "ELECTRICAL",
@@ -154,10 +159,36 @@ _SECTION_TO_CATEGORY = {
     "Control Stand": "CONTROL_STAND",
     "Aft Aisle Stand Panel": "COMMUNICATION",
     "Flight Controls": "FLIGHT_CONTROLS",
+    # --- PMDG NG3 (737) subsections ---
+    "Aft overhead": "ELECTRICAL",          # default until subsection overrides
+    "Forward overhead": "ELECTRICAL",
+    "Center overhead": "ELECTRICAL",
+    "Bottom overhead": "LIGHTS",
+    "AFS": "AUTOPILOT",
+    "PSEU": "WARNING",
+    "Lights": "LIGHTS",
+    "Oxygen": "OXYGEN",
+    "Gear": "FORWARD_PANEL",
+    "Gear panel": "FORWARD_PANEL",
+    "Flight recorder": "MISCELLANEOUS",
+    "Navigation/Displays": "AVIONICS",
+    "APU": "ENGINES",
+    "Wipers": "MISCELLANEOUS",
+    "Air systems": "AIR_CONDITIONING",
+    "Anti-ice": "ANTI_ICE",  # NG3 lowercase variant
+    "Doors": "DOORS",
+    "Warnings": "WARNING",
+    "EFIS control panels": "EFIS",
+    "Mode control panel": "MCP",
+    "Lower forward panel": "FORWARD_PANEL",
+    "FMS": "FMC",
+    "General and misc": "MISCELLANEOUS",
 }
 
 # Event section to category mapping
+# Matching is sorted longest-first; NG3 short aliases are added at the bottom.
 _EVT_SECTION_TO_CATEGORY = {
+    # --- PMDG 777 event sections ---
     "Overhead - Hydraulic": "HYDRAULIC",
     "Overhead - Electric": "ELECTRICAL",
     "Overhead - FUEL Panel": "FUEL",
@@ -207,6 +238,61 @@ _EVT_SECTION_TO_CATEGORY = {
     "Window handle, crank and clipboard events": "DOORS",
     "MCP Direct Control": "MCP",
     "Panel system events": "MISCELLANEOUS",
+    # --- PMDG NG3 (737) event sections ---
+    "Overhead - LIGHTS Panel": "LIGHTS",
+    "Overhead - Center Part": "ELECTRICAL",
+    "Overhead - NAVDSP": "AVIONICS",
+    "Overhead - FLTCTRL": "FLIGHT_CONTROLS",
+    "Overhead - CVR": "MISCELLANEOUS",
+    "Overhead - HYD": "HYDRAULIC",
+    "Overhead - ICE": "ANTI_ICE",
+    "Overhead - PNEU": "BLEED_AIR",
+    "Overhead - Cabin Alt": "AIR_CONDITIONING",
+    "Overhead - test gauge": "MISCELLANEOUS",
+    "Aft Overhead - LE Devices": "FLIGHT_CONTROLS",
+    "Aft Overhead - Service Interphone Switch": "COMMUNICATION",
+    "Aft Overhead - Dome Switch": "LIGHTS",
+    "Aft Overhead - ISDU panel": "AVIONICS",
+    "Aft Overhead - Engine control": "ENGINES",
+    "Aft Overhead - Oxygen": "OXYGEN",
+    "Aft Overhead - Flt Rec & Warning": "WARNING",
+    "Integrated Standby Flight Display - ISFD": "FORWARD_PANEL",
+    "Analog standby instruments": "FORWARD_PANEL",
+    "MCP": "MCP",
+    "EFIS Captain control panel": "EFIS",
+    "EFIS F/O control panels": "EFIS",
+    "Display select panels": "DISPLAY_SELECT",
+    "Main panel misc": "FORWARD_PANEL",
+    "Aux Fuel Cockpit Display": "FUEL",
+    "Nose Wheel Steering": "FORWARD_PANEL",
+    "Warning/caution": "WARNING",
+    "Lower Main": "LIGHTS",
+    "GPWS": "FORWARD_PANEL",
+    "Chronometers": "FORWARD_PANEL",
+    "Control Stand": "CONTROL_STAND",
+    "FLT  DK DOOR Panel": "DOORS",
+    "FLT DK DOOR Panel": "DOORS",
+    "VHF Panels": "COMMUNICATION",
+    "MMR Panels": "COMMUNICATION",
+    "ADF Panel": "COMMUNICATION",
+    "SELCAL Panel": "COMMUNICATION",
+    "COMM Panels": "COMMUNICATION",
+    "Audio Control Panels": "COMMUNICATION",
+    "WX RADAR panel": "WEATHER_RADAR",
+    "TCAS": "TRANSPONDER",
+    "HUD control panel": "FORWARD_PANEL",
+    "HUD Annunciator Panel": "FORWARD_PANEL",
+    "CDU": "CDU",
+    "Fire protection panel": "FIRE_PROTECTION",
+    "Cargo Fire": "FIRE_PROTECTION",
+    "Lav/Supernumerary Smoke": "FIRE_PROTECTION",
+    "Flight controls - pedestal": "FLIGHT_CONTROLS",
+    "Pedestal Lights Controls": "LIGHTS",
+    "EFB": "MISCELLANEOUS",
+    "Various": "MISCELLANEOUS",
+    "Grimes light": "LIGHTS",
+    "Yoke Animations": "MISCELLANEOUS",
+    "Pressurization Direct Control": "AIR_CONDITIONING",
 }
 
 
@@ -324,19 +410,33 @@ def _is_writable(field_name: str, field_type: str) -> bool:
     return True
 
 
-def parse_data_struct(lines: list[str]) -> list[dict]:
-    """Parse the PMDG_777X_Data struct fields."""
+# Detects:  struct PMDG_777X_Data { ... },  struct PMDG_NG3_Data { ... }, etc.
+_STRUCT_DECL_RE = re.compile(r"^\s*struct\s+(?P<name>PMDG_[A-Za-z0-9_]+_Data)\b")
+
+
+def detect_struct_name(lines: list[str]) -> str | None:
+    """Find the data struct name (e.g. PMDG_777X_Data, PMDG_NG3_Data)."""
+    for line in lines:
+        m = _STRUCT_DECL_RE.match(line)
+        if m:
+            return m.group("name")
+    return None
+
+
+def parse_data_struct(lines: list[str], struct_name: str) -> list[dict]:
+    """Parse a PMDG_<X>_Data struct's fields."""
     in_struct = False
     current_section = "MISCELLANEOUS"
     current_subsection = ""
     fields = []
     pending_comment_lines: list[str] = []
+    struct_decl = f"struct {struct_name}"
 
     for i, line in enumerate(lines):
         stripped = line.strip()
 
         # Detect struct start
-        if "struct PMDG_777X_Data" in line:
+        if struct_decl in line:
             in_struct = True
             continue
         if not in_struct:
@@ -577,8 +677,18 @@ def build_catalog(
     events: list[dict],
     aircraft_name: str = "PMDG 777",
     title_pattern: str = "PMDG 777",
+    data_area: str = "PMDG_777X_Data",
+    control_area: str = "PMDG_777X_Control",
+    cdu_areas: list[str] | None = None,
+    event_base: int = 0x00011000,
 ) -> dict:
     """Build the final catalog dict."""
+    if cdu_areas is None:
+        cdu_areas = [
+            "PMDG_777X_CDU_0",
+            "PMDG_777X_CDU_1",
+            "PMDG_777X_CDU_2",
+        ]
     # Build event index
     event_lookup = _build_event_lookup(events)
     field_event_map = _match_events_to_fields(fields, events)
@@ -631,14 +741,10 @@ def build_catalog(
         "aircraft": aircraft_name,
         "title_pattern": title_pattern,
         "sdk_info": {
-            "data_area": "PMDG_777X_Data",
-            "control_area": "PMDG_777X_Control",
-            "cdu_areas": [
-                "PMDG_777X_CDU_0",
-                "PMDG_777X_CDU_1",
-                "PMDG_777X_CDU_2",
-            ],
-            "event_base": 0x00011000,
+            "data_area": data_area,
+            "control_area": control_area,
+            "cdu_areas": cdu_areas,
+            "event_base": event_base,
         },
         "variables": all_variables,
         "panels": panels,
@@ -778,12 +884,47 @@ def merge_hubhop(catalog: dict, hubhop_vars: dict[str, dict]) -> dict:
 # Main
 # ---------------------------------------------------------------------------
 
+def _derive_areas(struct_name: str) -> tuple[str, str, str]:
+    """Derive area-name prefix from struct name.
+
+    Example: ``PMDG_777X_Data`` → ``PMDG_777X``. The prefix is used to
+    construct the data/control/CDU area names when not overridden.
+    """
+    suffix = "_Data"
+    if struct_name.endswith(suffix):
+        prefix = struct_name[: -len(suffix)]
+    else:
+        prefix = struct_name
+    return (
+        f"{prefix}_Data",
+        f"{prefix}_Control",
+        prefix,
+    )
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Parse PMDG 777X SDK header")
-    parser.add_argument("header", help="Path to PMDG_777X_SDK.h")
+    parser = argparse.ArgumentParser(description="Parse a PMDG SDK header")
+    parser.add_argument("header", help="Path to PMDG_*_SDK.h header")
     parser.add_argument("-o", "--output", help="Output JSON file path")
+    parser.add_argument("--struct-name",
+                        help="Data struct name (default: auto-detect)")
+    parser.add_argument("--data-area",
+                        help="Client data area name (default: derived from struct)")
+    parser.add_argument("--control-area",
+                        help="Control data area name (default: derived from struct)")
+    parser.add_argument("--cdu-count", type=int, default=None,
+                        help="Number of CDUs (default: 3 for 777X, 2 for NG3)")
+    parser.add_argument("--cdu-areas", nargs="*",
+                        help="CDU data area names (default: derived)")
     parser.add_argument("--hubhop", action="store_true",
                         help="Fetch and merge HubHop presets")
+    parser.add_argument("--hubhop-vendor", default="PMDG",
+                        help="HubHop vendor name (default: PMDG)")
+    parser.add_argument("--hubhop-aircraft",
+                        help="HubHop aircraft model (e.g. 'B777 300ER', 'B737-800')")
+    parser.add_argument("--hubhop-match",
+                        help="Substring match against HubHop aircraft field "
+                             "if exact aircraft lookup returns nothing")
     parser.add_argument("--aircraft-name", default="PMDG 777",
                         help="Aircraft name for catalog")
     parser.add_argument("--title-pattern", default="PMDG 777",
@@ -799,8 +940,34 @@ def main():
 
     lines = header_path.read_text(encoding="utf-8").splitlines()
 
+    # Resolve struct name
+    struct_name = args.struct_name or detect_struct_name(lines)
+    if struct_name is None:
+        print("Error: could not auto-detect PMDG data struct. "
+              "Pass --struct-name explicitly.", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve area names
+    default_data, default_control, prefix = _derive_areas(struct_name)
+    data_area = args.data_area or default_data
+    control_area = args.control_area or default_control
+
+    if args.cdu_areas:
+        cdu_areas = list(args.cdu_areas)
+    else:
+        cdu_count = args.cdu_count
+        if cdu_count is None:
+            # Heuristic: NG3 has 2 CDUs, everything else has 3
+            cdu_count = 2 if "NG3" in struct_name else 3
+        cdu_areas = [f"{prefix}_CDU_{i}" for i in range(cdu_count)]
+
     print(f"Parsing {header_path.name}...")
-    fields = parse_data_struct(lines)
+    print(f"  Struct:        {struct_name}")
+    print(f"  Data area:     {data_area}")
+    print(f"  Control area:  {control_area}")
+    print(f"  CDU areas:     {cdu_areas}")
+
+    fields = parse_data_struct(lines, struct_name)
     events = parse_events(lines)
 
     print(f"  Data fields: {len(fields)}")
@@ -811,6 +978,9 @@ def main():
         fields, events,
         aircraft_name=args.aircraft_name,
         title_pattern=args.title_pattern,
+        data_area=data_area,
+        control_area=control_area,
+        cdu_areas=cdu_areas,
     )
 
     # HubHop merge
@@ -820,12 +990,21 @@ def main():
             from simconnect_mcp.data.hubhop import HubHopClient
 
             client = HubHopClient()
-            presets = client.fetch_presets(vendor="PMDG", aircraft="B777 300ER")
+            presets: list[dict] = []
+            if args.hubhop_aircraft:
+                presets = client.fetch_presets(
+                    vendor=args.hubhop_vendor, aircraft=args.hubhop_aircraft,
+                )
             if not presets:
-                # Try alternate name
-                presets = client.fetch_presets(vendor="PMDG")
-                presets = [p for p in presets if "777" in p.get("aircraft", "").lower()
-                           or "77" in p.get("aircraft", "").lower()]
+                all_for_vendor = client.fetch_presets(vendor=args.hubhop_vendor)
+                if args.hubhop_match:
+                    needle = args.hubhop_match.lower()
+                    presets = [
+                        p for p in all_for_vendor
+                        if needle in p.get("aircraft", "").lower()
+                    ]
+                else:
+                    presets = all_for_vendor
             print(f"  HubHop presets: {len(presets)}")
             hubhop_vars = client.extract_lvars(presets)
             print(f"  HubHop L-vars: {len(hubhop_vars)}")
