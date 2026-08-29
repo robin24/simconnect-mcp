@@ -58,7 +58,15 @@ class SimVarTimeoutError(SimVarError):
 # operation rather than from one global table.  (There is no
 # SIMCONNECT_EXCEPTION_ILLEGAL_OPERATION -- verify any code you add against
 # SimConnect.Enum.SIMCONNECT_EXCEPTION before using it.)
-_NOT_FOUND = frozenset({"SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED"})
+_NOT_FOUND = frozenset({
+    "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED",
+    # RequestDataOnSimObject reports this when its definition was never
+    # successfully built -- in practice, because the variable name was bad
+    # and AddToDataDefinition already raised NAME_UNRECOGNIZED for it. Once
+    # both packets are bound, either exception can arrive first, so both
+    # must map to the same typed error for the result to be deterministic.
+    "SIMCONNECT_EXCEPTION_UNRECOGNIZED_ID",
+})
 
 # Ambiguous codes: on a read these mean the unit or datatype was wrong; on a
 # write they usually mean the variable is not settable.
@@ -92,19 +100,35 @@ class SimVarAccessor:
         self._sm = sm
         self._definitions: OrderedDict[tuple[str, str, int | None, bool], int] = OrderedDict()
 
-    def definition_id(self, name: str, unit: str, index: int | None, is_string: bool) -> int:
+    @staticmethod
+    def _cache_key(
+        name: str, unit: str, index: int | None, is_string: bool
+    ) -> tuple[str, str, int | None, bool]:
+        return (name.strip().upper(), unit, index, is_string)
+
+    def definition_id(
+        self, name: str, unit: str, index: int | None, is_string: bool
+    ) -> tuple[int, int | None]:
         """Definition ID for this (name, unit, index), creating it once.
+
+        Returns (definition_id, send_id). send_id is the packet ID of the
+        AddToDataDefinition call when one was actually issued (cache miss);
+        it is None on a cache hit. AddToDataDefinition can itself raise
+        NAME_UNRECOGNIZED for a bad variable name -- or a DATA_ERROR-style
+        code for a bad unit -- and that exception correlates to its own
+        packet, not to the RequestDataOnSimObject that follows, so callers
+        must bind this send_id too or the exception is never matched.
 
         Definition IDs are a finite SimConnect resource and new_def_id()
         rebuilds an Enum on every call, so they must not be created per read.
         Eviction drops only our mapping; SimConnect definitions are not
         reclaimable, so the bound caps growth rather than recycling IDs.
         """
-        key = (name.strip().upper(), unit, index, is_string)
+        key = self._cache_key(name, unit, index, is_string)
         cached = self._definitions.get(key)
         if cached is not None:
             self._definitions.move_to_end(key)
-            return cached
+            return cached, None
 
         def_id = self._sm.new_def_id().value
         datatype = (
@@ -121,10 +145,21 @@ class SimVarAccessor:
             ctypes.c_float(0.0),
             SIMCONNECT_UNUSED,
         )
+        send_id = self._last_packet_id()
         self._definitions[key] = def_id
         if len(self._definitions) > DEFINITION_CACHE_SIZE:
             self._definitions.popitem(last=False)
-        return def_id
+        return def_id, send_id
+
+    def _evict(self, key: tuple[str, str, int | None, bool]) -> None:
+        """Drop a cached definition after SimConnect rejects it.
+
+        Without this, a definition that failed (bad name, bad unit) stays
+        cached and every retry silently reuses the same broken definition
+        instead of re-registering -- so a fixed unit or a renamed variable
+        could never succeed on retry.
+        """
+        self._definitions.pop(key, None)
 
     def _last_packet_id(self) -> int:
         """Packet ID of the call just sent, for exception correlation."""
@@ -163,15 +198,24 @@ class SimVarAccessor:
         """
         as_string = is_string_var(name)
         resolved_unit = "string" if as_string else resolve_unit(name, unit)
-        def_id = self.definition_id(name, resolved_unit, index, as_string)
+        key = self._cache_key(name, resolved_unit, index, as_string)
 
         req_id = self._sm.new_request_id().value
         pending = PendingRequest(request_id=req_id, is_string=as_string)
         self._sm.registry.register(pending)
 
-        # Hold the lock across send + bind so the dispatch thread cannot
-        # deliver an exception before we know which packet it belongs to.
+        # The lock spans BOTH sends: on a cache miss, AddToDataDefinition can
+        # itself raise NAME_UNRECOGNIZED (bad variable) or a DATA_ERROR-style
+        # code (bad unit), and that exception correlates to its own packet,
+        # not to the RequestDataOnSimObject that follows. Binding only the
+        # request's send ID would leave a definition-level exception
+        # unmatched, and the caller would see a timeout instead of the
+        # correct typed error.
         with self._sm.registry.pending_lock:
+            def_id, def_send_id = self.definition_id(name, resolved_unit, index, as_string)
+            if def_send_id is not None:
+                self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
+
             self._sm.dll.RequestDataOnSimObject(
                 self._sm.hSimConnect,
                 req_id,
@@ -192,6 +236,10 @@ class SimVarAccessor:
                     "The sim may be paused, loading, or not running."
                 )
             if pending.exception is not None:
+                # A definition that SimConnect just rejected must not
+                # survive in the cache, or every retry reuses the same
+                # broken definition and can never succeed.
+                self._evict(key)
                 self._raise_for(pending.exception, name, resolved_unit)
             return pending.value
         finally:

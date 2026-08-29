@@ -52,6 +52,20 @@ def test_discard_removes_both_index_entries():
     assert registry.resolve_exception(11, "X") is False
 
 
+def test_discard_removes_every_bound_send_id():
+    """A read binds two send IDs (AddToDataDefinition and
+    RequestDataOnSimObject); discard must not leak either one."""
+    registry = RequestRegistry()
+    req = PendingRequest(request_id=5)
+    registry.register(req)
+    registry.bind_send_id(req, send_id=11)
+    registry.bind_send_id(req, send_id=12)
+    registry.discard(req)
+
+    assert registry.resolve_exception(11, "X") is False
+    assert registry.resolve_exception(12, "X") is False
+
+
 def test_write_request_has_no_request_id_but_still_matches_exceptions():
     """Writes get no SIMOBJECT_DATA reply, so they are matched by send_id only."""
     registry = RequestRegistry()

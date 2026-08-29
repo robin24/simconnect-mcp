@@ -17,33 +17,64 @@ class FakeSM:
 
     Resolves each read on a background thread, the way the real dispatch
     thread would, so the accessor's blocking wait is exercised.
+
+    Packet IDs increment on every simulated "send" (AddToDataDefinition as
+    well as RequestDataOnSimObject), the way real SimConnect packet IDs do.
+    A fake that returned the same fixed ID for every send (as this harness
+    originally did) cannot distinguish the two calls, which hid a real bug:
+    an exception from AddToDataDefinition was never bound and so degraded
+    to a timeout instead of the correct typed error.
+
+    `exception=` models an exception delivered against the *request*
+    packet (RequestDataOnSimObject); `definition_exception=` models one
+    against the *definition* packet (AddToDataDefinition) -- the case that
+    was previously untested. The two are mutually exclusive in practice
+    (a request built on a definition SimConnect just rejected does not also
+    get a real response), so when `definition_exception` is set,
+    `_respond_async` does not schedule a competing delivery.
     """
 
-    def __init__(self, value=None, exception=None, respond=True):
+    def __init__(self, value=None, exception=None, respond=True, definition_exception=None):
         self.registry = RequestRegistry()
         self.hSimConnect = 1
         self.dll = MagicMock()
         self._next_id = 100
         self._value = value
         self._exception = exception
+        self._definition_exception = definition_exception
         self._respond = respond
         self.definitions = []
+        self._packet_id = 500
+        self.packet_ids_issued = []
         self.dll.AddToDataDefinition.side_effect = self._record_definition
         self.dll.RequestDataOnSimObject.side_effect = self._respond_async
         self.dll.GetLastSentPacketID.side_effect = self._set_packet_id
 
     def _record_definition(self, handle, def_id, name, unit, datatype, epsilon, datum):
         self.definitions.append((def_id, name, unit, datatype))
+        self._packet_id += 1
+        self.packet_ids_issued.append(self._packet_id)
+        if self._definition_exception is not None:
+            packet_id = self._packet_id
+            threading.Timer(
+                0.01,
+                lambda: self.registry.resolve_exception(packet_id, self._definition_exception),
+            ).start()
 
     def _set_packet_id(self, handle, out):
-        out.value = 555
+        out.value = self._packet_id
 
     def _respond_async(self, handle, req_id, def_id, obj, period, flags, origin, interval, limit):
+        self._packet_id += 1
+        self.packet_ids_issued.append(self._packet_id)
+        if self._definition_exception is not None:
+            return  # the definition already failed; no request response follows
         if not self._respond:
             return
+        request_packet_id = self._packet_id
         def deliver():
             if self._exception is not None:
-                self.registry.resolve_exception(555, self._exception)
+                self.registry.resolve_exception(request_packet_id, self._exception)
             else:
                 self.registry.resolve_data(req_id, self._value)
         threading.Timer(0.01, deliver).start()
@@ -126,6 +157,50 @@ def test_data_error_exception_raises_unit_mismatch_on_read():
     sm = FakeSM(exception="SIMCONNECT_EXCEPTION_DATA_ERROR")
     with pytest.raises(UnitMismatchError):
         SimVarAccessor(sm).read("PLANE_ALTITUDE", unit="bogus_unit")
+
+
+def test_bad_name_exception_on_add_to_data_definition_is_correlated():
+    """SimConnect raises NAME_UNRECOGNIZED from AddToDataDefinition, not from
+    RequestDataOnSimObject. Binding only the request packet made this a timeout."""
+    sm = FakeSM(definition_exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).read("NOT_A_REAL_VAR", timeout=1.0)
+
+
+def test_unrecognised_id_on_the_request_also_raises_not_found():
+    """Live behaviour: a bad name makes AddToDataDefinition raise
+    NAME_UNRECOGNIZED and the following request raise UNRECOGNIZED_ID.
+    Whichever arrives first must produce the same typed error."""
+    sm = FakeSM(exception="SIMCONNECT_EXCEPTION_UNRECOGNIZED_ID")
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).read("NOT_A_REAL_VAR", timeout=1.0)
+
+
+def test_definition_and_request_packets_get_distinct_send_ids():
+    """Guards the harness itself: if the fake returned one id for every send,
+    the test above would pass even with the defect present."""
+    sm = FakeSM(value=1.0)
+    SimVarAccessor(sm).read("PLANE_ALTITUDE")
+    assert len(set(sm.packet_ids_issued)) == len(sm.packet_ids_issued) >= 2
+
+
+def test_failed_definition_is_not_left_in_the_cache():
+    """A poisoned cache entry would make every retry skip AddToDataDefinition."""
+    sm = FakeSM(definition_exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
+    accessor = SimVarAccessor(sm)
+    for _ in range(2):
+        with pytest.raises(SimVarNotFoundError):
+            accessor.read("NOT_A_REAL_VAR", timeout=1.0)
+    assert len(sm.definitions) == 2, "second attempt must re-send AddToDataDefinition"
+
+
+def test_cache_hit_binds_only_the_request_packet():
+    sm = FakeSM(value=1.0)
+    accessor = SimVarAccessor(sm)
+    accessor.read("PLANE_ALTITUDE")
+    before = len(sm.definitions)
+    accessor.read("PLANE_ALTITUDE")
+    assert len(sm.definitions) == before, "cache hit must not re-send the definition"
 
 
 def test_read_discards_the_pending_request_after_success():

@@ -80,18 +80,26 @@ class PendingRequest:
     Reads carry a `request_id` and are resolved by SIMOBJECT_DATA.  Writes
     produce no reply, so `request_id` is None and they are only ever resolved
     by an exception (or by timing out successfully).
+
+    A single read can itself issue two DLL calls -- AddToDataDefinition and
+    RequestDataOnSimObject -- and SimConnect can raise an exception
+    correlated to either one's packet ID (a bad variable name or a bad unit
+    is typically reported against the AddToDataDefinition send, not the
+    RequestDataOnSimObject that follows it). `send_ids` accumulates every
+    packet ID this request is waiting on, so an exception against any of
+    them resolves it.
     """
 
     request_id: int | None
     is_string: bool = False
-    send_id: int | None = None
+    send_ids: list[int] = field(default_factory=list)
     value: Any = None
     exception: str | None = None
     done: threading.Event = field(default_factory=threading.Event)
 
 
 class RequestRegistry:
-    """Thread-safe index of in-flight requests, by request ID and send ID.
+    """Thread-safe index of in-flight requests, by request ID and send IDs.
 
     `pending_lock` is public on purpose: the accessor holds it across the DLL
     send and the subsequent bind_send_id() so the dispatch thread cannot
@@ -114,16 +122,19 @@ class RequestRegistry:
             return self._by_request.get(request_id)
 
     def bind_send_id(self, req: PendingRequest, send_id: int, _locked: bool = False) -> None:
-        """Record the packet ID returned by GetLastSentPacketID.
+        """Record another packet ID this request is waiting on.
 
-        Pass _locked=True when pending_lock is already held by this thread.
+        A request can accumulate more than one send ID -- e.g. a read binds
+        both its AddToDataDefinition and RequestDataOnSimObject packets,
+        since either can independently raise an exception. Pass
+        _locked=True when pending_lock is already held by this thread.
         """
         if _locked:
-            req.send_id = send_id
+            req.send_ids.append(send_id)
             self._by_send[send_id] = req
             return
         with self.pending_lock:
-            req.send_id = send_id
+            req.send_ids.append(send_id)
             self._by_send[send_id] = req
 
     def resolve_data(self, request_id: int, value: Any) -> bool:
@@ -148,8 +159,8 @@ class RequestRegistry:
         with self.pending_lock:
             if req.request_id is not None:
                 self._by_request.pop(req.request_id, None)
-            if req.send_id is not None:
-                self._by_send.pop(req.send_id, None)
+            for send_id in req.send_ids:
+                self._by_send.pop(send_id, None)
 
 
 class SimConnectDispatcher(SimConnectMobiFlight):
