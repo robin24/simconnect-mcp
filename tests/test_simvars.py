@@ -371,7 +371,7 @@ async def test_get_simvar_not_connected():
     """Reading without connection returns error when sim is unavailable."""
     with patch.dict(sys.modules, {"SimConnect": None}):
         result = await get_simvar("PLANE_LATITUDE")
-        assert result["status"] == "error"
+        assert result.status == "error"
 
 
 def test_title_mock_returns_bytes_like_the_real_sim(mock_simconnect):

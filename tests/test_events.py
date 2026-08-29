@@ -69,7 +69,7 @@ async def test_trigger_event_not_connected():
     """Triggering event without connection returns error when sim is unavailable."""
     with patch.dict(sys.modules, {"SimConnect": None}):
         result = await trigger_event("PARKING_BRAKES")
-        assert result["status"] == "error"
+        assert result.status == "error"
 
 
 def test_event_catalog_loads_the_real_library_catalog():
