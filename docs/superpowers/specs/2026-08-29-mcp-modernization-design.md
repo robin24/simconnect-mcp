@@ -81,11 +81,21 @@ Eviction drops the mapping only; SimConnect definitions are not reclaimed, so th
 cap growth, not to recycle IDs.
 
 **Error correlation.** After each send the accessor calls `GetLastSentPacketID` and records the
-returned packet ID against the pending request. `dispatch.py` matches incoming
-`SIMCONNECT_RECV_EXCEPTION.dwSendID` against that record and resolves the request with a typed
-error. (The library's own `handle_exception_event` compares against the constant field
-`UNKNOWN_SENDID` rather than `dwSendID`, which is why its correlation never matches.) Typed
-errors: `SimVarNotFoundError`, `SimVarNotSettableError`, `UnitMismatchError`,
+returned packet ID against the pending request. `dispatch.py` matches the incoming exception's
+send ID against that record and resolves the request with a typed error.
+
+The installed package's `SIMCONNECT_RECV_EXCEPTION` binding **cannot be used for this**. The SDK
+declares `UNKNOWN_SENDID` and `UNKNOWN_INDEX` as static constants alongside three wire fields
+(`dwException`, `dwSendID`, `dwIndex`); the package wrongly places both constants *inside*
+`_fields_`, giving a 32-byte struct where the wire format is 24. The names are therefore shifted:
+its `UNKNOWN_SENDID` (offset 16) is the real `dwSendID`, and its `dwSendID` (offset 20) is the
+real `dwIndex`. That the same package models the identical pattern correctly for
+`SIMCONNECT_RECV_EVENT.UNKNOWN_GROUP` — a class constant outside `_fields_` — confirms this is a
+mistake rather than a deliberate layout. `dispatch.py` therefore declares its own correctly-shaped
+struct and casts to that, which is immune to the packaging error either way. (The library's own
+`handle_exception_event` reads `UNKNOWN_SENDID`, which is in fact the correct offset.)
+
+Typed errors: `SimVarNotFoundError`, `SimVarNotSettableError`, `UnitMismatchError`,
 `SimVarTimeoutError`. A request receiving neither data nor exception within 2000 ms raises
 `SimVarTimeoutError`.
 
