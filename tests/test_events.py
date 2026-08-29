@@ -52,3 +52,26 @@ async def test_trigger_event_not_connected():
     with patch.dict(sys.modules, {"SimConnect": None}):
         result = await trigger_event("PARKING_BRAKES")
         assert result["status"] == "error"
+
+
+def test_event_catalog_loads_the_real_library_catalog():
+    """The import was from the wrong module, silently degrading to 50 events."""
+    from simconnect_mcp.tools import events
+
+    events._EVENT_CATALOG = None
+    events._FLAT_EVENTS = None
+    catalog = events._load_event_catalog()
+
+    total = sum(len(v) for v in catalog.values())
+    assert total > 900, f"expected the full library catalog, got {total} events"
+    assert len(catalog) >= 20
+
+
+def test_search_events_finds_an_event_absent_from_the_builtin_list():
+    """TOGGLE_PUSHBACK is in the library catalog but not the 50 builtins."""
+    from simconnect_mcp.tools import events
+
+    events._EVENT_CATALOG = None
+    events._FLAT_EVENTS = None
+    found = events._search_events("pushback")
+    assert any("PUSHBACK" in e["name"].upper() for e in found)

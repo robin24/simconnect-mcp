@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
+
+logger = logging.getLogger(__name__)
 
 # --- Event catalog ---
 
@@ -14,34 +17,49 @@ _FLAT_EVENTS: list[dict] | None = None
 
 
 def _load_event_catalog() -> dict[str, list[dict]]:
+    """Load the SimConnect event catalog from the installed library.
+
+    Events live in SimConnect.EventList (not SimConnect.RequestList, which is
+    what this used to import -- the ImportError was swallowed and the catalog
+    silently degraded to the 50-entry builtin list while trigger_event could
+    still fire all 994).
+
+    AircraftEvents holds inner classes, each with a `list` of
+    (b"EVENT_NAME", "description") tuples.
+    """
     global _EVENT_CATALOG, _FLAT_EVENTS
     if _EVENT_CATALOG is not None:
         return _EVENT_CATALOG
 
     catalog: dict[str, list[dict]] = {}
-
     try:
-        from SimConnect.RequestList import EventList
+        from SimConnect.EventList import AircraftEvents
 
-        for category_name in dir(EventList):
-            if category_name.startswith("_"):
+        for attr_name in dir(AircraftEvents):
+            inner = getattr(AircraftEvents, attr_name, None)
+            if not isinstance(inner, type) or not hasattr(inner, "list"):
                 continue
-            category_data = getattr(EventList, category_name, None)
-            if not isinstance(category_data, dict):
-                continue
+            # Inner classes are name-mangled: _AircraftEvents__Flight_Controls
+            category = attr_name.split("__", 1)[-1].replace("_", " ").strip()
             entries = []
-            for event_name, event_info in category_data.items():
-                entry = {"name": event_name, "category": category_name}
-                if isinstance(event_info, dict):
-                    entry["description"] = event_info.get("description", "")
-                entries.append(entry)
+            for item in inner.list:
+                raw_name, description = item[0], item[1] if len(item) > 1 else ""
+                name = raw_name.decode() if isinstance(raw_name, bytes) else str(raw_name)
+                entries.append(
+                    {"name": name, "category": category, "description": description}
+                )
             if entries:
-                catalog[category_name] = entries
+                catalog[category] = entries
     except Exception:
+        logger.warning("Could not load SimConnect event catalog", exc_info=True)
+        catalog = {}
+
+    # Fall back when parsing yields nothing, not only when the import raises.
+    if not catalog:
         catalog = _builtin_event_catalog()
 
     _EVENT_CATALOG = catalog
-    _FLAT_EVENTS = [e for cats in catalog.values() for e in cats]
+    _FLAT_EVENTS = [e for entries in catalog.values() for e in entries]
     return catalog
 
 
