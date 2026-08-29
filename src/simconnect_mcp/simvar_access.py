@@ -125,6 +125,17 @@ class SimVarAccessor:
         rebuilds an Enum on every call, so they must not be created per read.
         Eviction drops only our mapping; SimConnect definitions are not
         reclaimable, so the bound caps growth rather than recycling IDs.
+
+        `unit` doubles as part of the cache key even for string variables,
+        where the caller passes the literal sentinel "string" rather than a
+        real SimConnect unit -- that keeps a string definition and a numeric
+        one for the same variable name distinct in `_definitions`. But a
+        STRING256 definition must be registered with a NULL unit: passing
+        b"string" to AddToDataDefinition makes SimConnect raise
+        NAME_UNRECOGNIZED (verified against a live sim, where it made every
+        string SimVar, including TITLE, unreadable). So the sentinel is
+        substituted with None right at the DLL call below, and never leaks
+        into the cache key.
         """
         key = self._cache_key(name, unit, index, is_string)
         cached = self._definitions.get(key)
@@ -142,7 +153,7 @@ class SimVarAccessor:
             self._sm.hSimConnect,
             def_id,
             simconnect_name(name, index),
-            unit.encode("ascii"),
+            None if is_string else unit.encode("ascii"),
             datatype,
             ctypes.c_float(0.0),
             SIMCONNECT_UNUSED,
@@ -246,6 +257,25 @@ class SimVarAccessor:
             return pending.value
         finally:
             self._sm.registry.discard(pending)
+
+    def read_many(
+        self,
+        requests: list[tuple[str, str | None, int | None]],
+        timeout: float = DEFAULT_TIMEOUT,
+    ) -> dict[str, dict]:
+        """Read several SimVars, isolating failures.
+
+        Keys are `NAME` or `NAME:index`, so indexed variables stay distinct.
+        A failure on one variable never aborts the batch.
+        """
+        results: dict[str, dict] = {}
+        for name, unit, index in requests:
+            key = name if index is None else f"{name}:{index}"
+            try:
+                results[key] = {"value": self.read(name, unit, index, timeout)}
+            except SimVarError as e:
+                results[key] = {"error": str(e), "error_type": type(e).__name__}
+        return results
 
     def write(
         self,

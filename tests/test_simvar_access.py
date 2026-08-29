@@ -10,6 +10,7 @@ from simconnect_mcp.simvar_access import (
     SimVarNotSettableError,
     SimVarTimeoutError,
     UnitMismatchError,
+    simconnect_name,
 )
 
 
@@ -222,6 +223,69 @@ def test_read_discards_the_pending_request_after_success():
 
     assert "req_id" in captured
     assert sm.registry.resolve_data(captured["req_id"], 999.0) is False
+
+
+def test_string_definitions_are_registered_with_a_null_unit():
+    """STRING256 definitions must take a NULL unit. Passing "string" makes
+    SimConnect raise NAME_UNRECOGNIZED -- verified against a live sim, where
+    it made every string SimVar including TITLE unreadable."""
+    sm = FakeSM(value="Boeing 747-8i")
+    SimVarAccessor(sm).read("TITLE")
+    _, name, unit, datatype = sm.definitions[0]
+    assert name == b"TITLE"
+    assert unit is None, f"STRING256 unit must be None, got {unit!r}"
+
+
+def test_numeric_definitions_still_get_their_unit():
+    sm = FakeSM(value=1.0)
+    SimVarAccessor(sm).read("PLANE_ALTITUDE", unit="feet")
+    assert sm.definitions[0][2] == b"feet"
+
+
+def test_string_var_uses_string256_datatype():
+    from SimConnect.Enum import SIMCONNECT_DATATYPE
+
+    sm = FakeSM(value="Boeing 747-8i")
+    SimVarAccessor(sm).read("TITLE")
+    _, _, _, datatype = sm.definitions[0]
+    assert datatype == SIMCONNECT_DATATYPE.SIMCONNECT_DATATYPE_STRING256
+
+
+def test_string_var_returns_str_not_bytes():
+    sm = FakeSM(value="Boeing 747-8i")
+    result = SimVarAccessor(sm).read("TITLE")
+    assert result == "Boeing 747-8i"
+    assert isinstance(result, str)
+
+
+def test_read_many_returns_a_result_per_variable():
+    sm = FakeSM(value=42.0)
+    results = SimVarAccessor(sm).read_many(
+        [("PLANE_ALTITUDE", None, None), ("AIRSPEED_INDICATED", "knots", None)]
+    )
+    assert results["PLANE_ALTITUDE"]["value"] == 42.0
+    assert results["AIRSPEED_INDICATED"]["value"] == 42.0
+
+
+def test_read_many_isolates_a_failing_variable():
+    """One bad name must not abort the whole batch."""
+    sm = FakeSM(respond=False)
+    results = SimVarAccessor(sm).read_many([("NOT_A_REAL_VAR", None, None)], timeout=0.05)
+    assert "error" in results["NOT_A_REAL_VAR"]
+    assert results["NOT_A_REAL_VAR"]["error_type"] == "SimVarTimeoutError"
+
+
+def test_read_many_keys_indexed_vars_distinctly():
+    sm = FakeSM(value=1.0)
+    results = SimVarAccessor(sm).read_many(
+        [("ENG_N1_RPM", None, 1), ("ENG_N1_RPM", None, 2)]
+    )
+    assert set(results) == {"ENG_N1_RPM:1", "ENG_N1_RPM:2"}
+
+
+def test_simconnect_name_helper_is_index_zero_safe():
+    assert simconnect_name("ENG_N1_RPM", 0) == b"ENG N1 RPM:0"
+    assert simconnect_name("ENG_N1_RPM", None) == b"ENG N1 RPM"
 
 
 class FakeWriteSM(FakeSM):
