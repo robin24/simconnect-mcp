@@ -49,6 +49,12 @@ from simconnect_mcp.vendor.simconnect_mobiflight import SimConnectMobiFlight
 
 log = logging.getLogger(__name__)
 
+# SIMCONNECT_DATATYPE_STRING256's fixed wire size. Every is_string request
+# resolved by _on_simobject_data was registered at that datatype by
+# SimVarAccessor.definition_id (see simvar_access.STRING_SIZE, which this
+# must match) -- so 256 is the declared field width, not a guess.
+STRING256_SIZE = 256
+
 
 class RecvException(SIMCONNECT_RECV):
     """SIMCONNECT_RECV_EXCEPTION with the layout the SDK actually defines.
@@ -256,7 +262,13 @@ class SimConnectDispatcher(SimConnectMobiFlight):
 
         address = ctypes.addressof(data.dwData)
         if req.is_string:
-            raw = ctypes.cast(address, ctypes.c_char_p).value or b""
+            # dwData is DWORD * 8192 (32KB); a STRING256 value only ever
+            # occupies its first 256 bytes. ctypes.cast(..., c_char_p).value
+            # scans for the first NUL *anywhere* in memory, so a value with
+            # no NUL inside its own 256 bytes would read past the declared
+            # field into whatever data follows. string_at with an explicit
+            # length can never read past that bound.
+            raw = ctypes.string_at(address, STRING256_SIZE).split(b"\0", 1)[0]
             value: Any = raw.decode("ascii", errors="replace").strip()
         else:
             value = ctypes.cast(address, ctypes.POINTER(ctypes.c_double)).contents.value

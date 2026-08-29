@@ -1,6 +1,14 @@
+import ctypes
 import threading
+from ctypes.wintypes import DWORD
 
-from simconnect_mcp.dispatch import PendingRequest, RequestRegistry
+from simconnect_mcp.dispatch import (
+    STRING256_SIZE,
+    PendingRequest,
+    RecvException,
+    RequestRegistry,
+    SimConnectDispatcher,
+)
 
 
 def test_resolve_data_sets_value_and_signals_waiter():
@@ -210,11 +218,104 @@ def test_recv_exception_struct_matches_the_sdk_wire_layout():
     """The installed package's binding has two static constants wrongly
     inside _fields_, shifting dwSendID by one slot. Ours must match the SDK:
     three DWORDs after the 12-byte SIMCONNECT_RECV header."""
-    import ctypes
-
-    from simconnect_mcp.dispatch import RecvException
-
     assert ctypes.sizeof(RecvException) == 24
     assert RecvException.dwException.offset == 12
     assert RecvException.dwSendID.offset == 16
     assert RecvException.dwIndex.offset == 20
+
+
+class _FakeSimObjectData(ctypes.Structure):
+    """Just enough of SIMCONNECT_RECV_SIMOBJECT_DATA for _on_simobject_data:
+    a request id and a data buffer. dwData is DWORD-typed here, exactly as
+    in the real struct (and unlike a c_char array, a DWORD array field
+    stays a real ctypes object on attribute access, so ctypes.addressof()
+    works on it the same way it does on the genuine SIMCONNECT_RECV_
+    SIMOBJECT_DATA.dwData). The real buffer is DWORD * 8192 (32KB); 128
+    DWORDs (512 bytes) is plenty to exercise the STRING256 boundary safely,
+    entirely within memory we allocated ourselves."""
+
+    _fields_ = [
+        ("dwRequestID", DWORD),
+        ("dwData", DWORD * 128),
+    ]
+
+
+def _make_simobject_data(request_id: int, payload: bytes) -> _FakeSimObjectData:
+    """Build a _FakeSimObjectData with `payload` copied into dwData's memory."""
+    data = _FakeSimObjectData(dwRequestID=request_id)
+    ctypes.memmove(data.dwData, payload, len(payload))
+    return data
+
+
+def _bare_dispatcher() -> SimConnectDispatcher:
+    """A SimConnectDispatcher with none of __init__'s work done.
+
+    __init__ connects to the real SimConnect DLL, which needs neither exist
+    nor matter for _on_simobject_data -- it only ever touches self.registry.
+    object.__new__ allocates the instance without running __init__.
+    """
+    dispatcher = object.__new__(SimConnectDispatcher)
+    dispatcher.registry = RequestRegistry()
+    return dispatcher
+
+
+def test_string_decode_never_reads_past_the_string256_declared_size():
+    """Minor: dwData is DWORD * 8192 (32KB); a STRING256 value only ever
+    occupies its first 256 bytes. The old
+    ctypes.cast(address, c_char_p).value scans for the first NUL *anywhere*
+    in memory, so a value with no NUL inside its own 256 bytes reads into
+    whatever data follows it. Simulated safely here with a NUL placed well
+    past byte 256 inside our own over-sized fake buffer -- still entirely
+    within memory we own, but past the field the old code was supposed to
+    respect.
+
+    Fails against the current code: c_char_p reads through to that later
+    NUL and returns 300 'A's, not 256."""
+    dispatcher = _bare_dispatcher()
+    pending = PendingRequest(request_id=7, is_string=True)
+    dispatcher.registry.register(pending)
+
+    buf = bytearray(b"A" * 512)
+    buf[300] = 0  # NUL well past the 256-byte STRING256 field
+    data = _make_simobject_data(7, bytes(buf))
+
+    dispatcher._on_simobject_data(data)
+
+    assert pending.value == "A" * STRING256_SIZE, (
+        f"expected exactly {STRING256_SIZE} 'A's (the STRING256 field width), got "
+        f"{len(pending.value)} characters -- the decode read past the declared field"
+    )
+
+
+def test_string_decode_stops_at_a_null_within_the_field():
+    """Common case, must still work: SimConnect pads STRING256 with NULs
+    after the value."""
+    dispatcher = _bare_dispatcher()
+    pending = PendingRequest(request_id=9, is_string=True)
+    dispatcher.registry.register(pending)
+
+    payload = b"Boeing 747-8i" + b"\x00" * (512 - len(b"Boeing 747-8i"))
+    data = _make_simobject_data(9, payload)
+
+    dispatcher._on_simobject_data(data)
+
+    assert pending.value == "Boeing 747-8i"
+
+
+def test_numeric_decode_is_unaffected_by_the_string_decode_change():
+    dispatcher = _bare_dispatcher()
+    pending = PendingRequest(request_id=11, is_string=False)
+    dispatcher.registry.register(pending)
+
+    class _FakeNumericData(ctypes.Structure):
+        _fields_ = [
+            ("dwRequestID", DWORD),
+            ("dwData", ctypes.c_double * 4096),
+        ]
+
+    data = _FakeNumericData(dwRequestID=11)
+    data.dwData[0] = 35000.0
+
+    dispatcher._on_simobject_data(data)
+
+    assert pending.value == 35000.0
