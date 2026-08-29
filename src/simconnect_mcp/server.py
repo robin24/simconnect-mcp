@@ -128,15 +128,23 @@ register_state_resources(mcp)
 register_prompts(mcp)
 
 
+_LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
+
+
 def configure_logging() -> None:
     """Send logs to stderr only.
 
     This server speaks JSON-RPC over stdio; anything written to stdout
     corrupts the protocol stream. Defaults to WARNING because the vendored
     MobiFlight bridge is chatty at INFO. Override with SIMCONNECT_MCP_LOG_LEVEL.
+
+    The level name is matched against a fixed set rather than looked up on the
+    logging module: a bare getattr would resolve any all-caps attribute, and
+    logging.BASIC_FORMAT is a format string that makes setLevel raise and takes
+    the whole server down at startup.
     """
-    level_name = os.environ.get("SIMCONNECT_MCP_LOG_LEVEL", "WARNING").upper()
-    level = getattr(logging, level_name, logging.WARNING)
+    level_name = os.environ.get("SIMCONNECT_MCP_LOG_LEVEL", "WARNING").strip().upper()
+    level = getattr(logging, level_name) if level_name in _LOG_LEVELS else logging.WARNING
 
     root = logging.getLogger()
     for handler in root.handlers[:]:
