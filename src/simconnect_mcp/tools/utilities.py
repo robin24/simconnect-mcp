@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
@@ -87,7 +89,7 @@ async def set_aircraft_position(
         bank: Bank in degrees
 
     Returns:
-        Confirmation dict with the position applied.
+        Confirmation dict with the position applied and actual values reported.
     """
     if not -90.0 <= latitude <= 90.0 or not -180.0 <= longitude <= 180.0:
         return {
@@ -99,18 +101,23 @@ async def set_aircraft_position(
 
     manager = SimConnectManager()
 
-    def _current(name: str, fallback: float) -> float:
+    def _current(
+        name: str, fallback: float, unit: str | None = None
+    ) -> float:
         try:
-            value = manager.accessor.read(name, unit="degrees" if name == "PLANE_HEADING_DEGREES_TRUE" else None)
+            value = manager.accessor.read(name, unit=unit)
             return float(value) if value is not None else fallback
         except Exception:
             return fallback
 
-    def _set_pos() -> None:
-        target_alt = altitude if altitude is not None else _current("PLANE_ALTITUDE", 0.0)
+    def _set_pos() -> dict:
+        target_alt = (
+            altitude if altitude is not None else _current("PLANE_ALTITUDE", 0.0)
+        )
         target_hdg = (
-            heading if heading is not None
-            else _current("PLANE_HEADING_DEGREES_TRUE", 0.0)
+            heading
+            if heading is not None
+            else _current("PLANE_HEADING_DEGREES_TRUE", 0.0, unit="degrees")
         )
         manager.sm.set_pos(
             _Altitude=target_alt,
@@ -122,19 +129,43 @@ async def set_aircraft_position(
             _Heading=target_hdg,
             _OnGround=1 if on_ground else 0,
         )
+        # The sim overrides the requested altitude when OnGround is set, so
+        # report where the aircraft actually ended up rather than what we asked
+        # for. Reading back inside the same locked callable avoids a race.
+        time.sleep(0.3)
+        return {
+            "latitude": _current("PLANE_LATITUDE", latitude, unit="degrees"),
+            "longitude": _current(
+                "PLANE_LONGITUDE", longitude, unit="degrees"
+            ),
+            "altitude": _current("PLANE_ALTITUDE", target_alt, unit="feet"),
+            "heading": _current(
+                "PLANE_HEADING_DEGREES_TRUE", target_hdg, unit="degrees"
+            ),
+            "on_ground": bool(
+                _current("SIM_ON_GROUND", 1.0 if on_ground else 0.0)
+            ),
+        }
 
-    await manager.run_sync(_set_pos)
+    actual = await manager.run_sync(_set_pos)
 
     result = {
         "status": "ok",
         "message": "Aircraft repositioned",
-        "latitude": latitude,
-        "longitude": longitude,
-        "on_ground": on_ground,
-        "airspeed": airspeed,
+        **actual,
+        "requested": {
+            "latitude": latitude,
+            "longitude": longitude,
+            "altitude": altitude,
+            "heading": heading,
+            "on_ground": on_ground,
+            "airspeed": airspeed,
+        },
     }
-    if altitude is not None:
-        result["altitude"] = altitude
-    if heading is not None:
-        result["heading"] = heading
+    if altitude is not None and abs(actual["altitude"] - altitude) > 10:
+        result["warning"] = (
+            f"Requested altitude {altitude} ft but aircraft is at "
+            f"{actual['altitude']:.0f} ft. With on_ground set, the sim snaps "
+            "the aircraft to terrain and ignores the requested altitude."
+        )
     return result

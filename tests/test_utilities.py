@@ -45,7 +45,13 @@ async def test_on_ground_is_actually_honoured(mock_simconnect):
 async def test_arguments_map_to_the_right_set_pos_parameters(mock_simconnect):
     """Verify argument mapping to set_pos parameters."""
     await set_aircraft_position(
-        latitude=47.6, longitude=-122.3, altitude=5000, heading=270, airspeed=250
+        latitude=47.6,
+        longitude=-122.3,
+        altitude=5000,
+        heading=270,
+        airspeed=250,
+        pitch=5.0,
+        bank=10.0,
     )
     kwargs = mock_simconnect["sm"].set_pos.call_args.kwargs
     assert kwargs["_Latitude"] == 47.6
@@ -53,6 +59,8 @@ async def test_arguments_map_to_the_right_set_pos_parameters(mock_simconnect):
     assert kwargs["_Altitude"] == 5000
     assert kwargs["_Heading"] == 270
     assert kwargs["_Airspeed"] == 250
+    assert kwargs["_Pitch"] == 5.0
+    assert kwargs["_Bank"] == 10.0
 
 
 async def test_latitude_out_of_range_is_rejected(mock_simconnect):
@@ -60,3 +68,34 @@ async def test_latitude_out_of_range_is_rejected(mock_simconnect):
     result = await set_aircraft_position(latitude=91.0, longitude=0.0)
     assert result["error"] == "INVALID_POSITION"
     assert not mock_simconnect["sm"].set_pos.called
+
+
+async def test_current_heading_is_read_in_degrees_not_radians(mock_simconnect):
+    """The catalog default for PLANE_HEADING_DEGREES_TRUE is Radians, but
+    set_pos expects degrees. Feeding radians into a degrees field would put
+    the aircraft on a wildly wrong heading."""
+    await set_aircraft_position(latitude=47.6, longitude=-122.3)
+    # heading omitted, so current heading must be read
+    heading_reads = [
+        c
+        for c in mock_simconnect["accessor"].read.call_args_list
+        if c.args and c.args[0] == "PLANE_HEADING_DEGREES_TRUE"
+    ]
+    assert heading_reads, "expected the current heading to be read"
+    assert heading_reads[0].kwargs.get("unit") == "degrees"
+
+
+async def test_response_reports_actual_position_not_requested(mock_simconnect):
+    """The sim snaps altitude to terrain when on_ground is set, so echoing the
+    request would assert something that did not happen."""
+    # Mock accessor to return 125 ft actual altitude
+    mock_simconnect["accessor"].read.side_effect = lambda name, unit=None, **k: (
+        125.0 if name == "PLANE_ALTITUDE" else 47.6
+    )
+    result = await set_aircraft_position(
+        latitude=47.6, longitude=-122.3, altitude=433.0, on_ground=True
+    )
+    assert result["altitude"] == 125.0
+    assert result["requested"]["altitude"] == 433.0
+    assert "warning" in result
+    assert "125" in result["warning"]
