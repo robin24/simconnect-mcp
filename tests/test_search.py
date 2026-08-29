@@ -52,3 +52,13 @@ def test_event_search_capped():
     """Event search results are capped at 50."""
     results = _search_events("a")
     assert len(results) <= 50
+
+
+def test_simvar_catalog_is_not_loaded_as_an_aircraft_catalog():
+    """data/*.json also matches simvars_catalog.json, which has a different
+    schema and would appear as a phantom aircraft with zero variables."""
+    from simconnect_mcp.data.catalog import list_catalogs
+
+    keys = {c["key"] for c in list_catalogs()}
+    assert "simvars_catalog" not in keys
+    assert all(c["variable_count"] > 0 for c in list_catalogs())

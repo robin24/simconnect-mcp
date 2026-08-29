@@ -19,26 +19,35 @@ _TITLE_PATTERNS: dict[str, str] = {}
 
 
 def _load_all_catalogs() -> None:
-    """Load all JSON catalog files from the data directory."""
+    """Load aircraft L-var catalogs from the data directory.
+
+    `data/*.json` also matches simvars_catalog.json, which uses an unrelated
+    schema.  An aircraft catalog is identified by having both a non-empty
+    `title_pattern` and a non-empty `variables` list.
+    """
     if _catalogs:
         return
 
-    for path in DATA_DIR.glob("*.json"):
+    for path in sorted(DATA_DIR.glob("*.json")):
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-            key = path.stem  # e.g., "fenix_a320"
-            _catalogs[key] = data
-
-            # Register title pattern for auto-detection
-            pattern = data.get("title_pattern", "")
-            if pattern:
-                _TITLE_PATTERNS[pattern.lower()] = key
-
-            logger.info("Loaded L-var catalog: %s (%d variables)",
-                        key, len(data.get("variables", [])))
         except Exception as e:
             logger.warning("Failed to load catalog %s: %s", path, e)
+            continue
+
+        if not isinstance(data, dict):
+            continue
+        pattern = data.get("title_pattern", "")
+        variables = data.get("variables", [])
+        if not pattern or not variables:
+            logger.debug("Skipping %s: not an aircraft L-var catalog", path.name)
+            continue
+
+        key = path.stem
+        _catalogs[key] = data
+        _TITLE_PATTERNS[pattern.lower()] = key
+        logger.info("Loaded L-var catalog: %s (%d variables)", key, len(variables))
 
 
 def detect_catalog(aircraft_title: str) -> str | None:
