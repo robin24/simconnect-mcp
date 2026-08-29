@@ -119,3 +119,129 @@ async def test_unmappable_event_returns_event_not_found(mock_simconnect):
 async def test_known_event_reports_catalog_resolution(mock_simconnect):
     result = await trigger_event("PARKING_BRAKES")
     assert result["resolved_via"] == "catalog"
+
+
+@pytest.mark.asyncio
+async def test_unknown_mapped_event_is_reported_not_faked(mock_simconnect):
+    """MapClientEventToSimEvent succeeds for any string, so a non-None return
+    proves nothing. The sim raises NAME_UNRECOGNIZED against the map packet."""
+    import threading
+    from ctypes.wintypes import DWORD
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    # Create a minimal mock registry with pending lock
+    @dataclass
+    class MockPendingRequest:
+        exception: str | None = None
+        done: threading.Event = field(default_factory=threading.Event)
+
+    pending_ref = {"pending": None}
+
+    class MockRegistry:
+        def __init__(self):
+            self.pending_lock = threading.Lock()
+            self._by_send = {}
+
+        def register(self, req):
+            pending_ref["pending"] = req
+
+        def bind_send_id(self, req, send_id, _locked=False):
+            self._by_send[send_id] = req
+            # Simulate exception being resolved after send_id is bound
+            if send_id > 0:  # Second call (send_event)
+                req.exception = "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED"
+                req.done.set()
+
+        def discard(self, req):
+            pass
+
+    # Set up a mock registry with correlation
+    mock_registry = MockRegistry()
+    mock_simconnect["sm"].registry = mock_registry
+
+    # ae.find misses, mapping "succeeds"
+    mock_simconnect["ae"].find.return_value = None
+    mock_simconnect["sm"].map_to_sim_event.return_value = MagicMock(value=99)
+
+    # Mock GetLastSentPacketID to return incrementing send IDs
+    send_id_counter = [0]
+    def mock_get_last_packet_id(hSimConnect, out_dword):
+        send_id_counter[0] += 1
+        out_dword.value = send_id_counter[0]
+
+    mock_simconnect["sm"].dll.GetLastSentPacketID = mock_get_last_packet_id
+
+    result = await trigger_event("A_TOTALLY_MADE_UP_EVENT_XYZ")
+
+    assert result["status"] == "error"
+    assert result["error"] == "EVENT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_valid_mapped_event_still_succeeds(mock_simconnect):
+    """No exception arrives -> the event is real and was sent."""
+    import threading
+    from ctypes.wintypes import DWORD
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    # Create a minimal mock registry with pending lock
+    @dataclass
+    class MockPendingRequest:
+        exception: str | None = None
+        done: threading.Event = field(default_factory=threading.Event)
+
+    class MockRegistry:
+        def __init__(self):
+            self.pending_lock = threading.Lock()
+            self._by_send = {}
+
+        def register(self, req):
+            pass
+
+        def bind_send_id(self, req, send_id, _locked=False):
+            self._by_send[send_id] = req
+            # Signal success by setting done without exception
+            req.done.set()
+
+        def discard(self, req):
+            pass
+
+    # Set up a mock registry with correlation
+    mock_registry = MockRegistry()
+    mock_simconnect["sm"].registry = mock_registry
+
+    # ae.find misses, mapping succeeds, no exception
+    mock_simconnect["ae"].find.return_value = None
+    mock_simconnect["sm"].map_to_sim_event.return_value = MagicMock(value=99)
+
+    # Mock GetLastSentPacketID to return incrementing send IDs
+    send_id_counter = [0]
+    def mock_get_last_packet_id(hSimConnect, out_dword):
+        send_id_counter[0] += 1
+        out_dword.value = send_id_counter[0]
+
+    mock_simconnect["sm"].dll.GetLastSentPacketID = mock_get_last_packet_id
+
+    result = await trigger_event("SOME_THIRD_PARTY_EVENT")
+
+    assert result["status"] == "ok"
+    assert result["resolved_via"] == "mapped"
+
+
+@pytest.mark.asyncio
+async def test_missing_registry_falls_back_without_crashing(mock_simconnect):
+    """Plain SimConnect fallback has no registry; correlation is skipped."""
+    # Remove registry from the mock to simulate plain SimConnect
+    if hasattr(mock_simconnect["sm"], "registry"):
+        delattr(mock_simconnect["sm"], "registry")
+
+    # ae.find misses, mapping succeeds, no exception (optimistic path)
+    mock_simconnect["ae"].find.return_value = None
+    mock_simconnect["sm"].map_to_sim_event.return_value = MagicMock(value=99)
+
+    result = await trigger_event("SOME_EVENT")
+
+    assert result["status"] == "ok"
+    assert result["resolved_via"] == "mapped"

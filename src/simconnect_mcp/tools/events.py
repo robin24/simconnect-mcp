@@ -7,6 +7,7 @@ from ctypes.wintypes import DWORD
 from typing import Any
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.dispatch import PendingRequest
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,10 @@ async def trigger_event(name: str, parameter: int | None = None) -> dict:
     Resolves through the library's event catalog first, then falls back to
     mapping the name directly, so third-party and newer MSFS events work too.
 
+    When using the mapping fallback on a dispatcher-equipped connection,
+    exceptions from SimConnect (NAME_UNRECOGNIZED, ERROR) are correlated back
+    to the map and send packets to detect non-existent events.
+
     Args:
         name: Event name (e.g., 'PARKING_BRAKES', 'AP_MASTER', 'THROTTLE_SET')
         parameter: Optional integer parameter. Negative values are supported.
@@ -176,10 +181,52 @@ async def trigger_event(name: str, parameter: int | None = None) -> dict:
             return "catalog"
 
         # Not in the static catalog -- map it directly.
-        mapped = manager.sm.map_to_sim_event(name.encode("ascii"))
-        if mapped is None:
-            raise LookupError(name)
-        manager.sm.send_event(mapped, DWORD(payload if payload is not None else 0))
+        # If the dispatcher's registry is available, correlate exceptions
+        # to detect non-existent events (MapClientEventToSimEvent succeeds
+        # for any string, so a non-None return proves nothing).
+        if hasattr(manager.sm, "registry"):
+            pending = PendingRequest(request_id=None)
+            manager.sm.registry.register(pending)
+
+            try:
+                # Hold the lock across both the map and send DLL calls.
+                # Either can independently raise an exception that correlates
+                # to its own send ID, so both must be bound before the
+                # dispatcher thread can deliver exceptions for them.
+                with manager.sm.registry.pending_lock:
+                    # Map the event name
+                    mapped = manager.sm.map_to_sim_event(name.encode("ascii"))
+                    if mapped is None:
+                        raise LookupError(name)
+                    map_send_id = DWORD(0)
+                    manager.sm.dll.GetLastSentPacketID(manager.sm.hSimConnect, map_send_id)
+                    manager.sm.registry.bind_send_id(pending, map_send_id.value, _locked=True)
+
+                    # Send the event
+                    manager.sm.send_event(mapped, DWORD(payload if payload is not None else 0))
+                    send_send_id = DWORD(0)
+                    manager.sm.dll.GetLastSentPacketID(manager.sm.hSimConnect, send_send_id)
+                    manager.sm.registry.bind_send_id(pending, send_send_id.value, _locked=True)
+
+                # Wait for an exception or success
+                if pending.done.wait(0.2) and pending.exception is not None:
+                    exc = pending.exception
+                    # Treat NAME_UNRECOGNIZED and ERROR as "event not found"
+                    if exc in ("SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED", "SIMCONNECT_EXCEPTION_ERROR"):
+                        raise LookupError(name)
+                    # Other exceptions should propagate
+                    raise RuntimeError(f"SimConnect exception: {exc}")
+            finally:
+                manager.sm.registry.discard(pending)
+        else:
+            # Plain SimConnect without dispatcher registry: skip correlation
+            # and use the optimistic path (mapping may succeed or fail, but we
+            # have no exception correlation so we can't tell).
+            mapped = manager.sm.map_to_sim_event(name.encode("ascii"))
+            if mapped is None:
+                raise LookupError(name)
+            manager.sm.send_event(mapped, DWORD(payload if payload is not None else 0))
+
         return "mapped"
 
     try:
