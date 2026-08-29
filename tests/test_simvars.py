@@ -182,6 +182,8 @@ async def test_bulk_read_returns_a_value_per_variable(mock_simconnect):
     result = await get_simvar_bulk([{"name": "PLANE_ALTITUDE"}, {"name": "AIRSPEED_INDICATED"}])
     assert result["status"] == "ok"
     assert result["variables"]["PLANE_ALTITUDE"]["value"] == 35000.0
+    assert "unit" in result["variables"]["PLANE_ALTITUDE"]
+    assert result["variables"]["PLANE_ALTITUDE"]["unit"] is not None
 
 
 @pytest.mark.asyncio
@@ -191,10 +193,46 @@ async def test_watch_simvar_honours_index_zero(mock_simconnect):
 
 
 @pytest.mark.asyncio
-async def test_watch_simvar_reports_resolved_unit(mock_simconnect):
+async def test_watch_simvar_reports_the_catalog_unit_when_none_given(mock_simconnect):
+    """The old code reported the literal 'default' when no unit was passed.
+    Passing a truthy unit cannot detect that, so this asserts the None case."""
+    result = await watch_simvar("PLANE_ALTITUDE", interval_ms=100, duration_s=1)
+    assert result["unit"].lower() == "feet"
+    assert result["unit"] != "default"
+    assert len(result["samples"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_reports_explicit_unit_when_given(mock_simconnect):
+    """When a unit is explicitly passed, it should be reported."""
     result = await watch_simvar("PLANE_ALTITUDE", unit="meters", interval_ms=50, duration_s=1)
     assert result["unit"] == "meters"
     assert len(result["samples"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_fails_fast_when_the_first_read_raises(mock_simconnect):
+    """A name that will never work must not loop for the full duration."""
+    import time
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    start = time.monotonic()
+    result = await watch_simvar("NOT_A_REAL_VAR", interval_ms=200, duration_s=30)
+    elapsed = time.monotonic() - start
+    assert result["error"] == "SIMVAR_NOT_READABLE"
+    assert elapsed < 5, f"should fail fast, took {elapsed:.1f}s"
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_survives_a_transient_error_after_a_good_sample(mock_simconnect):
+    """Fail-fast is first-sample-only; a later blip must not abort the watch."""
+    good = 100.0
+    # Provide enough side effects for the loop: first sample good, then error, then more good
+    side_effects = [good, SimVarNotFoundError("blip")] + [good] * 10
+    mock_simconnect["accessor"].read.side_effect = side_effects
+    result = await watch_simvar("PLANE_ALTITUDE", interval_ms=50, duration_s=0.5)
+    assert result["status"] == "ok"
+    assert result["error_count"] >= 1
+    assert result["sample_count"] >= 1
 
 
 @pytest.mark.asyncio

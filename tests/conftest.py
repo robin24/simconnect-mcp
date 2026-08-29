@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from simconnect_mcp.connection import SimConnectManager
-from simconnect_mcp.data.simvar_catalog import is_string_var
+from simconnect_mcp.data.simvar_catalog import is_string_var, resolve_unit
 
 
 @pytest.fixture(autouse=True)
@@ -90,7 +90,8 @@ def mock_simconnect():
         )
         mock_accessor.read_many.side_effect = lambda reqs, timeout=2.0: {
             (n if i is None else f"{n}:{i}"): {
-                "value": _decode(n, simvar_values.get(n.split(":")[0]))
+                "value": _decode(n, simvar_values.get(n.split(":")[0])),
+                "unit": resolve_unit(n, u)
             }
             for n, u, i in reqs
         }

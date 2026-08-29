@@ -271,10 +271,13 @@ class SimVarAccessor:
         results: dict[str, dict] = {}
         for name, unit, index in requests:
             key = name if index is None else f"{name}:{index}"
+            resolved = resolve_unit(name, unit)
             try:
-                results[key] = {"value": self.read(name, unit, index, timeout)}
+                results[key] = {"value": self.read(name, unit, index, timeout),
+                                "unit": resolved}
             except SimVarError as e:
-                results[key] = {"error": str(e), "error_type": type(e).__name__}
+                results[key] = {"error": str(e), "error_type": type(e).__name__,
+                                "unit": resolved}
         return results
 
     def write(

@@ -297,7 +297,7 @@ async def watch_simvar(
             samples.append({"t": round(time.monotonic() - start, 3), "value": value})
         except SimVarError as e:
             errors += 1
-            if not samples and errors == 1:
+            if not samples:
                 # Fail fast on a name that will never work.
                 return {
                     "status": "error",
