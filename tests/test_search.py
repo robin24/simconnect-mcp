@@ -14,15 +14,15 @@ async def test_simvar_search_case_insensitive():
     """Search is case-insensitive."""
     result1 = await search_simvars("ALTITUDE")
     result2 = await search_simvars("altitude")
-    assert result1["count"] == result2["count"]
+    assert result1.page.count == result2.page.count
 
 
 @pytest.mark.asyncio
 async def test_simvar_search_no_results():
     """Search with no matches returns empty results."""
     result = await search_simvars("xyznonexistent123")
-    assert result["status"] == "ok"
-    assert result["count"] == 0
+    assert result.status == "ok"
+    assert result.page.count == 0
 
 
 @pytest.mark.asyncio

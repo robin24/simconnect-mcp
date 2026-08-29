@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Annotated
+
+from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.data.simvar_catalog import (
@@ -22,6 +24,22 @@ from simconnect_mcp.simvar_access import (
     UnitMismatchError,
 )
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
+from simconnect_mcp.tools.formatting import (
+    DEFAULT_LIMIT,
+    ResponseFormat,
+    build_search_result,
+)
+from simconnect_mcp.tools.models import (
+    CategoryList,
+    SearchResult,
+    SimVarBulkResult,
+    SimVarValue,
+    SimVarWriteResult,
+    ToolError,
+    WatchResult,
+    WatchSample,
+    error_from,
+)
 
 # get_simvar_bulk's list is caller-supplied and otherwise uncapped; without a
 # limit, a large enough list makes read_many hold _sim_lock for the whole
@@ -30,7 +48,7 @@ from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 MAX_BULK_VARIABLES = 100
 
 
-def _disambiguate_not_found(name: str, unit: str | None) -> dict | None:
+def _disambiguate_not_found(name: str, unit: str | None) -> ToolError | None:
     """Tell a bad unit apart from a bad name.
 
     SimConnect raises the same NAME_UNRECOGNIZED for an unknown variable and
@@ -45,18 +63,17 @@ def _disambiguate_not_found(name: str, unit: str | None) -> dict | None:
     """
     if not unit or lookup(name) is None:
         return None
-    return {
-        "status": "error",
-        "error": "UNIT_MISMATCH",
-        "message": f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
-        "suggestion": (
+    return ToolError(
+        error="UNIT_MISMATCH",
+        message=f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
+        suggestion=(
             f"'{name}' is measured in '{resolve_unit(name, None)}'. Omit the unit "
             "argument to use that, or pass a compatible SimConnect unit."
         ),
-    }
+    )
 
 
-def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> dict:
+def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> ToolError:
     """Diagnose a SimVarError the same way for every SimVar-reading tool.
 
     Before this, three call sites gave three different diagnoses for the
@@ -66,131 +83,102 @@ def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> dict:
     "check the name" -- wrong advice, since the name was fine; and
     get_simvar_bulk surfaced read_many's raw SimVarNotFoundError message
     ("SimConnect does not recognise SimVar ..."), which is actively
-    misleading when the unit, not the name, was the problem. Both
-    watch_simvar and get_simvar_bulk now route through this, which mirrors
-    get_simvar's own (separately maintained, out of scope to touch here)
-    exception handling so one situation gets one diagnosis everywhere.
+    misleading when the unit, not the name, was the problem. get_simvar,
+    watch_simvar and get_simvar_bulk all route through this now, so one
+    situation gets one diagnosis everywhere.
+
+    The catch-all also now delegates to error_from (models.py) instead of
+    keeping a second, separately-maintained "SIMVAR_ERROR" code: a bare
+    SimVarError used to be diagnosed as SIMVAR_ERROR here but SIMCONNECT_ERROR
+    by error_from's own fallback (reached whenever get_simvar/set_simvar let a
+    bare SimVarError fall through to the decorator) -- the same situation,
+    two different codes depending on which tool happened to see it.
     """
     if isinstance(e, SimVarNotFoundError):
         mismatch = _disambiguate_not_found(name, unit)
         if mismatch is not None:
             return mismatch
-        result: dict[str, Any] = {
-            "status": "error",
-            "error": "SIMVAR_NOT_FOUND",
-            "message": f"SimConnect does not recognise SimVar '{name}'",
-            "suggestion": "Use search_simvars to find the correct name.",
-        }
-        suggestions = suggest_names(name)
-        if suggestions:
-            result["suggestions"] = suggestions
-        return result
+        return ToolError(
+            error="SIMVAR_NOT_FOUND",
+            message=f"SimConnect does not recognise SimVar '{name}'",
+            suggestion="Use search_simvars to find the correct name.",
+            suggestions=suggest_names(name) or None,
+        )
     if isinstance(e, UnitMismatchError):
-        return {
-            "status": "error",
-            "error": "UNIT_MISMATCH",
-            "message": str(e),
-            "suggestion": (
+        return ToolError(
+            error="UNIT_MISMATCH",
+            message=str(e),
+            suggestion=(
                 f"Check the units for '{name}' with search_simvars, "
                 "or omit the unit argument to use the catalog default."
             ),
-        }
+        )
     if isinstance(e, SimVarTimeoutError):
-        return {
-            "status": "error",
-            "error": "SIM_TIMEOUT",
-            "message": str(e),
-            "suggestion": "The sim may be paused or loading. Try again shortly.",
-        }
-    return {
-        "status": "error",
-        "error": "SIMVAR_ERROR",
-        "message": str(e),
-        "suggestion": f"Check '{name}' with search_simvars.",
-    }
+        return ToolError(
+            error="SIM_TIMEOUT",
+            message=str(e),
+            suggestion="The sim may be paused or loading. Try again shortly.",
+        )
+    return error_from(e)
 
 
 @handle_simconnect_errors
 @require_connection
-async def get_simvar(name: str, unit: str | None = None, index: int | None = None) -> dict:
-    """Read a SimVar value by name.
+async def get_simvar(
+    name: Annotated[
+        str,
+        Field(description="SimVar name, e.g. 'PLANE_ALTITUDE' or 'AIRSPEED_INDICATED'",
+              min_length=1, max_length=128),
+    ],
+    unit: Annotated[
+        str | None,
+        Field(description="Unit to read in, e.g. 'feet', 'meters', 'knots'. "
+                          "Defaults to the catalog unit for this variable."),
+    ] = None,
+    index: Annotated[
+        int | None,
+        Field(description="Index for indexed SimVars such as engine number. "
+                          "Index 0 is valid.", ge=0, le=64),
+    ] = None,
+) -> SimVarValue | ToolError:
+    """Read a SimVar value by name, in the requested unit.
 
-    Args:
-        name: SimVar name (e.g., 'PLANE_LATITUDE', 'AIRSPEED_INDICATED')
-        unit: Unit to read in (e.g., 'feet', 'meters', 'knots'). Defaults to
-              the catalog unit for this variable, then to 'number'.
-        index: Index for indexed SimVars (e.g., engine number). Index 0 is valid.
-
-    Returns:
-        Dict with the variable name, value, and the unit actually used.
+    Returns the value together with the unit it was actually read in.
+    Use search_simvars first if you are unsure of the exact name or units.
     """
     manager = SimConnectManager()
     resolved_unit = resolve_unit(name, unit)
-
     try:
         value = await manager.run_sync(
             lambda: manager.accessor.read(name, unit=unit, index=index)
         )
-    except SimVarNotFoundError:
-        mismatch = _disambiguate_not_found(name, unit)
-        if mismatch is not None:
-            return mismatch
-        result: dict[str, Any] = {
-            "status": "error",
-            "error": "SIMVAR_NOT_FOUND",
-            "message": f"SimConnect does not recognise SimVar '{name}'",
-            "suggestion": "Use search_simvars to find the correct name.",
-        }
-        suggestions = suggest_names(name)
-        if suggestions:
-            result["suggestions"] = suggestions
-        return result
-    except UnitMismatchError as e:
-        return {
-            "status": "error",
-            "error": "UNIT_MISMATCH",
-            "message": str(e),
-            "suggestion": (
-                f"Check the units for '{name}' with search_simvars, "
-                "or omit the unit argument to use the catalog default."
-            ),
-        }
-    except SimVarTimeoutError as e:
-        return {
-            "status": "error",
-            "error": "SIM_TIMEOUT",
-            "message": str(e),
-            "suggestion": "The sim may be paused or loading. Try again shortly.",
-        }
-
-    return {
-        "status": "ok",
-        "name": name,
-        "value": value,
-        "unit": resolved_unit,
-        "index": index,
-    }
+    except SimVarError as e:
+        return _simvar_error_envelope(e, name, unit)
+    return SimVarValue(name=name, value=value, unit=resolved_unit, index=index)
 
 
 @handle_simconnect_errors
 @require_connection
 async def set_simvar(
-    name: str, value: float, unit: str | None = None, index: int | None = None
-) -> dict:
+    name: Annotated[str, Field(description="SimVar name; must be settable",
+                               min_length=1, max_length=128)],
+    value: Annotated[float, Field(description="Value to write")],
+    unit: Annotated[
+        str | None,
+        Field(description="Unit the value is expressed in. Defaults to the catalog unit."),
+    ] = None,
+    index: Annotated[
+        int | None, Field(description="Index for indexed SimVars. Index 0 is valid.",
+                          ge=0, le=64)
+    ] = None,
+) -> SimVarWriteResult | ToolError:
     """Write a value to a settable SimVar.
 
-    Args:
-        name: SimVar name (must be settable)
-        value: Value to write
-        unit: Unit the value is expressed in. Defaults to the catalog unit.
-        index: Index for indexed SimVars. Index 0 is valid.
-
-    Returns:
-        Confirmation dict, or an error if the sim rejected the write.
+    Fails with a specific error if the sim rejects the write, rather than
+    reporting success. Check the 'settable' flag with search_simvars first.
     """
     manager = SimConnectManager()
     resolved_unit = resolve_unit(name, unit)
-
     try:
         # verify=True re-reads after the write. SimConnect does NOT raise for a
         # write to a read-only variable -- it silently ignores it -- so read-back
@@ -201,62 +189,35 @@ async def set_simvar(
             )
         )
     except SimVarNotSettableError as e:
-        return {
-            "status": "error",
-            "error": "SIMVAR_NOT_SETTABLE",
-            "message": str(e),
-            "suggestion": (
+        return ToolError(
+            error="SIMVAR_NOT_SETTABLE",
+            message=str(e),
+            suggestion=(
                 f"'{name}' appears to be read-only. Look for an event that changes it "
                 "with search_events, or an aircraft-specific L-var with search_lvars. "
                 "Note the catalog's 'settable' flag is unreliable, so a variable it "
                 "marks read-only may still accept writes."
             ),
-        }
-    except SimVarNotFoundError:
-        mismatch = _disambiguate_not_found(name, unit)
-        if mismatch is not None:
-            return mismatch
-        result: dict[str, Any] = {
-            "status": "error",
-            "error": "SIMVAR_NOT_FOUND",
-            "message": f"SimConnect does not recognise SimVar '{name}'",
-            "suggestion": "Use search_simvars to find the correct name.",
-        }
-        suggestions = suggest_names(name)
-        if suggestions:
-            result["suggestions"] = suggestions
-        return result
-    except UnitMismatchError as e:
-        return {
-            "status": "error",
-            "error": "UNIT_MISMATCH",
-            "message": str(e),
-            "suggestion": f"Check the valid units for '{name}' with search_simvars.",
-        }
-    except SimVarTimeoutError as e:
-        return {
-            "status": "error",
-            "error": "SIM_TIMEOUT",
-            "message": str(e),
-            "suggestion": "The sim may be paused or loading. Try again shortly.",
-        }
+        )
+    except SimVarError as e:
+        return _simvar_error_envelope(e, name, unit)
 
-    result: dict[str, Any] = {
-        "status": "ok",
-        "name": name,
-        "value_set": value,
-        "unit": resolved_unit,
-        "index": index,
-        "verified": verified,
-    }
+    warning = None
     if verified is False:
-        result["warning"] = (
+        warning = (
             f"The write was sent but '{name}' did not change. SimConnect does not "
             "reject writes to read-only variables, so this usually means the "
             "variable is not settable. It can also mean the sim immediately "
             "overrode the value."
         )
-    return result
+    return SimVarWriteResult(
+        name=name,
+        value_set=value,
+        unit=resolved_unit,
+        index=index,
+        verified=verified,
+        warning=warning,
+    )
 
 
 # Maps read_many()'s per-entry error_type string back to the exception class,
@@ -274,34 +235,30 @@ _ERROR_TYPE_MAP: dict[str, type[SimVarError]] = {
 
 @handle_simconnect_errors
 @require_connection
-async def get_simvar_bulk(variables: list[dict]) -> dict:
-    """Read multiple SimVars in one call.
+async def get_simvar_bulk(
+    variables: Annotated[
+        list[dict],
+        Field(description="Variables to read. Each dict takes 'name' and optional "
+                          "'unit' and 'index'. Example: "
+                          '[{"name": "PLANE_LATITUDE"}, '
+                          '{"name": "ENG_N1_RPM", "index": 1, "unit": "percent"}]',
+              min_length=1, max_length=100),
+    ],
+) -> SimVarBulkResult | ToolError:
+    """Read several SimVars in one call.
 
-    Args:
-        variables: List of dicts with 'name' and optional 'unit' and 'index'.
-                   Example: [{"name": "PLANE_LATITUDE"},
-                             {"name": "ENG_N1_RPM", "index": 1, "unit": "percent"}]
-                   At most MAX_BULK_VARIABLES entries per call.
-
-    Returns:
-        Dict keyed by 'NAME' or 'NAME:index'. A successful entry holds
-        'value' and the 'unit' it was read in. A failed entry holds 'error'
-        (a message diagnosed the same way get_simvar diagnoses it -- e.g. a
-        bad unit on a known variable is reported as such, not as an unknown
-        variable), 'error_code', 'error_type', and a 'suggestion' (plus
-        'suggestions' for a likely name typo). A failure on one variable
-        does not abort the others.
+    Results are keyed by 'NAME' or 'NAME:index'. A failure on one variable
+    does not abort the others -- that entry carries an 'error' instead.
     """
     if len(variables) > MAX_BULK_VARIABLES:
-        return {
-            "status": "error",
-            "error": "TOO_MANY_VARIABLES",
-            "message": (
+        return ToolError(
+            error="TOO_MANY_VARIABLES",
+            message=(
                 f"Requested {len(variables)} variables; get_simvar_bulk accepts at "
                 f"most {MAX_BULK_VARIABLES} per call."
             ),
-            "suggestion": f"Split the request into batches of {MAX_BULK_VARIABLES} or fewer.",
-        }
+            suggestion=f"Split the request into batches of {MAX_BULK_VARIABLES} or fewer.",
+        )
 
     manager = SimConnectManager()
     # read_many only sees the resolved unit, not whether the caller supplied
@@ -327,78 +284,87 @@ async def get_simvar_bulk(variables: list[dict]) -> dict:
         name = key.split(":", 1)[0]
         exc_cls = _ERROR_TYPE_MAP.get(error_type, SimVarError)
         envelope = _simvar_error_envelope(exc_cls(entry["error"]), name, caller_units.get(key))
-        entry["error"] = envelope["message"]
-        entry["error_code"] = envelope["error"]
-        entry["suggestion"] = envelope["suggestion"]
-        if "suggestions" in envelope:
-            entry["suggestions"] = envelope["suggestions"]
+        entry["error"] = envelope.message
+        entry["error_code"] = envelope.error
+        entry["suggestion"] = envelope.suggestion
+        if envelope.suggestions:
+            entry["suggestions"] = envelope.suggestions
 
-    return {"status": "ok", "count": len(results), "variables": results}
+    return SimVarBulkResult(count=len(results), variables=results)
+
+
+SIMVAR_COLUMNS = [
+    ("name", "Name"),
+    ("units", "Units"),
+    ("settable", "Settable"),
+    ("category", "Category"),
+    ("description", "Description"),
+]
 
 
 @handle_simconnect_errors
-async def search_simvars(keyword: str, category: str | None = None) -> dict:
-    """Search SimVars by keyword, optionally filtered by category.
+async def search_simvars(
+    keyword: Annotated[str, Field(description="Search term, e.g. 'altitude', 'engine'",
+                                  min_length=1, max_length=100)],
+    category: Annotated[
+        str | None, Field(description="Restrict to one category, e.g. 'Aircraft Position'")
+    ] = None,
+    limit: Annotated[int, Field(description="Maximum results", ge=1, le=200)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Field(description="Results to skip, for paging", ge=0)] = 0,
+    response_format: Annotated[
+        ResponseFormat, Field(description="'markdown' for a compact table, 'json' for rows")
+    ] = ResponseFormat.MARKDOWN,
+) -> SearchResult | ToolError:
+    """Search the SimVar catalog by keyword.
 
-    Args:
-        keyword: Search term (e.g., 'altitude', 'engine', 'heading')
-        category: Optional category filter (e.g., 'Aircraft Position')
-
-    Returns:
-        Dict with up to 50 matching SimVars, plus `total` (the full match
-        count before truncation) and `truncated` (whether more than 50
-        matched) -- without these, a caller cannot tell 50-of-50 apart from
-        50-of-many.
+    Returns each variable's units and whether it is settable, so you can call
+    get_simvar or set_simvar with the right arguments. Results are paginated.
     """
-    all_results = search_catalog(keyword, category)
-    results = all_results[:50]
-    return {
-        "status": "ok",
-        "count": len(results),
-        "total": len(all_results),
-        "truncated": len(all_results) > len(results),
-        "results": results,
-        "keyword": keyword,
-        "category": category,
-    }
+    rows = search_catalog(keyword, category)
+    return build_search_result(
+        rows, offset, limit, response_format, SIMVAR_COLUMNS,
+        title=f"SimVars matching '{keyword}'",
+        query=keyword, filters={"category": category},
+    )
 
 
 @handle_simconnect_errors
-async def list_simvar_categories() -> dict:
-    """List all SimVar categories with variable counts.
+async def list_simvar_categories() -> CategoryList | ToolError:
+    """List every SimVar category with its variable count.
 
-    Returns:
-        Dict mapping category names to their variable count.
+    Use this to discover category names for the 'category' filter on
+    search_simvars.
     """
     catalog = load_catalog()
-    categories = {name: len(vars_) for name, vars_ in catalog.items()}
-    return {
-        "status": "ok",
-        "categories": categories,
-        "total_variables": sum(categories.values()),
-    }
+    categories = {name: len(entries) for name, entries in catalog.items()}
+    return CategoryList(categories=categories, total_variables=sum(categories.values()))
 
 
 @handle_simconnect_errors
 @require_connection
 async def watch_simvar(
-    name: str,
-    unit: str | None = None,
-    index: int | None = None,
-    interval_ms: int = 500,
-    duration_s: int = 5,
-) -> dict:
+    name: Annotated[
+        str, Field(description="SimVar name to watch", min_length=1, max_length=128)
+    ],
+    unit: Annotated[
+        str | None,
+        Field(description="Unit to read in. Defaults to the catalog unit."),
+    ] = None,
+    index: Annotated[
+        int | None,
+        Field(description="Index for indexed SimVars. Index 0 is valid.", ge=0, le=64),
+    ] = None,
+    interval_ms: Annotated[
+        int, Field(description="Polling interval in milliseconds", ge=50, le=10000)
+    ] = 500,
+    duration_s: Annotated[
+        int, Field(description="Total sampling duration in seconds", ge=1, le=30)
+    ] = 5,
+) -> WatchResult | ToolError:
     """Sample a SimVar over time, returning a time series for debugging.
 
-    Args:
-        name: SimVar name to watch
-        unit: Unit to read in. Defaults to the catalog unit.
-        index: Index for indexed SimVars. Index 0 is valid.
-        interval_ms: Polling interval in milliseconds (minimum 50)
-        duration_s: Total duration in seconds (maximum 30)
-
-    Returns:
-        Time series of values with elapsed timestamps.
+    Fails fast if the first read raises, rather than looping for the full
+    duration on a name or unit that will never work.
     """
     duration_s = min(duration_s, 30)
     interval_s = max(interval_ms / 1000.0, 0.05)
@@ -426,14 +392,13 @@ async def watch_simvar(
                 return _simvar_error_envelope(e, name, unit)
         await asyncio.sleep(interval_s)
 
-    return {
-        "status": "ok",
-        "name": name,
-        "unit": resolved_unit,
-        "index": index,
-        "samples": samples,
-        "sample_count": len(samples),
-        "error_count": errors,
-        "duration_s": duration_s,
-        "interval_ms": interval_ms,
-    }
+    return WatchResult(
+        name=name,
+        unit=resolved_unit,
+        index=index,
+        samples=[WatchSample(**s) for s in samples],
+        sample_count=len(samples),
+        error_count=errors,
+        duration_s=duration_s,
+        interval_ms=interval_ms,
+    )

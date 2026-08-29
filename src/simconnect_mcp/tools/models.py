@@ -100,6 +100,15 @@ class SimVarWriteResult(OkModel):
     value_set: float
     unit: str
     index: int | None = None
+    verified: bool = Field(
+        ..., description="Whether a read-back after the write confirmed the value landed"
+    )
+    warning: str | None = Field(
+        None,
+        description="Set when verified is False -- SimConnect does not reject writes to "
+        "read-only variables, so a rejected write looks identical to a successful one "
+        "until read back",
+    )
 
 
 class SimVarBulkResult(OkModel):
