@@ -1316,13 +1316,21 @@ Add to `SimVarAccessor` in `src/simconnect_mcp/simvar_access.py`:
         simply returned False and callers ignored it.
         """
         resolved_unit = resolve_unit(name, unit)
-        def_id = self.definition_id(name, resolved_unit, index, False)
+        key = self._cache_key(name, resolved_unit, index, False)
 
         pending = PendingRequest(request_id=None)
         self._sm.registry.register(pending)
 
         payload = (ctypes.c_double * 1)(float(value))
+
+        # The lock spans BOTH sends, exactly as in read(): AddToDataDefinition
+        # can itself raise NAME_UNRECOGNIZED for a bad variable, correlated to
+        # its own packet rather than the SetDataOnSimObject that follows.
+        # `definition_id` returns (def_id, send_id_or_None) -- None on a cache hit.
         with self._sm.registry.pending_lock:
+            def_id, def_send_id = self.definition_id(name, resolved_unit, index, False)
+            if def_send_id is not None:
+                self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
             self._sm.dll.SetDataOnSimObject(
                 self._sm.hSimConnect,
                 def_id,
@@ -1337,6 +1345,7 @@ Add to `SimVarAccessor` in `src/simconnect_mcp/simvar_access.py`:
         try:
             # An exception, if any, arrives within one dispatch round trip.
             if pending.done.wait(grace) and pending.exception is not None:
+                self._evict(key)
                 self._raise_for(pending.exception, name, resolved_unit, writing=True)
         finally:
             self._sm.registry.discard(pending)
