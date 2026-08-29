@@ -85,10 +85,17 @@ def flat_simvars() -> list[dict]:
 
 
 def lookup(name: str) -> dict | None:
-    """Catalog entry for a SimVar name, ignoring any `:index` suffix."""
+    """Catalog entry for a SimVar name.
+
+    The bundled catalog stores indexed variables under keys carrying a
+    literal ':index' suffix ("ENG_N1_RPM:index"), while callers pass the bare
+    name plus a separate index argument -- or occasionally a concrete
+    "NAME:1".  Both forms must resolve to the same entry.
+    """
     load_catalog()
     assert _by_name is not None
-    return _by_name.get(name.split(":", 1)[0].strip().upper())
+    base = name.split(":", 1)[0].strip().upper()
+    return _by_name.get(base) or _by_name.get(f"{base}:index")
 
 
 def resolve_unit(name: str, explicit: str | None) -> str:
