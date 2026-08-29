@@ -19,6 +19,7 @@ from simconnect_mcp.tools.simvars import (
     list_simvar_categories,
     search_simvars,
     set_simvar,
+    watch_simvar,
 )
 
 
@@ -159,6 +160,41 @@ async def test_get_simvar_bulk(mock_simconnect):
     assert result["status"] == "ok"
     assert "PLANE_LATITUDE" in result["variables"]
     assert "AIRSPEED_INDICATED" in result["variables"]
+
+
+@pytest.mark.asyncio
+async def test_bulk_read_honours_index_zero(mock_simconnect):
+    """Regression: `if idx` dropped index 0, silently reading the wrong var."""
+    await get_simvar_bulk([{"name": "GENERAL_ENG_THROTTLE_LEVER_POSITION", "index": 0}])
+    requests = mock_simconnect["accessor"].read_many.call_args.args[0]
+    assert requests == [("GENERAL_ENG_THROTTLE_LEVER_POSITION", None, 0)]
+
+
+@pytest.mark.asyncio
+async def test_bulk_read_passes_units(mock_simconnect):
+    await get_simvar_bulk([{"name": "PLANE_ALTITUDE", "unit": "meters"}])
+    requests = mock_simconnect["accessor"].read_many.call_args.args[0]
+    assert requests == [("PLANE_ALTITUDE", "meters", None)]
+
+
+@pytest.mark.asyncio
+async def test_bulk_read_returns_a_value_per_variable(mock_simconnect):
+    result = await get_simvar_bulk([{"name": "PLANE_ALTITUDE"}, {"name": "AIRSPEED_INDICATED"}])
+    assert result["status"] == "ok"
+    assert result["variables"]["PLANE_ALTITUDE"]["value"] == 35000.0
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_honours_index_zero(mock_simconnect):
+    await watch_simvar("ENG_N1_RPM", index=0, interval_ms=50, duration_s=1)
+    assert mock_simconnect["accessor"].read.call_args.kwargs["index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_reports_resolved_unit(mock_simconnect):
+    result = await watch_simvar("PLANE_ALTITUDE", unit="meters", interval_ms=50, duration_s=1)
+    assert result["unit"] == "meters"
+    assert len(result["samples"]) >= 1
 
 
 @pytest.mark.asyncio

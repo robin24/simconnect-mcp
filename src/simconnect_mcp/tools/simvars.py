@@ -15,6 +15,7 @@ from simconnect_mcp.data.simvar_catalog import (
     suggest_names,
 )
 from simconnect_mcp.simvar_access import (
+    SimVarError,
     SimVarNotFoundError,
     SimVarNotSettableError,
     SimVarTimeoutError,
@@ -201,33 +202,24 @@ async def set_simvar(
 @handle_simconnect_errors
 @require_connection
 async def get_simvar_bulk(variables: list[dict]) -> dict:
-    """Read multiple SimVars at once.
+    """Read multiple SimVars in one call.
 
     Args:
-        variables: List of dicts, each with 'name' and optional 'unit', 'index'.
-                   Example: [{"name": "PLANE_LATITUDE"}, {"name": "AIRSPEED_INDICATED", "unit": "knots"}]
+        variables: List of dicts with 'name' and optional 'unit' and 'index'.
+                   Example: [{"name": "PLANE_LATITUDE"},
+                             {"name": "ENG_N1_RPM", "index": 1, "unit": "percent"}]
 
     Returns:
-        Dict with results for each variable.
+        Dict keyed by 'NAME' or 'NAME:index', each holding a value or an error.
+        A failure on one variable does not abort the others.
     """
     manager = SimConnectManager()
-    results = {}
-
-    def _read_all() -> dict:
-        out = {}
-        for var in variables:
-            var_name = var["name"]
-            idx = var.get("index")
-            key = f"{var_name}:{idx}" if idx else var_name
-            try:
-                val = manager.aq.get(key)
-                out[var_name] = {"value": val, "unit": var.get("unit", "default")}
-            except Exception as e:
-                out[var_name] = {"error": str(e)}
-        return out
-
-    results = await manager.run_sync(_read_all)
-    return {"status": "ok", "variables": results}
+    requests = [
+        (var["name"], var.get("unit"), var.get("index"))  # index 0 must survive
+        for var in variables
+    ]
+    results = await manager.run_sync(lambda: manager.accessor.read_many(requests))
+    return {"status": "ok", "count": len(results), "variables": results}
 
 
 @handle_simconnect_errors
@@ -276,42 +268,53 @@ async def watch_simvar(
     interval_ms: int = 500,
     duration_s: int = 5,
 ) -> dict:
-    """Monitor a SimVar over time, returning a time-series for debugging.
+    """Sample a SimVar over time, returning a time series for debugging.
 
     Args:
         name: SimVar name to watch
-        unit: Optional unit override
-        index: Optional index for indexed SimVars
-        interval_ms: Polling interval in milliseconds (default 500)
-        duration_s: Total duration in seconds (default 5, max 30)
+        unit: Unit to read in. Defaults to the catalog unit.
+        index: Index for indexed SimVars. Index 0 is valid.
+        interval_ms: Polling interval in milliseconds (minimum 50)
+        duration_s: Total duration in seconds (maximum 30)
 
     Returns:
-        Time-series of values with timestamps.
+        Time series of values with elapsed timestamps.
     """
     duration_s = min(duration_s, 30)
     interval_s = max(interval_ms / 1000.0, 0.05)
     manager = SimConnectManager()
+    resolved_unit = resolve_unit(name, unit)
 
     samples: list[dict] = []
+    errors = 0
     start = time.monotonic()
 
     while (time.monotonic() - start) < duration_s:
-        def _read() -> Any:
-            key = f"{name}:{index}" if index else name
-            return manager.aq.get(key)
-
-        value = await manager.run_sync(_read)
-        samples.append({
-            "t": round(time.monotonic() - start, 3),
-            "value": value,
-        })
+        try:
+            value = await manager.run_sync(
+                lambda: manager.accessor.read(name, unit=unit, index=index)
+            )
+            samples.append({"t": round(time.monotonic() - start, 3), "value": value})
+        except SimVarError as e:
+            errors += 1
+            if not samples and errors == 1:
+                # Fail fast on a name that will never work.
+                return {
+                    "status": "error",
+                    "error": "SIMVAR_NOT_READABLE",
+                    "message": str(e),
+                    "suggestion": "Check the name with search_simvars.",
+                }
         await asyncio.sleep(interval_s)
 
     return {
         "status": "ok",
         "name": name,
-        "unit": unit or "default",
+        "unit": resolved_unit,
+        "index": index,
         "samples": samples,
+        "sample_count": len(samples),
+        "error_count": errors,
         "duration_s": duration_s,
         "interval_ms": interval_ms,
     }
