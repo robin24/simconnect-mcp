@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import math
 from collections import OrderedDict
 from ctypes.wintypes import DWORD
 
@@ -253,13 +254,43 @@ class SimVarAccessor:
         unit: str | None = None,
         index: int | None = None,
         grace: float = 0.15,
-    ) -> None:
+        verify: bool = False,
+    ) -> bool | None:
         """Write one numeric SimVar.
 
-        SimConnect sends no acknowledgement for a successful write, so success
-        is defined as "no exception arrived within `grace`".  This is the only
-        way to distinguish a real write from a rejected one -- AircraftRequests
-        simply returned False and callers ignored it.
+        SimConnect sends no acknowledgement for a successful write -- success
+        or failure alike.  It DOES still raise an exception for a bad
+        variable name or a bad unit, correlated to the packet that caused it
+        (see below), and that much this function catches: no exception
+        within `grace` was, historically, the only signal available, and it
+        remains the default ("no exception" is all `verify=False` reports,
+        via a `None` return).
+
+        Live testing turned up the part the old AircraftRequests.set()-based
+        code, and this function's first version, both got wrong: SimConnect
+        does not raise anything when the name and unit are both fine but the
+        variable simply will not accept a write.  AIRSPEED_TRUE -- a
+        calculated, read-only value -- silently ignores a write with no
+        exception of any kind; read-back confirms the value never changed.
+        The catalogue's `settable` flag cannot substitute for this check --
+        it is wrong in both directions on live data (AIRSPEED_TRUE is marked
+        settable=True; AUTOPILOT_ALTITUDE_LOCK_VAR, which genuinely accepts
+        writes, is marked settable=False) -- so it must not gate writes here.
+
+        Pass `verify=True` to get a real answer: after the grace window,
+        this re-reads the variable in the same unit and returns True if it
+        now matches `value` (within floating-point tolerance) or False if it
+        does not. A False return is a report, not a judgement -- writing a
+        value the sim immediately overrides (e.g. altitude in flight) or one
+        the variable already held are both legitimate outcomes, so a
+        mismatch is never raised as an error. If the verifying read itself
+        raises (e.g. the sim disconnects between the write and the
+        read-back), that exception propagates -- real information, not
+        something to swallow.
+
+        Raises SimVarNotFoundError or SimVarNotSettableError-family errors
+        only for a bad name or a bad unit, exactly as before; `verify` does
+        not change what can raise, only what a clean return means.
         """
         resolved_unit = resolve_unit(name, unit)
         key = self._cache_key(name, resolved_unit, index, False)
@@ -295,3 +326,15 @@ class SimVarAccessor:
                 self._raise_for(pending.exception, name, resolved_unit, writing=True)
         finally:
             self._sm.registry.discard(pending)
+
+        if not verify:
+            return None
+
+        # Read-back is the only reliable signal that a non-settable variable
+        # silently ignored the write -- SimConnect raises nothing for that
+        # case. A mismatch is reported, never raised: the sim overriding a
+        # value, or the write being a no-op, are both legitimate outcomes.
+        # A failure in this read (timeout, disconnect) is real information
+        # and is allowed to propagate rather than being folded into False.
+        readback = self.read(name, unit=resolved_unit, index=index)
+        return math.isclose(readback, value, rel_tol=1e-6, abs_tol=1e-6)

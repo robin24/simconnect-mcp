@@ -257,6 +257,17 @@ class FakeWriteSM(FakeSM):
                 0.01, lambda: self.registry.resolve_exception(packet_id, self._write_exception)
             ).start()
 
+    def set_readback(self, value: float) -> None:
+        """Make the verifying read() that write(verify=True) issues return `value`.
+
+        Reuses FakeSM's own RequestDataOnSimObject machinery (inherited,
+        untouched here) -- it only delivers a response when `_respond` is
+        True, which the base class sets to False for FakeWriteSM by default
+        since a plain write never issues a read.
+        """
+        self._value = value
+        self._respond = True
+
 
 def test_write_sends_the_value_and_returns_none():
     sm = FakeWriteSM()
@@ -302,3 +313,41 @@ def test_failed_write_is_not_left_in_the_cache():
         with pytest.raises(SimVarNotSettableError):
             accessor.write("AIRSPEED_INDICATED", 250.0, grace=0.2)
     assert len(sm.definitions) == 2, "second attempt must re-send AddToDataDefinition"
+
+
+def test_verify_returns_true_when_the_value_lands():
+    sm = FakeWriteSM()
+    sm.set_readback(42.0)
+    assert SimVarAccessor(sm).write("AUTOPILOT_ALTITUDE_LOCK_VAR", 42.0, verify=True) is True
+
+
+def test_verify_returns_false_when_the_write_was_ignored():
+    """A read-only variable: SimConnect raises nothing, the value just does
+    not change. Read-back is the only way to detect it."""
+    sm = FakeWriteSM()
+    sm.set_readback(0.0)
+    assert SimVarAccessor(sm).write("AIRSPEED_TRUE", 250.0, verify=True) is False
+
+
+def test_verify_false_by_default_returns_none():
+    sm = FakeWriteSM()
+    assert SimVarAccessor(sm).write("AUTOPILOT_ALTITUDE_LOCK_VAR", 1.0) is None
+
+
+def test_verify_tolerates_float_round_trip_error():
+    sm = FakeWriteSM()
+    sm.set_readback(12000.000000001)
+    assert SimVarAccessor(sm).write("AUTOPILOT_ALTITUDE_LOCK_VAR", 12000.0, verify=True) is True
+
+
+def test_verify_does_not_raise_on_mismatch():
+    """Reporting, not judging -- the sim overriding a value is legitimate."""
+    sm = FakeWriteSM()
+    sm.set_readback(0.0)
+    SimVarAccessor(sm).write("PLANE_ALTITUDE", 9999.0, verify=True)  # must not raise
+
+
+def test_name_errors_still_raise_even_with_verify():
+    sm = FakeWriteSM(definition_exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).write("NOT_A_REAL_VAR", 1.0, verify=True, grace=0.3)
