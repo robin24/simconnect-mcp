@@ -1370,10 +1370,42 @@ rejected write raises instead of being reported as success."
 
 ### Task 7: SimVarAccessor — string variables
 
-`TITLE`, `ATC_ID` and `ATC_TYPE` are string SimVars. Reading them through the old path yielded `bytes`, which is not JSON-serialisable and leaked into tool responses. The accessor already routes them to `STRING256` (Task 5); this task adds the tests that pin the behaviour and a `read_many` helper that bulk callers use.
+`TITLE`, `ATC_ID` and `ATC_TYPE` are string SimVars. Reading them through the old path yielded `bytes`, which is not JSON-serialisable and leaked into tool responses. The accessor routes them to `STRING256` (Task 5); this task fixes a defect in that routing, pins the behaviour with tests, and adds the `read_many` helper that bulk callers use.
+
+**The defect (live-verified, Critical).** Task 5 sets `resolved_unit = "string"` for string variables and passes it to `AddToDataDefinition`. A `STRING256` definition must be registered with a **null** unit. Proven against a running sim reading `TITLE`:
+
+| unit passed to AddToDataDefinition | result |
+|---|---|
+| `None` | `b'777F'`, no exceptions |
+| `b"string"` | nothing returned; raises `NAME_UNRECOGNIZED` then `UNRECOGNIZED_ID` |
+| `b""` | `b'777F'`, no exceptions |
+
+So **every string SimVar is currently unreadable** — `accessor.read("TITLE")` raises `SimVarNotFoundError`. That matters well beyond this task: `TITLE` drives aircraft detection, the PMDG variant selector, the aircraft snapshot, and the `simconnect://state/aircraft` resource.
+
+Fix: keep `"string"` as an internal cache-key sentinel only, and pass `None` as the unit argument to `AddToDataDefinition` whenever the datatype is `STRING256`. A mock-based test cannot catch this unless it asserts on the unit actually handed to the DLL — so it must.
+
+Add this test alongside the others:
+
+```python
+def test_string_definitions_are_registered_with_a_null_unit():
+    """STRING256 definitions must take a NULL unit. Passing "string" makes
+    SimConnect raise NAME_UNRECOGNIZED -- verified against a live sim, where
+    it made every string SimVar including TITLE unreadable."""
+    sm = FakeSM(value="Boeing 747-8i")
+    SimVarAccessor(sm).read("TITLE")
+    _, name, unit, datatype = sm.definitions[0]
+    assert name == b"TITLE"
+    assert unit is None, f"STRING256 unit must be None, got {unit!r}"
+
+
+def test_numeric_definitions_still_get_their_unit():
+    sm = FakeSM(value=1.0)
+    SimVarAccessor(sm).read("PLANE_ALTITUDE", unit="feet")
+    assert sm.definitions[0][2] == b"feet"
+```
 
 **Files:**
-- Modify: `src/simconnect_mcp/simvar_access.py` (add `read_many`)
+- Modify: `src/simconnect_mcp/simvar_access.py` (fix the string unit, add `read_many`)
 - Modify: `tests/test_simvar_access.py`
 
 **Interfaces:**
