@@ -1,3 +1,6 @@
+# Vendored from Koseng/MSFSPythonSimConnectMobiFlightExtension.
+# Local change: per-call logging demoted from INFO to DEBUG (a single L-var
+# read otherwise emits four INFO lines).
 import logging
 import struct
 from time import sleep
@@ -36,7 +39,7 @@ class MobiFlightVariableRequests:
 
 
     def add_to_client_data_definition(self, definition_id, offset, size):
-        logging.info("add_to_client_data_definition definition_id=%s, offset=%s, size=%s", definition_id, offset, size)
+        logging.debug("add_to_client_data_definition definition_id=%s, offset=%s, size=%s", definition_id, offset, size)
         self.sm.dll.AddToClientDataDefinition(
             self.sm.hSimConnect,
             definition_id, 
@@ -47,7 +50,7 @@ class MobiFlightVariableRequests:
 
     
     def subscribe_to_data_change(self, data_area_id, request_id, definition_id):
-        logging.info("subscribe_to_data_change data_area_id=%s, request_id=%s, definition_id=%s", data_area_id, request_id, definition_id)
+        logging.debug("subscribe_to_data_change data_area_id=%s, request_id=%s, definition_id=%s", data_area_id, request_id, definition_id)
         self.sm.dll.RequestClientData(
             self.sm.hSimConnect,
             data_area_id,
@@ -61,7 +64,7 @@ class MobiFlightVariableRequests:
 
 
     def send_data(self, data_area_id, definition_id, size, dataBytes):
-        logging.info("send_data data_area_id=%s, definition_id=%s, size=%s, dataBytes=%s", data_area_id, definition_id, size, dataBytes)
+        logging.debug("send_data data_area_id=%s, definition_id=%s, size=%s, dataBytes=%s", data_area_id, definition_id, size, dataBytes)
         self.sm.dll.SetClientData(
             self.sm.hSimConnect,
             data_area_id, 
@@ -73,7 +76,7 @@ class MobiFlightVariableRequests:
 
 
     def send_command(self, command):
-        logging.info("send_command command=%s", command)
+        logging.debug("send_command command=%s", command)
         data_byte_array = bytearray(command, "ascii")
         data_byte_array.extend(bytearray(self.DATA_STRING_SIZE - len(data_byte_array)))  # extend to fix DATA_STRING_SIZE
         self.send_data(self.CLIENT_DATA_AREA_CMD, self.DATA_STRING_DEFINITION_ID, self.DATA_STRING_SIZE, bytes(data_byte_array))

@@ -95,7 +95,7 @@ class SimConnectManager:
 
         self._state = ConnectionState.CONNECTING
         try:
-            from SimConnect import AircraftRequests, AircraftEvents
+            from SimConnect import AircraftEvents, AircraftRequests
 
             # Note: no _sim_lock here — connect/disconnect are only called
             # from a single thread, and locking during init can deadlock
@@ -137,7 +137,9 @@ class SimConnectManager:
 
             # Try MobiFlight variable requests (requires SimConnectMobiFlight + WASM module)
             try:
-                from simconnect_mcp.vendor.mobiflight_variable_requests import MobiFlightVariableRequests
+                from simconnect_mcp.vendor.mobiflight_variable_requests import (
+                    MobiFlightVariableRequests,
+                )
                 self.mobiflight = MobiFlightVariableRequests(self.sm)
                 # Clear stale variable registrations from prior sessions —
                 # without this, the WASM module returns 0 for all reads.
@@ -211,7 +213,7 @@ class SimConnectManager:
 
     async def run_sync(self, fn: Callable[..., T], *args: Any) -> T:
         """Run a blocking SimConnect call in an executor with lock."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _locked_call() -> T:
             with self._sim_lock:
@@ -302,8 +304,9 @@ class SimConnectManager:
         """
         import ctypes
         from ctypes import c_float, c_void_p, cast, sizeof
-        from SimConnect.Enum import SIMCONNECT_DATATYPE, SIMCONNECT_DATA_SET_FLAG
+
         from SimConnect.Constants import SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_UNUSED
+        from SimConnect.Enum import SIMCONNECT_DATA_SET_FLAG, SIMCONNECT_DATATYPE
 
         # Ensure L: prefix
         if not name.startswith("L:"):

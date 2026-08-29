@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import sys
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from mcp.server.fastmcp import FastMCP
 
@@ -32,49 +35,49 @@ mcp = FastMCP(
 
 # --- Register tools, resources, and prompts from domain modules ---
 
-from simconnect_mcp.tools.simvars import (  # noqa: E402
-    get_simvar,
-    set_simvar,
-    get_simvar_bulk,
-    search_simvars,
-    list_simvar_categories,
-    watch_simvar,
-)
-from simconnect_mcp.tools.events import (  # noqa: E402
-    trigger_event,
-    search_events,
-    trigger_custom_event,
-)
-from simconnect_mcp.tools.lvars import (  # noqa: E402
-    get_lvar,
-    set_lvar,
-    list_lvars,
-    execute_calculator_code,
-    search_lvars,
-    list_lvar_panels,
-    list_lvar_catalogs,
-)
+from simconnect_mcp.prompts.templates import register_prompts  # noqa: E402
+from simconnect_mcp.resources.documentation import register_doc_resources  # noqa: E402
+from simconnect_mcp.resources.state import register_state_resources  # noqa: E402
 from simconnect_mcp.tools.aircraft import (  # noqa: E402
-    get_aircraft_state,
     get_aircraft_position,
+    get_aircraft_state,
     get_aircraft_systems,
 )
+from simconnect_mcp.tools.events import (  # noqa: E402
+    search_events,
+    trigger_custom_event,
+    trigger_event,
+)
 from simconnect_mcp.tools.facilities import (  # noqa: E402
-    get_nearby_airports,
     get_facility_info,
+    get_nearby_airports,
+)
+from simconnect_mcp.tools.lvars import (  # noqa: E402
+    execute_calculator_code,
+    get_lvar,
+    list_lvar_catalogs,
+    list_lvar_panels,
+    list_lvars,
+    search_lvars,
+    set_lvar,
+)
+from simconnect_mcp.tools.pmdg import (  # noqa: E402
+    get_pmdg_cdu,
+    get_pmdg_var,
+    send_pmdg_event,
+)
+from simconnect_mcp.tools.simvars import (  # noqa: E402
+    get_simvar,
+    get_simvar_bulk,
+    list_simvar_categories,
+    search_simvars,
+    set_simvar,
+    watch_simvar,
 )
 from simconnect_mcp.tools.utilities import (  # noqa: E402
     send_sim_text,
     set_aircraft_position,
 )
-from simconnect_mcp.tools.pmdg import (  # noqa: E402
-    get_pmdg_var,
-    get_pmdg_cdu,
-    send_pmdg_event,
-)
-from simconnect_mcp.resources.documentation import register_doc_resources  # noqa: E402
-from simconnect_mcp.resources.state import register_state_resources  # noqa: E402
-from simconnect_mcp.prompts.templates import register_prompts  # noqa: E402
 
 
 # Connection tools (inline — small enough)
@@ -85,19 +88,17 @@ async def connect_to_sim() -> dict:
     Must be called before using any other tools. Automatically attempts
     to load MobiFlight WASM extension for L-var support.
     """
-    import asyncio
     manager = SimConnectManager()
     # Run in executor but NOT through run_sync — connect() manages
     # the lock internally, and run_sync would double-lock (deadlock).
-    return await asyncio.get_event_loop().run_in_executor(None, manager.connect)
+    return await asyncio.get_running_loop().run_in_executor(None, manager.connect)
 
 
 @mcp.tool()
 async def disconnect_from_sim() -> dict:
     """Close the SimConnect connection to MSFS."""
-    import asyncio
     manager = SimConnectManager()
-    return await asyncio.get_event_loop().run_in_executor(None, manager.disconnect)
+    return await asyncio.get_running_loop().run_in_executor(None, manager.disconnect)
 
 
 @mcp.tool()
@@ -127,9 +128,29 @@ register_state_resources(mcp)
 register_prompts(mcp)
 
 
+def configure_logging() -> None:
+    """Send logs to stderr only.
+
+    This server speaks JSON-RPC over stdio; anything written to stdout
+    corrupts the protocol stream. Defaults to WARNING because the vendored
+    MobiFlight bridge is chatty at INFO. Override with SIMCONNECT_MCP_LOG_LEVEL.
+    """
+    level_name = os.environ.get("SIMCONNECT_MCP_LOG_LEVEL", "WARNING").upper()
+    level = getattr(logging, level_name, logging.WARNING)
+
+    root = logging.getLogger()
+    for handler in root.handlers[:]:
+        root.removeHandler(handler)
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    root.addHandler(handler)
+    root.setLevel(level)
+
+
 def main() -> None:
     """Run the MCP server with stdio transport."""
-    logging.basicConfig(level=logging.INFO)
+    configure_logging()
     mcp.run(transport="stdio")
 
 
