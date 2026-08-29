@@ -18,6 +18,7 @@ from ctypes.wintypes import DWORD
 
 from SimConnect.Constants import SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_UNUSED
 from SimConnect.Enum import (
+    SIMCONNECT_DATA_SET_FLAG,
     SIMCONNECT_DATATYPE,
     SIMCONNECT_PERIOD,
 )
@@ -242,5 +243,55 @@ class SimVarAccessor:
                 self._evict(key)
                 self._raise_for(pending.exception, name, resolved_unit)
             return pending.value
+        finally:
+            self._sm.registry.discard(pending)
+
+    def write(
+        self,
+        name: str,
+        value: float,
+        unit: str | None = None,
+        index: int | None = None,
+        grace: float = 0.15,
+    ) -> None:
+        """Write one numeric SimVar.
+
+        SimConnect sends no acknowledgement for a successful write, so success
+        is defined as "no exception arrived within `grace`".  This is the only
+        way to distinguish a real write from a rejected one -- AircraftRequests
+        simply returned False and callers ignored it.
+        """
+        resolved_unit = resolve_unit(name, unit)
+        key = self._cache_key(name, resolved_unit, index, False)
+
+        pending = PendingRequest(request_id=None)
+        self._sm.registry.register(pending)
+
+        payload = (ctypes.c_double * 1)(float(value))
+
+        # The lock spans BOTH sends, exactly as in read(): AddToDataDefinition
+        # can itself raise NAME_UNRECOGNIZED for a bad variable, correlated to
+        # its own packet rather than the SetDataOnSimObject that follows.
+        # `definition_id` returns (def_id, send_id_or_None) -- None on a cache hit.
+        with self._sm.registry.pending_lock:
+            def_id, def_send_id = self.definition_id(name, resolved_unit, index, False)
+            if def_send_id is not None:
+                self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
+            self._sm.dll.SetDataOnSimObject(
+                self._sm.hSimConnect,
+                def_id,
+                SIMCONNECT_OBJECT_ID_USER,
+                SIMCONNECT_DATA_SET_FLAG.SIMCONNECT_DATA_SET_FLAG_DEFAULT,
+                0,
+                ctypes.sizeof(ctypes.c_double),
+                ctypes.cast(payload, ctypes.c_void_p),
+            )
+            self._sm.registry.bind_send_id(pending, self._last_packet_id(), _locked=True)
+
+        try:
+            # An exception, if any, arrives within one dispatch round trip.
+            if pending.done.wait(grace) and pending.exception is not None:
+                self._evict(key)
+                self._raise_for(pending.exception, name, resolved_unit, writing=True)
         finally:
             self._sm.registry.discard(pending)

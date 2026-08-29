@@ -7,6 +7,7 @@ from simconnect_mcp.dispatch import RequestRegistry
 from simconnect_mcp.simvar_access import (
     SimVarAccessor,
     SimVarNotFoundError,
+    SimVarNotSettableError,
     SimVarTimeoutError,
     UnitMismatchError,
 )
@@ -221,3 +222,83 @@ def test_read_discards_the_pending_request_after_success():
 
     assert "req_id" in captured
     assert sm.registry.resolve_data(captured["req_id"], 999.0) is False
+
+
+class FakeWriteSM(FakeSM):
+    """FakeSM whose SetDataOnSimObject optionally raises a SimConnect exception.
+
+    SetDataOnSimObject gets its own distinct, incrementing packet ID -- just
+    like AddToDataDefinition does in the base class -- and a write exception
+    is correlated to that exact ID rather than a fixed placeholder. A fake
+    that reused one ID for both sends, or resolved the exception against an
+    ID nothing is bound to, would let a write() that binds only one of the
+    two packets pass anyway: precisely the harness defect the previous task
+    had to correct on the read side.
+
+    `definition_exception=` (inherited from FakeSM) models an exception
+    against the *definition* packet, exercised the same way it is for reads.
+    """
+
+    def __init__(self, exception=None, definition_exception=None):
+        super().__init__(respond=False, definition_exception=definition_exception)
+        self._write_exception = exception
+        self.writes = []
+        self.dll.SetDataOnSimObject.side_effect = self._on_write
+
+    def _on_write(self, handle, def_id, obj, flags, count, size, data):
+        self.writes.append((def_id, size))
+        self._packet_id += 1
+        self.packet_ids_issued.append(self._packet_id)
+        if self._definition_exception is not None:
+            return  # the definition already failed; no write exception follows
+        if self._write_exception is not None:
+            packet_id = self._packet_id
+            threading.Timer(
+                0.01, lambda: self.registry.resolve_exception(packet_id, self._write_exception)
+            ).start()
+
+
+def test_write_sends_the_value_and_returns_none():
+    sm = FakeWriteSM()
+    assert SimVarAccessor(sm).write("AUTOPILOT_ALTITUDE_LOCK_VAR", 12000.0, grace=0.05) is None
+    assert len(sm.writes) == 1
+
+
+def test_write_to_non_settable_var_raises():
+    """The bug this replaces: aq.set() returned False and the tool said ok."""
+    sm = FakeWriteSM(exception="SIMCONNECT_EXCEPTION_DATA_ERROR")
+    with pytest.raises(SimVarNotSettableError):
+        SimVarAccessor(sm).write("AIRSPEED_INDICATED", 250.0, grace=0.2)
+
+
+def test_write_to_unknown_var_raises_not_found():
+    sm = FakeWriteSM(exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).write("NOT_A_REAL_VAR", 1.0, grace=0.2)
+
+
+def test_write_honours_index_zero():
+    sm = FakeWriteSM()
+    SimVarAccessor(sm).write("GENERAL_ENG_THROTTLE_LEVER_POSITION", 50.0, index=0, grace=0.05)
+    assert sm.definitions[0][1].endswith(b":0")
+
+
+def test_write_bad_name_on_add_to_data_definition_is_correlated():
+    """Verified against a live sim: AddToDataDefinition raises
+    NAME_UNRECOGNIZED for a bad variable name, correlated to its own packet,
+    not to the SetDataOnSimObject that follows. Binding only the second
+    packet would make bad-name writes silently time out instead of raising."""
+    sm = FakeWriteSM(definition_exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).write("NOT_A_REAL_VAR", 1.0, grace=0.2)
+
+
+def test_failed_write_is_not_left_in_the_cache():
+    """A poisoned cache entry would make every retry skip AddToDataDefinition,
+    even though SimConnect just told us the write was rejected."""
+    sm = FakeWriteSM(exception="SIMCONNECT_EXCEPTION_DATA_ERROR")
+    accessor = SimVarAccessor(sm)
+    for _ in range(2):
+        with pytest.raises(SimVarNotSettableError):
+            accessor.write("AIRSPEED_INDICATED", 250.0, grace=0.2)
+    assert len(sm.definitions) == 2, "second attempt must re-send AddToDataDefinition"
