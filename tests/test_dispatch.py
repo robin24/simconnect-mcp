@@ -82,3 +82,17 @@ def test_registry_lock_is_reentrant_safe_across_threads():
 
     t.join(1.0)
     assert seen == [True]
+
+
+def test_recv_exception_struct_matches_the_sdk_wire_layout():
+    """The installed package's binding has two static constants wrongly
+    inside _fields_, shifting dwSendID by one slot. Ours must match the SDK:
+    three DWORDs after the 12-byte SIMCONNECT_RECV header."""
+    import ctypes
+
+    from simconnect_mcp.dispatch import RecvException
+
+    assert ctypes.sizeof(RecvException) == 24
+    assert RecvException.dwException.offset == 12
+    assert RecvException.dwSendID.offset == 16
+    assert RecvException.dwIndex.offset == 20

@@ -12,22 +12,34 @@ SimConnectDispatcher takes over the loop so those branches are unreachable,
 and so SimVar reads and SimConnect exceptions can be correlated back to the
 call that caused them.
 
-Exception correlation uses SIMCONNECT_RECV_EXCEPTION.dwSendID against the
-value returned by GetLastSentPacketID at send time.  (SimConnect.py's own
-handle_exception_event compares against the constant field UNKNOWN_SENDID
-instead of dwSendID, which is why its correlation never matches.)
+Exception correlation matches the exception's send ID against the value
+returned by GetLastSentPacketID at send time.
+
+The installed package's SIMCONNECT_RECV_EXCEPTION binding cannot be used for
+this.  The SDK declares UNKNOWN_SENDID and UNKNOWN_INDEX as *static
+constants* alongside three wire fields (dwException, dwSendID, dwIndex); the
+package wrongly puts both constants inside _fields_, producing a 32-byte
+struct where the wire format is 24.  Its names are therefore shifted by one
+slot: package `UNKNOWN_SENDID` (offset 16) is the real dwSendID, and package
+`dwSendID` (offset 20) is the real dwIndex.  The same package models the
+identical pattern correctly for SIMCONNECT_RECV_EVENT.UNKNOWN_GROUP (a class
+constant outside _fields_), which confirms this is a packaging mistake.
+
+We therefore declare our own correctly-shaped struct below and cast to it,
+rather than trusting either misnamed attribute.
 """
 from __future__ import annotations
 
 import ctypes
 import logging
 import threading
+from ctypes.wintypes import DWORD
 from dataclasses import dataclass, field
 from typing import Any
 
 from SimConnect.Enum import (
     SIMCONNECT_EXCEPTION,
-    SIMCONNECT_RECV_EXCEPTION,
+    SIMCONNECT_RECV,
     SIMCONNECT_RECV_ID,
     SIMCONNECT_RECV_SIMOBJECT_DATA,
 )
@@ -35,6 +47,23 @@ from SimConnect.Enum import (
 from simconnect_mcp.vendor.simconnect_mobiflight import SimConnectMobiFlight
 
 log = logging.getLogger(__name__)
+
+
+class RecvException(SIMCONNECT_RECV):
+    """SIMCONNECT_RECV_EXCEPTION with the layout the SDK actually defines.
+
+    Three wire fields after the 12-byte SIMCONNECT_RECV header, for a total
+    of 24 bytes.  UNKNOWN_SENDID and UNKNOWN_INDEX are static constants in
+    the SDK, not fields -- see the module docstring for why the installed
+    package's binding cannot be used here.
+    """
+
+    _fields_ = [
+        ("dwException", DWORD),
+        ("dwSendID", DWORD),
+        ("dwIndex", DWORD),
+    ]
+
 
 FACILITY_RECV_IDS = frozenset({
     SIMCONNECT_RECV_ID.SIMCONNECT_RECV_ID_AIRPORT_LIST,
@@ -78,6 +107,11 @@ class RequestRegistry:
         with self.pending_lock:
             if req.request_id is not None:
                 self._by_request[req.request_id] = req
+
+    def peek(self, request_id: int) -> PendingRequest | None:
+        """Look up a pending request by ID without resolving it."""
+        with self.pending_lock:
+            return self._by_request.get(request_id)
 
     def bind_send_id(self, req: PendingRequest, send_id: int, _locked: bool = False) -> None:
         """Record the packet ID returned by GetLastSentPacketID.
@@ -141,11 +175,20 @@ class SimConnectDispatcher(SimConnectMobiFlight):
             return
 
         if dwID == SIMCONNECT_RECV_ID.SIMCONNECT_RECV_ID_EXCEPTION:
-            exc = ctypes.cast(pData, ctypes.POINTER(SIMCONNECT_RECV_EXCEPTION)).contents
+            exc = ctypes.cast(pData, ctypes.POINTER(RecvException)).contents
             try:
                 name = SIMCONNECT_EXCEPTION(exc.dwException).name
             except ValueError:
                 name = f"SIMCONNECT_EXCEPTION_{exc.dwException}"
+            # dwSize is the sim's own view of the message length. If it is not
+            # 24, our struct does not match the wire format and correlation
+            # would silently read the wrong offset -- worth knowing loudly.
+            if exc.dwSize != ctypes.sizeof(RecvException):
+                log.warning(
+                    "SIMCONNECT_RECV_EXCEPTION size %s, expected %s -- send-ID "
+                    "correlation may be reading the wrong offset",
+                    exc.dwSize, ctypes.sizeof(RecvException),
+                )
             if not self.registry.resolve_exception(exc.dwSendID, name):
                 log.debug("Unmatched SimConnect exception: %s (sendID=%s)", name, exc.dwSendID)
             return
@@ -167,8 +210,7 @@ class SimConnectDispatcher(SimConnectMobiFlight):
     def _on_simobject_data(self, data) -> None:
         """Decode one SIMOBJECT_DATA payload and resolve its request."""
         request_id = data.dwRequestID
-        with self.registry.pending_lock:
-            req = self.registry._by_request.get(request_id)
+        req = self.registry.peek(request_id)
         if req is None:
             log.debug("SIMOBJECT_DATA for unknown request %s", request_id)
             return
@@ -176,7 +218,7 @@ class SimConnectDispatcher(SimConnectMobiFlight):
         address = ctypes.addressof(data.dwData)
         if req.is_string:
             raw = ctypes.cast(address, ctypes.c_char_p).value or b""
-            value: Any = raw.decode("ascii", errors="replace").rstrip("\x00").strip()
+            value: Any = raw.decode("ascii", errors="replace").strip()
         else:
             value = ctypes.cast(address, ctypes.POINTER(ctypes.c_double)).contents.value
         self.registry.resolve_data(request_id, value)
