@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from ctypes.wintypes import DWORD
 from typing import Any
 
 from simconnect_mcp.connection import SimConnectManager
@@ -140,34 +141,65 @@ def _search_events(keyword: str, category: str | None = None) -> list[dict]:
     return results[:50]
 
 
+def _to_dword(parameter: int) -> int:
+    """SimConnect event parameters are unsigned DWORDs.
+
+    Events such as AP_VS_VAR_SET_ENGLISH take negative values (descent rates),
+    which must be sent as two's complement.
+    """
+    return parameter & 0xFFFFFFFF
+
+
 @handle_simconnect_errors
 @require_connection
 async def trigger_event(name: str, parameter: int | None = None) -> dict:
-    """Fire a standard SimConnect event.
+    """Fire a SimConnect event.
+
+    Resolves through the library's event catalog first, then falls back to
+    mapping the name directly, so third-party and newer MSFS events work too.
 
     Args:
         name: Event name (e.g., 'PARKING_BRAKES', 'AP_MASTER', 'THROTTLE_SET')
-        parameter: Optional integer parameter for events that require one
+        parameter: Optional integer parameter. Negative values are supported.
 
     Returns:
-        Confirmation dict.
+        Confirmation dict including how the event name was resolved.
     """
     manager = SimConnectManager()
+    name = name.strip().upper()
+    payload = _to_dword(parameter) if parameter is not None else None
 
-    def _fire() -> None:
+    def _fire() -> str:
         event = manager.ae.find(name)
-        if event is None:
-            raise ValueError(f"Event '{name}' not found")
-        if parameter is not None:
-            event(parameter)
-        else:
-            event()
+        if event is not None:
+            event(payload) if payload is not None else event()
+            return "catalog"
 
-    await manager.run_sync(_fire)
+        # Not in the static catalog -- map it directly.
+        mapped = manager.sm.map_to_sim_event(name.encode("ascii"))
+        if mapped is None:
+            raise LookupError(name)
+        manager.sm.send_event(mapped, DWORD(payload if payload is not None else 0))
+        return "mapped"
+
+    try:
+        resolved_via = await manager.run_sync(_fire)
+    except LookupError:
+        return {
+            "status": "error",
+            "error": "EVENT_NOT_FOUND",
+            "message": f"SimConnect could not map event '{name}'.",
+            "suggestion": (
+                "Check the name with search_events. For aircraft-specific "
+                "controls use trigger_custom_event or execute_calculator_code."
+            ),
+        }
+
     return {
         "status": "ok",
         "event": name,
         "parameter": parameter,
+        "resolved_via": resolved_via,
         "message": f"Event '{name}' triggered successfully",
     }
 

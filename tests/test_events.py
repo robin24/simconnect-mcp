@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -75,3 +75,47 @@ def test_search_events_finds_an_event_absent_from_the_builtin_list():
     events._FLAT_EVENTS = None
     found = events._search_events("pushback")
     assert any("PUSHBACK" in e["name"].upper() for e in found)
+
+
+@pytest.mark.asyncio
+async def test_trigger_falls_back_to_map_to_sim_event(mock_simconnect):
+    """Third-party and newer MSFS events are not in the library's static list."""
+    mock_simconnect["ae"].find.return_value = None
+    mock_simconnect["sm"].map_to_sim_event.return_value = MagicMock(value=99)
+
+    result = await trigger_event("SOME_THIRD_PARTY_EVENT")
+
+    assert result["status"] == "ok"
+    assert result["resolved_via"] == "mapped"
+    mock_simconnect["sm"].map_to_sim_event.assert_called_once_with(b"SOME_THIRD_PARTY_EVENT")
+
+
+@pytest.mark.asyncio
+async def test_negative_parameter_is_sent_as_twos_complement(mock_simconnect):
+    """AP_VS_VAR_SET_ENGLISH needs negative values; send_event takes a DWORD."""
+    await trigger_event("AP_VS_VAR_SET_ENGLISH", parameter=-1800)
+    sent = mock_simconnect["event"].call_args.args[0]
+    assert sent == (-1800) & 0xFFFFFFFF
+
+
+@pytest.mark.asyncio
+async def test_positive_parameter_is_unchanged(mock_simconnect):
+    await trigger_event("HEADING_BUG_SET", parameter=270)
+    assert mock_simconnect["event"].call_args.args[0] == 270
+
+
+@pytest.mark.asyncio
+async def test_unmappable_event_returns_event_not_found(mock_simconnect):
+    mock_simconnect["ae"].find.return_value = None
+    mock_simconnect["sm"].map_to_sim_event.return_value = None
+
+    result = await trigger_event("DEFINITELY_NOT_AN_EVENT")
+
+    assert result["error"] == "EVENT_NOT_FOUND"
+    assert "search_events" in result["suggestion"]
+
+
+@pytest.mark.asyncio
+async def test_known_event_reports_catalog_resolution(mock_simconnect):
+    result = await trigger_event("PARKING_BRAKES")
+    assert result["resolved_via"] == "catalog"
