@@ -89,8 +89,14 @@ async def connect_to_sim() -> dict:
     to load MobiFlight WASM extension for L-var support.
     """
     manager = SimConnectManager()
-    # Run in executor but NOT through run_sync — connect() manages
-    # the lock internally, and run_sync would double-lock (deadlock).
+    # Run in executor but NOT through run_sync: connect() takes no lock of
+    # its own (see the comment in SimConnectManager.connect). The reason to
+    # keep it off _sim_lock is that its SimConnect() constructor starts the
+    # dispatch thread, and doing that while holding _sim_lock is best
+    # avoided -- not, as this comment used to claim, that connect() manages
+    # the lock itself and run_sync would double-lock. Whether connect/
+    # disconnect should take _sim_lock at all is a separate design question,
+    # left open here.
     return await asyncio.get_running_loop().run_in_executor(None, manager.connect)
 
 
