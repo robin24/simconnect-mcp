@@ -90,6 +90,14 @@ null unit; passing a unit string raises `NAME_UNRECOGNIZED`, verified live again
 accessor therefore uses `"string"` only as an internal cache-key sentinel and passes `None` to
 `AddToDataDefinition`.
 
+**A bad unit and a bad name are indistinguishable at the protocol level.** Verified live:
+`AddToDataDefinition` raises `NAME_UNRECOGNIZED` both for an unknown variable and for a known
+variable with an invalid unit. `UnitMismatchError` is therefore unreachable from the exception
+alone, and the tool layer disambiguates using the catalog instead — if the variable is known and
+the caller supplied a unit, the name is fine, so the unit is what was rejected and the error names
+the variable's real unit. Reporting `SIMVAR_NOT_FOUND` there would suggest the very name the
+caller just used, sending an agent hunting for a naming problem that does not exist.
+
 **Unit resolution.** SimConnect requires a unit string for every data definition, so the accessor
 resolves in this order: explicit `unit` argument → the `unit` field for that variable in
 `simvars_catalog.json` → `"number"`. This makes the bundled catalog load-bearing, and makes
