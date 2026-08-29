@@ -218,6 +218,32 @@ async def test_list_lvar_panels_rejects_unknown_explicit_catalog(mock_simconnect
     assert result["error"] == "CATALOG_NOT_FOUND"
 
 
+async def test_panel_lookup_says_so_when_no_catalog_was_detected(mock_simconnect):
+    """Live-verified gap: with category= and no detection, get_panel_variables
+    picks whichever catalog iterates first ('Signs' only exists in
+    pmdg_777, so that's what comes back on an undetected aircraft) -- the
+    caller must be told that was a guess across all catalogs, not a
+    detection, exactly as the no-category branch already discloses."""
+    from simconnect_mcp.tools.lvars import list_lvar_panels
+
+    result = await list_lvar_panels(category="Signs")
+
+    assert result["status"] == "ok"
+    assert result["catalog"] == "pmdg_777"
+    assert "message" in result, "a guessed catalog must be disclosed"
+    assert "catalog" in result["message"]
+
+
+async def test_panel_lookup_is_quiet_when_the_catalog_was_explicit(mock_simconnect):
+    """No guess was made, so no warning belongs in the response."""
+    from simconnect_mcp.tools.lvars import list_lvar_panels
+
+    result = await list_lvar_panels(category="Signs", catalog="pmdg_777")
+
+    assert result["status"] == "ok"
+    assert "message" not in result
+
+
 # ---------------------------------------------------------------------------
 # tools.pmdg._detect_pmdg_variant / _resolve_pmdg_catalog
 # ---------------------------------------------------------------------------

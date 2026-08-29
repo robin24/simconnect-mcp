@@ -340,7 +340,13 @@ async def list_lvar_panels(category: str | None = None, catalog: str | None = No
                 "message": f"No panel matching '{category}' found.",
                 "suggestion": "Use list_lvar_panels() without arguments to see available panels.",
             }
-        return {"status": "ok", **panel}
+        response = {"status": "ok", **panel}
+        if auto_detect_failed:
+            response["message"] = _no_detection_message(
+                "this returned the first matching panel found across all catalogs",
+                valid_keys,
+            )
+        return response
     else:
         panels = list_panels(catalog_key)
         response = {
