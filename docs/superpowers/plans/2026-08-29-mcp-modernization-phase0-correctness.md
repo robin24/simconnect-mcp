@@ -1842,8 +1842,13 @@ async def set_simvar(
     resolved_unit = resolve_unit(name, unit)
 
     try:
-        await manager.run_sync(
-            lambda: manager.accessor.write(name, value, unit=unit, index=index)
+        # verify=True re-reads after the write. SimConnect does NOT raise for a
+        # write to a read-only variable -- it silently ignores it -- so read-back
+        # is the only way to tell the caller whether the value actually landed.
+        verified = await manager.run_sync(
+            lambda: manager.accessor.write(
+                name, value, unit=unit, index=index, verify=True
+            )
         )
     except SimVarNotSettableError as e:
         return {
@@ -1874,16 +1879,32 @@ async def set_simvar(
             "suggestion": f"Check the valid units for '{name}' with search_simvars.",
         }
 
-    return {
+    result: dict[str, Any] = {
         "status": "ok",
         "name": name,
         "value_set": value,
         "unit": resolved_unit,
         "index": index,
+        "verified": verified,
     }
+    if verified is False:
+        result["warning"] = (
+            f"The write was sent but '{name}' did not change. SimConnect does not "
+            "reject writes to read-only variables, so this usually means the "
+            "variable is not settable. It can also mean the sim immediately "
+            "overrode the value."
+        )
+    return result
 ```
 
 Add `SimVarNotSettableError` to the `simvar_access` import list.
+
+Note on `verified`: it is `True` when the read-back matched, `False` when it did not, and
+never raises on a mismatch. Do **not** turn a `False` into an error — writing a value the
+variable already holds, or one the sim continuously recomputes, are both legitimate. Do
+**not** gate the write on the catalog's `settable` flag either: on real data that flag is
+wrong in both directions (`AIRSPEED_TRUE` is marked settable but ignores writes;
+`AUTOPILOT_ALTITUDE_LOCK_VAR` is marked read-only but accepts them).
 
 - [ ] **Step 4: Run to verify they pass**
 
