@@ -50,3 +50,14 @@ def test_disconnect_when_already_disconnected():
     manager = SimConnectManager()
     result = manager.disconnect()
     assert result["status"] == "ok"
+
+
+def test_manager_exposes_an_accessor_when_connected(mock_simconnect):
+    manager = mock_simconnect["manager"]
+    assert manager.accessor is not None
+
+
+def test_disconnect_clears_the_accessor(mock_simconnect):
+    manager = mock_simconnect["manager"]
+    manager.disconnect()
+    assert manager.accessor is None

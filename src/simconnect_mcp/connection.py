@@ -45,6 +45,7 @@ class SimConnectManager:
         self.ae = None
         self.fr = None
         self.mobiflight = None
+        self.accessor = None  # SimVarAccessor, created on connect
         self._mobiflight_available = False
         self.pmdg = None  # PmdgDataManager (777), lazy-initialized
         self.pmdg_ng3 = None  # PmdgNG3DataManager (737), lazy-initialized
@@ -64,10 +65,12 @@ class SimConnectManager:
     def connect(self) -> dict[str, Any]:
         """Establish SimConnect connection. Returns status dict.
 
-        Attempts to use SimConnectMobiFlight (vendored) first, which is a
-        drop-in subclass of SimConnect that adds client-data support needed
-        by the MobiFlight WASM module. Falls back to plain SimConnect if
-        the vendored extension isn't available.
+        Attempts to use SimConnectDispatcher first, which owns the dispatch
+        loop (enabling SimVar exception correlation via `self.accessor`) and
+        is itself a drop-in subclass of the vendored SimConnectMobiFlight, so
+        client-data support for the MobiFlight WASM module is preserved.
+        Falls back to plain SimConnect if the dispatcher isn't available; in
+        that case `self.accessor` stays None.
         """
         if self._state == ConnectionState.CONNECTED:
             return {"status": "ok", "message": "Already connected"}
@@ -80,18 +83,31 @@ class SimConnectManager:
             # from a single thread, and locking during init can deadlock
             # because SimConnect's constructor starts a dispatch thread.
 
-            # Prefer SimConnectMobiFlight — enables WASM client-data bridge
+            # Prefer SimConnectDispatcher -- owns the dispatch loop, which
+            # both enables SimVar exception correlation and keeps the
+            # library's print()ing branches out of the stdio stream.
             try:
-                from simconnect_mcp.vendor.simconnect_mobiflight import SimConnectMobiFlight
-                self.sm = SimConnectMobiFlight()
-                logger.info("Using SimConnectMobiFlight (WASM client-data enabled)")
+                from simconnect_mcp.dispatch import SimConnectDispatcher
+                self.sm = SimConnectDispatcher()
+                logger.info("Using SimConnectDispatcher (WASM client-data enabled)")
             except Exception as e:
-                logger.info("SimConnectMobiFlight not available (%s), falling back to SimConnect", e)
+                logger.info("SimConnectDispatcher unavailable (%s), falling back", e)
                 from SimConnect import SimConnect
                 self.sm = SimConnect()
 
             self.aq = AircraftRequests(self.sm, _time=2000)
             self.ae = AircraftEvents(self.sm)
+
+            # Generic SimVar access. Requires the dispatcher's request
+            # registry, so it is only available on the dispatcher path.
+            if hasattr(self.sm, "registry"):
+                from simconnect_mcp.simvar_access import SimVarAccessor
+                self.accessor = SimVarAccessor(self.sm)
+            else:
+                self.accessor = None
+                logger.warning(
+                    "Plain SimConnect fallback: unit-aware SimVar access unavailable"
+                )
 
             # Try to initialize FacilitiesRequests
             try:
@@ -148,17 +164,19 @@ class SimConnectManager:
         except Exception as e:
             logger.warning("Error during disconnect: %s", e)
         finally:
-            self.sm = None
-            self.aq = None
-            self.ae = None
-            self.fr = None
-            self.mobiflight = None
+            # Cleanup unregisters handlers on self.sm, so it must run first.
             if self.pmdg is not None:
                 self.pmdg.cleanup()
                 self.pmdg = None
             if self.pmdg_ng3 is not None:
                 self.pmdg_ng3.cleanup()
                 self.pmdg_ng3 = None
+            self.sm = None
+            self.aq = None
+            self.ae = None
+            self.fr = None
+            self.mobiflight = None
+            self.accessor = None
             self._mobiflight_available = False
             self._state = ConnectionState.DISCONNECTED
         return {"status": "ok", "message": "Disconnected"}

@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.data.simvar_catalog import is_string_var
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +56,18 @@ def mock_simconnect():
     mock_event = MagicMock()
     mock_ae.find.return_value = mock_event
 
+    def _decode(name: str, raw):
+        """Mirror the real SimVarAccessor: string variables are decoded to
+        `str` before being returned (verified against a live sim, where
+        `read("TITLE")` returns `'777F'`, not `b'777F'`). The raw `aq` mock
+        deliberately keeps returning `bytes` for these -- that is what the
+        underlying AircraftRequests table actually does -- so only the
+        accessor mock's lambdas route through this.
+        """
+        if is_string_var(name) and isinstance(raw, bytes):
+            return raw.decode("ascii", errors="replace").strip()
+        return raw
+
     with patch.dict(sys.modules, {
         "SimConnect": MagicMock(
             SimConnect=MagicMock(return_value=mock_sm),
@@ -70,6 +83,19 @@ def mock_simconnect():
         manager.aq = mock_aq
         manager.ae = mock_ae
         manager._state = manager._state.__class__("connected")
+
+        mock_accessor = MagicMock()
+        mock_accessor.read.side_effect = lambda name, unit=None, index=None, timeout=2.0: (
+            _decode(name, simvar_values.get(name.split(":")[0]))
+        )
+        mock_accessor.read_many.side_effect = lambda reqs, timeout=2.0: {
+            (n if i is None else f"{n}:{i}"): {
+                "value": _decode(n, simvar_values.get(n.split(":")[0]))
+            }
+            for n, u, i in reqs
+        }
+        manager.accessor = mock_accessor
+
         yield {
             "manager": manager,
             "sm": mock_sm,
@@ -77,4 +103,5 @@ def mock_simconnect():
             "ae": mock_ae,
             "event": mock_event,
             "simvar_values": simvar_values,
+            "accessor": mock_accessor,
         }
