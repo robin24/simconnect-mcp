@@ -98,13 +98,40 @@ def lookup(name: str) -> dict | None:
     return _by_name.get(base) or _by_name.get(f"{base}:index")
 
 
+def _sanitize_catalog_unit(unit_str: str) -> str:
+    """Strip prose suffixes from catalog unit strings to yield valid SimConnect units.
+
+    The bundled catalog contains descriptive prose like "Rpm (0 to 16384 = 0 to 100%)"
+    that SimConnect's AddToDataDefinition rejects. This strips the parenthetical suffix
+    and handles special cases. Only applied to catalog units, never to caller-supplied
+    explicit units.
+    """
+    # Special case: Bool/String is genuinely ambiguous; pick Bool
+    if unit_str.strip().lower() == "bool/string":
+        return "Bool"
+
+    # Strip everything from the first '(' onward
+    if "(" in unit_str:
+        unit_str = unit_str.split("(", 1)[0]
+
+    # Strip trailing whitespace
+    unit_str = unit_str.strip()
+
+    # If completely empty after stripping, fall back to "number"
+    if not unit_str:
+        return "number"
+
+    return unit_str
+
+
 def resolve_unit(name: str, explicit: str | None) -> str:
     """Resolve the unit for a data definition: explicit, then catalog, then number."""
     if explicit:
         return explicit.strip()
     entry = lookup(name)
     if entry and entry.get("units"):
-        return str(entry["units"]).strip()
+        raw_unit = str(entry["units"]).strip()
+        return _sanitize_catalog_unit(raw_unit)
     return "number"
 
 

@@ -67,3 +67,42 @@ def test_no_catalog_entry_is_unreachable_by_lookup():
         if simvar_catalog.lookup(v["name"]) is None
     ]
     assert unreachable == []
+
+
+def test_parenthetical_unit_suffixes_are_stripped():
+    """SimConnect rejects prose units. 'Rpm (0 to 16384 = 0 to 100%)' -> 'Rpm'."""
+    assert simvar_catalog.resolve_unit("ENG_N1_RPM", None) == "Rpm"
+
+
+def test_bool_string_unit_resolves_to_bool():
+    entries = [v for v in simvar_catalog.flat_simvars()
+               if v.get("units", "").strip().lower() == "bool/string"]
+    assert entries, "expected at least one Bool/String entry in the catalog"
+    assert simvar_catalog.resolve_unit(entries[0]["name"], None) == "Bool"
+
+
+def test_explicit_unit_is_never_rewritten():
+    """A caller-supplied unit passes through verbatim, so a bad one produces a
+    real SimConnect error instead of being silently changed."""
+    assert simvar_catalog.resolve_unit("ENG_N1_RPM", "Rpm (whatever)") == "Rpm (whatever)"
+
+
+def test_no_resolved_unit_contains_prose_punctuation():
+    """Every catalog entry must resolve to something SimConnect could accept."""
+    bad = []
+    for v in simvar_catalog.flat_simvars():
+        unit = simvar_catalog.resolve_unit(v["name"], None)
+        # feet/minute (any case) is a legitimate SimConnect unit
+        normalized = unit.lower().replace("feet/minute", "")
+        if "(" in unit or ")" in unit or "=" in unit or "/" in normalized:
+            bad.append((v["name"], unit))
+    assert bad == [], f"units SimConnect would reject: {bad[:5]}"
+
+
+def test_valid_multiword_units_are_left_alone():
+    """These look odd but are genuine SimConnect unit names."""
+    for name, expected in [
+        ("AMBIENT_DENSITY", "Slugs per cubic feet"),
+        ("PLANE_ALTITUDE", "Feet"),
+    ]:
+        assert simvar_catalog.resolve_unit(name, None) == expected
