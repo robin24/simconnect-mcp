@@ -1019,15 +1019,23 @@ class SimVarTimeoutError(SimVarError):
     """No data and no exception arrived before the timeout."""
 
 
-# SimConnect exception name -> the error we raise for it.
-_EXCEPTION_MAP = {
-    "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED": SimVarNotFoundError,
-    "SIMCONNECT_EXCEPTION_UNRECOGNIZED_ID": SimVarNotFoundError,
-    "SIMCONNECT_EXCEPTION_INVALID_DATA_TYPE": UnitMismatchError,
-    "SIMCONNECT_EXCEPTION_INVALID_DATA_SIZE": UnitMismatchError,
-    "SIMCONNECT_EXCEPTION_DATA_ERROR": UnitMismatchError,
-    "SIMCONNECT_EXCEPTION_ILLEGAL_OPERATION": SimVarNotSettableError,
-}
+# SimConnect reports the same exception codes for different underlying
+# causes depending on the operation.  A bad unit on a read and a write to a
+# read-only variable both surface as DATA_ERROR, so the mapping is chosen by
+# operation rather than from one global table.  (There is no
+# SIMCONNECT_EXCEPTION_ILLEGAL_OPERATION -- verify any code you add against
+# SimConnect.Enum.SIMCONNECT_EXCEPTION before using it.)
+_NOT_FOUND = frozenset({"SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED"})
+
+# Ambiguous codes: on a read these mean the unit or datatype was wrong; on a
+# write they usually mean the variable is not settable.
+_DATA_CODES = frozenset({
+    "SIMCONNECT_EXCEPTION_DATA_ERROR",
+    "SIMCONNECT_EXCEPTION_INVALID_DATA_TYPE",
+    "SIMCONNECT_EXCEPTION_INVALID_DATA_SIZE",
+    "SIMCONNECT_EXCEPTION_DEFINITION_ERROR",
+    "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS",
+})
 
 
 def simconnect_name(name: str, index: int | None = None) -> bytes:
@@ -1091,14 +1099,22 @@ class SimVarAccessor:
         self._sm.dll.GetLastSentPacketID(self._sm.hSimConnect, out)
         return out.value
 
-    def _raise_for(self, exception_name: str, name: str, unit: str) -> None:
-        error_cls = _EXCEPTION_MAP.get(exception_name, SimVarError)
-        if error_cls is SimVarNotFoundError:
-            raise error_cls(f"SimConnect does not recognise SimVar '{name}'")
-        if error_cls is UnitMismatchError:
-            raise error_cls(f"Unit '{unit}' is not valid for SimVar '{name}'")
-        if error_cls is SimVarNotSettableError:
-            raise error_cls(f"SimVar '{name}' cannot be written")
+    def _raise_for(
+        self, exception_name: str, name: str, unit: str, writing: bool = False
+    ) -> None:
+        """Translate a SimConnect exception into a typed error."""
+        if exception_name in _NOT_FOUND:
+            raise SimVarNotFoundError(f"SimConnect does not recognise SimVar '{name}'")
+        if exception_name in _DATA_CODES:
+            if writing:
+                raise SimVarNotSettableError(
+                    f"SimConnect rejected the write to '{name}'. It is most likely "
+                    f"read-only; the unit '{unit}' or the value may also be invalid "
+                    f"({exception_name})."
+                )
+            raise UnitMismatchError(
+                f"Unit '{unit}' is not valid for SimVar '{name}' ({exception_name})"
+            )
         raise SimVarError(f"SimConnect rejected '{name}': {exception_name}")
 
     def read(
@@ -1218,7 +1234,7 @@ def test_write_sends_the_value_and_returns_none():
 
 def test_write_to_non_settable_var_raises():
     """The bug this replaces: aq.set() returned False and the tool said ok."""
-    sm = FakeWriteSM(exception="SIMCONNECT_EXCEPTION_ILLEGAL_OPERATION")
+    sm = FakeWriteSM(exception="SIMCONNECT_EXCEPTION_DATA_ERROR")
     with pytest.raises(SimVarNotSettableError):
         SimVarAccessor(sm).write("AIRSPEED_INDICATED", 250.0, grace=0.2)
 
@@ -1282,7 +1298,7 @@ Add to `SimVarAccessor` in `src/simconnect_mcp/simvar_access.py`:
         try:
             # An exception, if any, arrives within one dispatch round trip.
             if pending.done.wait(grace) and pending.exception is not None:
-                self._raise_for(pending.exception, name, resolved_unit)
+                self._raise_for(pending.exception, name, resolved_unit, writing=True)
         finally:
             self._sm.registry.discard(pending)
 ```
@@ -3009,8 +3025,12 @@ def test_indexed_read_with_index_zero_and_one(live_manager):
 
 
 def test_variable_outside_the_library_table_is_readable(live_manager):
-    """AircraftRequests' hardcoded table does not cover everything."""
-    value = live_manager.accessor.read("AMBIENT_DENSITY", unit="slugs per cubic feet")
+    """AircraftRequests' hardcoded table does not cover everything.
+
+    No explicit unit: this also proves the catalog default ('Slugs per cubic
+    feet') is what reaches AddToDataDefinition.
+    """
+    value = live_manager.accessor.read("AMBIENT_DENSITY")
     assert value is not None
 ```
 
