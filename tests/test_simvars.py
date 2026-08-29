@@ -85,6 +85,56 @@ async def test_set_simvar_passes_index_zero(mock_simconnect):
 
 
 @pytest.mark.asyncio
+async def test_bad_unit_on_a_known_var_reports_unit_mismatch(mock_simconnect):
+    """When SimConnect rejects a write with NAME_UNRECOGNIZED, the catalog
+    disambiguates: if the name exists and the caller supplied a unit, the unit
+    is at fault, not the name."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError("nope")
+    result = await set_simvar("PLANE_ALTITUDE", 1000.0, unit="bananas")
+    assert result["error"] == "UNIT_MISMATCH"
+    assert "bananas" in result["message"]
+    assert "suggestions" not in result
+
+
+@pytest.mark.asyncio
+async def test_bad_name_still_reports_not_found(mock_simconnect):
+    """A typo in the name should report SIMVAR_NOT_FOUND with suggestions."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError("nope")
+    result = await set_simvar("PLANE_ALTITUD", 1.0, unit="feet")
+    assert result["error"] == "SIMVAR_NOT_FOUND"
+    assert "PLANE_ALTITUDE" in result["suggestions"]
+
+
+@pytest.mark.asyncio
+async def test_known_var_without_a_caller_unit_stays_not_found(mock_simconnect):
+    """When unit=None (using the catalog's own unit), a write failure is a
+    genuine name problem, not a unit mismatch."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError("nope")
+    result = await set_simvar("PLANE_ALTITUDE", 1.0)
+    assert result["error"] == "SIMVAR_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_unit_mismatch_message_uses_the_sanitised_unit(mock_simconnect):
+    """The raw catalog unit for ENG_N1_RPM is prose; the message must use the
+    sanitised unit returned by resolve_unit()."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError("nope")
+    result = await set_simvar("ENG_N1_RPM", 50.0, index=1, unit="bananas")
+    assert "(0 to 16384" not in result["suggestion"]
+    assert "'Rpm'" in result["suggestion"]
+
+
+@pytest.mark.asyncio
+async def test_not_settable_suggestion_does_not_recommend_the_settable_flag(mock_simconnect):
+    """The catalog's settable flag has false negatives; recommending it would
+    make agents skip writes that actually work."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotSettableError("read-only")
+    result = await set_simvar("ENG_N1_RPM", 50.0, index=1)
+    assert "unreliable" in result["suggestion"]
+
+
+
+@pytest.mark.asyncio
 async def test_get_simvar_bulk(mock_simconnect):
     """Bulk read returns multiple values."""
     result = await get_simvar_bulk([

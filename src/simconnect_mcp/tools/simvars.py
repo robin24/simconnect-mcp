@@ -132,11 +132,28 @@ async def set_simvar(
             "error": "SIMVAR_NOT_SETTABLE",
             "message": str(e),
             "suggestion": (
-                f"'{name}' is read-only. Use search_simvars to check the "
-                "'settable' flag, or trigger_event for an equivalent control."
+                f"'{name}' appears to be read-only. Look for an event that changes it "
+                "with search_events, or an aircraft-specific L-var with search_lvars. "
+                "Note the catalog's 'settable' flag is unreliable, so a variable it "
+                "marks read-only may still accept writes."
             ),
         }
     except SimVarNotFoundError:
+        # SimConnect reports a bad unit and a bad name with the same
+        # NAME_UNRECOGNIZED exception (verified against a live sim), so the exception
+        # alone cannot tell them apart. The catalog can: if we know this variable, the
+        # name is fine and the caller's unit is at fault.
+        entry = lookup(name)
+        if entry is not None and unit:
+            return {
+                "status": "error",
+                "error": "UNIT_MISMATCH",
+                "message": f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
+                "suggestion": (
+                    f"'{name}' is measured in '{resolve_unit(name, None)}'. Omit the "
+                    "unit argument to use that, or pass a compatible SimConnect unit."
+                ),
+            }
         result: dict[str, Any] = {
             "status": "error",
             "error": "SIMVAR_NOT_FOUND",
