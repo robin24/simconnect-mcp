@@ -12,7 +12,6 @@ import asyncio
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
-
 # ---------------------------------------------------------------------------
 # Variant detection and manager dispatch
 # ---------------------------------------------------------------------------
@@ -270,11 +269,11 @@ async def get_pmdg_cdu(cdu: int = 0, variant: str | None = None) -> dict:
         }
 
     if catalog_key == "pmdg_737":
-        from simconnect_mcp.pmdg_ng3 import render_cdu_text, render_cdu_grid
+        from simconnect_mcp.pmdg_ng3 import render_cdu_grid, render_cdu_text
         cdu_names = {0: "Left (Captain)", 1: "Right (F/O)"}
         options_file = "737NG3_Options.ini"
     else:
-        from simconnect_mcp.pmdg import render_cdu_text, render_cdu_grid
+        from simconnect_mcp.pmdg import render_cdu_grid, render_cdu_text
         cdu_names = {0: "Left (Captain)", 1: "Center", 2: "Right (F/O)"}
         options_file = "777_Options.ini"
 

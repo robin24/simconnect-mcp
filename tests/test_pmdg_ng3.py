@@ -8,36 +8,27 @@ import time
 import pytest
 
 from simconnect_mcp.pmdg_ng3 import (
-    CDU_COLUMNS,
     CDU_COLOR_AMBER,
     CDU_COLOR_CYAN,
-    CDU_COLOR_GREEN,
-    CDU_COLOR_MAGENTA,
-    CDU_COLOR_NAMES,
-    CDU_COLOR_RED,
-    CDU_COLOR_WHITE,
+    CDU_COLUMNS,
     CDU_FLAG_REVERSE,
     CDU_FLAG_SMALL_FONT,
-    CDU_FLAG_UNUSED,
     CDU_ROWS,
-    CDU_Grid,
-    CDU_Row,
     PMDG_NG3_CDU_DEFINITIONS,
     PMDG_NG3_CDU_IDS,
     PMDG_NG3_CDU_NAMES,
+    PMDG_NG3_DATA_NAME,
+    THIRD_PARTY_EVENT_ID_MIN,
+    CDU_Grid,
+    CDU_Row,
     PMDG_NG3_CDU_Cell,
     PMDG_NG3_CDU_Screen,
-    PMDG_NG3_DATA_DEFINITION,
-    PMDG_NG3_DATA_ID,
-    PMDG_NG3_DATA_NAME,
     PMDG_NG3_DataStruct,
     PmdgNG3DataManager,
-    THIRD_PARTY_EVENT_ID_MIN,
     render_cdu_grid,
     render_cdu_text,
     resolve_pmdg_event,
 )
-
 
 # ---------------------------------------------------------------------------
 # CDU Cell struct

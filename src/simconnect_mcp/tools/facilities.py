@@ -103,6 +103,8 @@ async def get_facility_info(icao: str, facility_type: str = "airport") -> dict:
             "status": "error",
             "error": "FACILITY_NOT_FOUND",
             "message": f"Could not find {facility_type} '{icao}'.",
-            "suggestion": "The facility may not be loaded. Try flying closer or check the ICAO code.",
+            "suggestion": (
+                "The facility may not be loaded. Try flying closer or check the ICAO code."
+            ),
         }
     return {"status": "ok", "facility": info}

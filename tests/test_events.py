@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from simconnect_mcp.tools.events import trigger_event, search_events
+from simconnect_mcp.tools.events import search_events, trigger_event
 
 
 @pytest.mark.asyncio
@@ -126,16 +126,8 @@ async def test_unknown_mapped_event_is_reported_not_faked(mock_simconnect):
     """MapClientEventToSimEvent succeeds for any string, so a non-None return
     proves nothing. The sim raises NAME_UNRECOGNIZED against the map packet."""
     import threading
-    from ctypes.wintypes import DWORD
-    from dataclasses import dataclass, field
-    from typing import Any
 
     # Create a minimal mock registry with pending lock
-    @dataclass
-    class MockPendingRequest:
-        exception: str | None = None
-        done: threading.Event = field(default_factory=threading.Event)
-
     pending_ref = {"pending": None}
 
     class MockRegistry:
@@ -182,16 +174,8 @@ async def test_unknown_mapped_event_is_reported_not_faked(mock_simconnect):
 async def test_valid_mapped_event_still_succeeds(mock_simconnect):
     """No exception arrives -> the event is real and was sent."""
     import threading
-    from ctypes.wintypes import DWORD
-    from dataclasses import dataclass, field
-    from typing import Any
 
     # Create a minimal mock registry with pending lock
-    @dataclass
-    class MockPendingRequest:
-        exception: str | None = None
-        done: threading.Event = field(default_factory=threading.Event)
-
     class MockRegistry:
         def __init__(self):
             self.pending_lock = threading.Lock()

@@ -11,7 +11,6 @@ from simconnect_mcp.simvar_access import (
     SimVarNotFoundError,
     SimVarNotSettableError,
     SimVarTimeoutError,
-    UnitMismatchError,
 )
 from simconnect_mcp.tools.simvars import (
     get_simvar,

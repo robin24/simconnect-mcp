@@ -559,7 +559,7 @@ def _main() -> None:
     title_pattern = args.title_pattern or args.vendor or ""
 
     if args.dry_run:
-        print(f"\nWould create catalog:")
+        print("\nWould create catalog:")
         print(f"  aircraft:      {aircraft_name}")
         print(f"  title_pattern: {title_pattern}")
         print(f"  variables:     {len(lvars)}")

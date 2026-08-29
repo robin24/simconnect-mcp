@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from ctypes.wintypes import DWORD
-from typing import Any
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.dispatch import PendingRequest
@@ -68,62 +67,202 @@ def _load_event_catalog() -> dict[str, list[dict]]:
 def _builtin_event_catalog() -> dict[str, list[dict]]:
     return {
         "Aircraft Controls": [
-            {"name": "PARKING_BRAKES", "category": "Aircraft Controls", "description": "Toggle parking brakes"},
-            {"name": "TOGGLE_FLIGHT_DIRECTOR", "category": "Aircraft Controls", "description": "Toggle flight director"},
-            {"name": "FLAPS_UP", "category": "Aircraft Controls", "description": "Retract flaps fully"},
-            {"name": "FLAPS_DOWN", "category": "Aircraft Controls", "description": "Extend flaps one notch"},
-            {"name": "FLAPS_1", "category": "Aircraft Controls", "description": "Set flaps to position 1"},
-            {"name": "FLAPS_2", "category": "Aircraft Controls", "description": "Set flaps to position 2"},
-            {"name": "FLAPS_3", "category": "Aircraft Controls", "description": "Set flaps to position 3"},
-            {"name": "GEAR_TOGGLE", "category": "Aircraft Controls", "description": "Toggle landing gear"},
-            {"name": "SPOILERS_TOGGLE", "category": "Aircraft Controls", "description": "Toggle spoilers"},
-            {"name": "SPOILERS_ARM_TOGGLE", "category": "Aircraft Controls", "description": "Toggle spoiler arm"},
+            {
+                "name": "PARKING_BRAKES",
+                "category": "Aircraft Controls",
+                "description": "Toggle parking brakes",
+            },
+            {
+                "name": "TOGGLE_FLIGHT_DIRECTOR",
+                "category": "Aircraft Controls",
+                "description": "Toggle flight director",
+            },
+            {
+                "name": "FLAPS_UP",
+                "category": "Aircraft Controls",
+                "description": "Retract flaps fully",
+            },
+            {
+                "name": "FLAPS_DOWN",
+                "category": "Aircraft Controls",
+                "description": "Extend flaps one notch",
+            },
+            {
+                "name": "FLAPS_1",
+                "category": "Aircraft Controls",
+                "description": "Set flaps to position 1",
+            },
+            {
+                "name": "FLAPS_2",
+                "category": "Aircraft Controls",
+                "description": "Set flaps to position 2",
+            },
+            {
+                "name": "FLAPS_3",
+                "category": "Aircraft Controls",
+                "description": "Set flaps to position 3",
+            },
+            {
+                "name": "GEAR_TOGGLE",
+                "category": "Aircraft Controls",
+                "description": "Toggle landing gear",
+            },
+            {
+                "name": "SPOILERS_TOGGLE",
+                "category": "Aircraft Controls",
+                "description": "Toggle spoilers",
+            },
+            {
+                "name": "SPOILERS_ARM_TOGGLE",
+                "category": "Aircraft Controls",
+                "description": "Toggle spoiler arm",
+            },
         ],
         "Autopilot": [
-            {"name": "AP_MASTER", "category": "Autopilot", "description": "Toggle autopilot master"},
+            {
+                "name": "AP_MASTER",
+                "category": "Autopilot",
+                "description": "Toggle autopilot master",
+            },
             {"name": "AP_HDG_HOLD", "category": "Autopilot", "description": "Toggle heading hold"},
             {"name": "AP_ALT_HOLD", "category": "Autopilot", "description": "Toggle altitude hold"},
             {"name": "AP_NAV1_HOLD", "category": "Autopilot", "description": "Toggle NAV1 hold"},
             {"name": "AP_APR_HOLD", "category": "Autopilot", "description": "Toggle approach hold"},
-            {"name": "AP_VS_HOLD", "category": "Autopilot", "description": "Toggle vertical speed hold"},
-            {"name": "AP_SPD_VAR_SET", "category": "Autopilot", "description": "Set autopilot speed (parameter: speed in knots)"},
-            {"name": "AP_ALT_VAR_SET_ENGLISH", "category": "Autopilot", "description": "Set autopilot altitude (parameter: altitude in feet)"},
-            {"name": "HEADING_BUG_SET", "category": "Autopilot", "description": "Set heading bug (parameter: heading in degrees)"},
+            {
+                "name": "AP_VS_HOLD",
+                "category": "Autopilot",
+                "description": "Toggle vertical speed hold",
+            },
+            {
+                "name": "AP_SPD_VAR_SET",
+                "category": "Autopilot",
+                "description": "Set autopilot speed (parameter: speed in knots)",
+            },
+            {
+                "name": "AP_ALT_VAR_SET_ENGLISH",
+                "category": "Autopilot",
+                "description": "Set autopilot altitude (parameter: altitude in feet)",
+            },
+            {
+                "name": "HEADING_BUG_SET",
+                "category": "Autopilot",
+                "description": "Set heading bug (parameter: heading in degrees)",
+            },
         ],
         "Electrical": [
-            {"name": "TOGGLE_MASTER_BATTERY", "category": "Electrical", "description": "Toggle master battery"},
-            {"name": "TOGGLE_MASTER_ALTERNATOR", "category": "Electrical", "description": "Toggle master alternator"},
-            {"name": "TOGGLE_AVIONICS_MASTER", "category": "Electrical", "description": "Toggle avionics master"},
+            {
+                "name": "TOGGLE_MASTER_BATTERY",
+                "category": "Electrical",
+                "description": "Toggle master battery",
+            },
+            {
+                "name": "TOGGLE_MASTER_ALTERNATOR",
+                "category": "Electrical",
+                "description": "Toggle master alternator",
+            },
+            {
+                "name": "TOGGLE_AVIONICS_MASTER",
+                "category": "Electrical",
+                "description": "Toggle avionics master",
+            },
         ],
         "Engine": [
-            {"name": "TOGGLE_STARTER1", "category": "Engine", "description": "Toggle engine 1 starter"},
-            {"name": "TOGGLE_STARTER2", "category": "Engine", "description": "Toggle engine 2 starter"},
-            {"name": "ENGINE_AUTO_START", "category": "Engine", "description": "Auto-start engines"},
-            {"name": "ENGINE_AUTO_SHUTDOWN", "category": "Engine", "description": "Auto-shutdown engines"},
-            {"name": "THROTTLE_SET", "category": "Engine", "description": "Set throttle (parameter: 0-16383)"},
-            {"name": "MIXTURE_SET", "category": "Engine", "description": "Set mixture (parameter: 0-16383)"},
-            {"name": "PROPELLER_SET", "category": "Engine", "description": "Set propeller (parameter: 0-16383)"},
+            {
+                "name": "TOGGLE_STARTER1",
+                "category": "Engine",
+                "description": "Toggle engine 1 starter",
+            },
+            {
+                "name": "TOGGLE_STARTER2",
+                "category": "Engine",
+                "description": "Toggle engine 2 starter",
+            },
+            {
+                "name": "ENGINE_AUTO_START",
+                "category": "Engine",
+                "description": "Auto-start engines",
+            },
+            {
+                "name": "ENGINE_AUTO_SHUTDOWN",
+                "category": "Engine",
+                "description": "Auto-shutdown engines",
+            },
+            {
+                "name": "THROTTLE_SET",
+                "category": "Engine",
+                "description": "Set throttle (parameter: 0-16383)",
+            },
+            {
+                "name": "MIXTURE_SET",
+                "category": "Engine",
+                "description": "Set mixture (parameter: 0-16383)",
+            },
+            {
+                "name": "PROPELLER_SET",
+                "category": "Engine",
+                "description": "Set propeller (parameter: 0-16383)",
+            },
         ],
         "Lights": [
-            {"name": "LANDING_LIGHTS_TOGGLE", "category": "Lights", "description": "Toggle landing lights"},
+            {
+                "name": "LANDING_LIGHTS_TOGGLE",
+                "category": "Lights",
+                "description": "Toggle landing lights",
+            },
             {"name": "STROBES_TOGGLE", "category": "Lights", "description": "Toggle strobe lights"},
-            {"name": "TOGGLE_BEACON_LIGHTS", "category": "Lights", "description": "Toggle beacon lights"},
-            {"name": "TOGGLE_NAV_LIGHTS", "category": "Lights", "description": "Toggle navigation lights"},
-            {"name": "TOGGLE_TAXI_LIGHTS", "category": "Lights", "description": "Toggle taxi lights"},
+            {
+                "name": "TOGGLE_BEACON_LIGHTS",
+                "category": "Lights",
+                "description": "Toggle beacon lights",
+            },
+            {
+                "name": "TOGGLE_NAV_LIGHTS",
+                "category": "Lights",
+                "description": "Toggle navigation lights",
+            },
+            {
+                "name": "TOGGLE_TAXI_LIGHTS",
+                "category": "Lights",
+                "description": "Toggle taxi lights",
+            },
         ],
         "Radio": [
-            {"name": "COM_RADIO_SET", "category": "Radio", "description": "Set COM1 frequency (parameter: BCD16 encoded frequency)"},
+            {
+                "name": "COM_RADIO_SET",
+                "category": "Radio",
+                "description": "Set COM1 frequency (parameter: BCD16 encoded frequency)",
+            },
             {"name": "COM2_RADIO_SET", "category": "Radio", "description": "Set COM2 frequency"},
             {"name": "NAV1_RADIO_SET", "category": "Radio", "description": "Set NAV1 frequency"},
             {"name": "NAV2_RADIO_SET", "category": "Radio", "description": "Set NAV2 frequency"},
-            {"name": "XPNDR_SET", "category": "Radio", "description": "Set transponder code (parameter: BCD16 encoded)"},
+            {
+                "name": "XPNDR_SET",
+                "category": "Radio",
+                "description": "Set transponder code (parameter: BCD16 encoded)",
+            },
         ],
         "Simulation": [
             {"name": "PAUSE_TOGGLE", "category": "Simulation", "description": "Toggle pause"},
-            {"name": "SIM_RATE_INCR", "category": "Simulation", "description": "Increase simulation rate"},
-            {"name": "SIM_RATE_DECR", "category": "Simulation", "description": "Decrease simulation rate"},
-            {"name": "FREEZE_LATITUDE_LONGITUDE_TOGGLE", "category": "Simulation", "description": "Freeze position"},
-            {"name": "FREEZE_ALTITUDE_TOGGLE", "category": "Simulation", "description": "Freeze altitude"},
+            {
+                "name": "SIM_RATE_INCR",
+                "category": "Simulation",
+                "description": "Increase simulation rate",
+            },
+            {
+                "name": "SIM_RATE_DECR",
+                "category": "Simulation",
+                "description": "Decrease simulation rate",
+            },
+            {
+                "name": "FREEZE_LATITUDE_LONGITUDE_TOGGLE",
+                "category": "Simulation",
+                "description": "Freeze position",
+            },
+            {
+                "name": "FREEZE_ALTITUDE_TOGGLE",
+                "category": "Simulation",
+                "description": "Freeze altitude",
+            },
         ],
     }
 
@@ -212,7 +351,10 @@ async def trigger_event(name: str, parameter: int | None = None) -> dict:
                 if pending.done.wait(0.2) and pending.exception is not None:
                     exc = pending.exception
                     # Treat NAME_UNRECOGNIZED and ERROR as "event not found"
-                    if exc in ("SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED", "SIMCONNECT_EXCEPTION_ERROR"):
+                    if exc in (
+                        "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED",
+                        "SIMCONNECT_EXCEPTION_ERROR",
+                    ):
                         raise LookupError(name)
                     # Other exceptions should propagate
                     raise RuntimeError(f"SimConnect exception: {exc}")
@@ -294,7 +436,10 @@ async def trigger_custom_event(name: str, parameter: int | None = None) -> dict:
             "status": "error",
             "error": "MOBIFLIGHT_NOT_AVAILABLE",
             "message": "MobiFlight WASM extension is not available.",
-            "suggestion": "Install MSFSPythonSimConnectMobiFlightExtension and the MobiFlight WASM module in MSFS.",
+            "suggestion": (
+                "Install MSFSPythonSimConnectMobiFlightExtension and the MobiFlight WASM "
+                "module in MSFS."
+            ),
         }
 
     def _fire() -> None:

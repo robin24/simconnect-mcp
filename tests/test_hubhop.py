@@ -1,11 +1,9 @@
 """Tests for the HubHop API client (no network calls)."""
 
-import json
 
 import pytest
 
 from simconnect_mcp.data.hubhop import HubHopClient
-
 
 # -- Fixtures --
 

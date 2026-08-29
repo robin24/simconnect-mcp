@@ -771,6 +771,7 @@ class PmdgNG3DataManager:
         if self._sm is None:
             return
         import struct as pystruct
+
         from SimConnect.Enum import SIMCONNECT_UNUSED
 
         if not self._control_registered:
