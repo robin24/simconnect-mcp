@@ -1,14 +1,13 @@
 """PMDG tools — read aircraft state, CDU screens, send events.
 
 Dispatches to either the PMDG 777 SDK or the PMDG 737 NG3 SDK depending on
-which aircraft is currently loaded. Detection uses the ``TITLE`` SimVar and
-the catalog ``title_pattern``.
+which aircraft is currently loaded. Detection checks the ``TITLE`` and
+``ATC_MODEL`` SimVars against each catalog's ``title_pattern``.
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
@@ -19,46 +18,50 @@ from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 # ---------------------------------------------------------------------------
 
 
-def _detect_pmdg_variant() -> str | None:
+async def _detect_pmdg_variant() -> str | None:
     """Return ``"pmdg_777"`` or ``"pmdg_737"`` based on the loaded aircraft.
 
-    Reads the TITLE SimVar and matches against the title_pattern in each
-    catalog. Returns None if neither matches.
+    Checks both TITLE and ATC_MODEL against the PMDG catalogs' title
+    patterns -- some liveries carry the vendor name only in ATC_MODEL while
+    TITLE stays terse (e.g. a PMDG 777F's TITLE is just "777F"). Returns
+    None if neither candidate matches either catalog; callers must not
+    guess when this happens (see ``_resolve_pmdg_catalog``'s ``"fallback"``
+    source).
     """
-    sm_mgr = SimConnectManager()
-    if not sm_mgr.is_connected or sm_mgr.aq is None:
-        return None
-    try:
-        title = sm_mgr.aq.get("TITLE")
-    except Exception:
-        return None
-    if title is None:
-        return None
-    title_str = (title.decode() if isinstance(title, bytes) else str(title)).lower()
-    if "pmdg 737" in title_str or "pmdg b737" in title_str:
-        return "pmdg_737"
-    if "pmdg 777" in title_str or "pmdg b777" in title_str:
-        return "pmdg_777"
+    title, model = await SimConnectManager().detect_aircraft_identity()
+    for candidate in (title, model):
+        if not candidate:
+            continue
+        candidate_lower = candidate.lower()
+        if "pmdg 737" in candidate_lower or "pmdg b737" in candidate_lower:
+            return "pmdg_737"
+        if "pmdg 777" in candidate_lower or "pmdg b777" in candidate_lower:
+            return "pmdg_777"
     return None
 
 
-def _resolve_pmdg_catalog(name: str | None, explicit_variant: str | None) -> tuple[str | None, str | None]:
+async def _resolve_pmdg_catalog(
+    name: str | None, explicit_variant: str | None
+) -> tuple[str | None, str | None]:
     """Pick a catalog key for the given variable/event name.
 
     Resolution order:
     1. If ``explicit_variant`` is given (``"pmdg_777"`` / ``"pmdg_737"``), use it.
-    2. Otherwise use the variant detected from the loaded aircraft TITLE.
+    2. Otherwise use the variant detected from the loaded aircraft TITLE/ATC_MODEL.
     3. Otherwise, if ``name`` is provided, search both catalogs for the name.
        Returns the catalog key of the first match. If neither matches,
        fall back to ``"pmdg_777"`` so error messages stay consistent.
 
     Returns ``(catalog_key, source)`` where ``source`` is one of
     ``"explicit"``, ``"detected"``, ``"name_match"``, ``"fallback"``, or None.
+    ``"fallback"`` is a guess, not a detection -- callers must keep surfacing
+    ``source`` (as ``variant_source`` in tool responses) so a caller can tell
+    the two apart instead of silently trusting a guessed SDK.
     """
     if explicit_variant in ("pmdg_777", "pmdg_737"):
         return explicit_variant, "explicit"
 
-    detected = _detect_pmdg_variant()
+    detected = await _detect_pmdg_variant()
     if detected:
         return detected, "detected"
 
@@ -137,7 +140,7 @@ async def get_pmdg_var(name: str, variant: str | None = None) -> dict:
     """
     from simconnect_mcp.data.catalog import get_catalog
 
-    catalog_key, source = _resolve_pmdg_catalog(name, variant)
+    catalog_key, source = await _resolve_pmdg_catalog(name, variant)
     catalog = get_catalog(catalog_key)
     if catalog is None:
         return {
@@ -250,7 +253,7 @@ async def get_pmdg_cdu(cdu: int = 0, variant: str | None = None) -> dict:
         (structured per-cell data with color and flags), and the catalog
         key that was used.
     """
-    catalog_key, source = _resolve_pmdg_catalog(None, variant)
+    catalog_key, source = await _resolve_pmdg_catalog(None, variant)
 
     # Validate CDU index per variant
     if catalog_key == "pmdg_737" and cdu not in (0, 1):
@@ -313,6 +316,7 @@ async def get_pmdg_cdu(cdu: int = 0, variant: str | None = None) -> dict:
             "rows": None,
             "grid": None,
             "catalog": catalog_key,
+            "variant_source": source,
         }
 
     grid = render_cdu_grid(screen)
@@ -359,7 +363,7 @@ async def send_pmdg_event(
     Returns:
         Confirmation dict including the catalog used.
     """
-    catalog_key, source = _resolve_pmdg_catalog(event_name, variant)
+    catalog_key, source = await _resolve_pmdg_catalog(event_name, variant)
 
     if catalog_key == "pmdg_737":
         from simconnect_mcp.pmdg_ng3 import resolve_pmdg_event

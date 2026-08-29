@@ -42,6 +42,7 @@ def mock_simconnect():
         "GROUND_ALTITUDE": 0.0,
         "SIM_ON_GROUND": 0.0,
         "TITLE": b"Boeing 747-8i",
+        "ATC_MODEL": b"ATCCOM.AC_MODEL B747.0.text",
         "ATC_TYPE": b"B748",
         "ATC_ID": b"N12345",
         "AUTOPILOT_MASTER": 1.0,

@@ -209,7 +209,7 @@ The catalog is sourced from both the SimConnect Python package and the [official
 
 ### Aircraft L-Var Catalogs
 
-L-var catalogs provide searchable, human-readable databases for specific aircraft add-ons. The server auto-detects the loaded aircraft from its `TITLE` SimVar and searches the matching catalog.
+L-var catalogs provide searchable, human-readable databases for specific aircraft add-ons. The server auto-detects the loaded aircraft from its `TITLE` and `ATC_MODEL` SimVars and searches the matching catalog. If neither matches a known catalog, `search_lvars` and `list_lvar_panels` search across all of them and say so, with a `catalog=<key>` argument to scope the search explicitly (see `list_lvar_catalogs`).
 
 **Included catalogs:**
 

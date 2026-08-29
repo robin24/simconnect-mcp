@@ -6,11 +6,26 @@ import asyncio
 import enum
 import logging
 import threading
+import time
 from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _decode_identity_value(raw: Any) -> str | None:
+    """Normalize a raw TITLE/ATC_MODEL SimVar read to a stripped str.
+
+    The sim can hand back bytes, a plain str, or None depending on the code
+    path (native accessor vs. legacy AircraftRequests), so this is
+    defensive about all three.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        return raw.decode("ascii", errors="replace").strip()
+    return str(raw).strip()
 
 
 class ConnectionState(enum.Enum):
@@ -49,6 +64,8 @@ class SimConnectManager:
         self._mobiflight_available = False
         self.pmdg = None  # PmdgDataManager (777), lazy-initialized
         self.pmdg_ng3 = None  # PmdgNG3DataManager (737), lazy-initialized
+        # (timestamp, title, model); see detect_aircraft_identity().
+        self._title_cache: tuple[float, str | None, str | None] | None = None
 
     @property
     def state(self) -> ConnectionState:
@@ -178,6 +195,7 @@ class SimConnectManager:
             self.mobiflight = None
             self.accessor = None
             self._mobiflight_available = False
+            self._title_cache = None
             self._state = ConnectionState.DISCONNECTED
         return {"status": "ok", "message": "Disconnected"}
 
@@ -199,6 +217,62 @@ class SimConnectManager:
                 return fn(*args)
 
         return await loop.run_in_executor(None, _locked_call)
+
+    TITLE_CACHE_TTL = 5.0
+
+    async def detect_aircraft_identity(self) -> tuple[str | None, str | None]:
+        """Read TITLE and ATC_MODEL for aircraft detection.
+
+        Four call sites used to read TITLE directly on the event loop with no
+        lock. This routes through run_sync and caches briefly, since it is
+        consulted on most catalog operations.
+
+        ATC_MODEL is read alongside TITLE because some add-ons carry their
+        vendor branding there instead: a PMDG 777F's TITLE is the terse
+        "777F", which matches no catalog's title_pattern on its own. The two
+        reads are independent -- one failing (e.g. an aircraft that doesn't
+        expose ATC_MODEL) must not blank out a TITLE that succeeded.
+        """
+        if not self.is_connected or self.accessor is None:
+            return None, None
+
+        now = time.monotonic()
+        if self._title_cache is not None and (now - self._title_cache[0]) < self.TITLE_CACHE_TTL:
+            return self._title_cache[1], self._title_cache[2]
+
+        def _read() -> tuple[Any, Any]:
+            try:
+                raw_title = self.accessor.read("TITLE")
+            except Exception:
+                logger.debug("Could not read TITLE", exc_info=True)
+                raw_title = None
+            try:
+                raw_model = self.accessor.read("ATC_MODEL")
+            except Exception:
+                logger.debug("Could not read ATC_MODEL", exc_info=True)
+                raw_model = None
+            return raw_title, raw_model
+
+        try:
+            raw_title, raw_model = await self.run_sync(_read)
+        except Exception:
+            logger.debug("Could not read aircraft identity", exc_info=True)
+            return None, None
+
+        title = _decode_identity_value(raw_title)
+        model = _decode_identity_value(raw_model)
+
+        self._title_cache = (now, title, model)
+        return title, model
+
+    async def detect_aircraft_title(self) -> str | None:
+        """Read the TITLE SimVar for aircraft detection.
+
+        Thin wrapper over detect_aircraft_identity() for the common case
+        where only the title is needed.
+        """
+        title, _ = await self.detect_aircraft_identity()
+        return title
 
     def get_status(self) -> dict[str, Any]:
         """Return current connection status."""

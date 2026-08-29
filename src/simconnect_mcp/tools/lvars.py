@@ -9,8 +9,6 @@ The MobiFlight WASM bridge uses RPN-style variable strings:
 
 from __future__ import annotations
 
-from typing import Any
-
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
@@ -197,17 +195,47 @@ async def execute_calculator_code(code: str) -> dict:
         }
 
 
+def _no_detection_message(covered: str, valid_keys: set[str]) -> str:
+    """Actionable explanation for when aircraft auto-detection finds nothing.
+
+    Never silently guess a catalog: say what happened and how to fix it.
+    """
+    available = ", ".join(sorted(valid_keys))
+    return (
+        f"No aircraft catalog was auto-detected, so {covered}. "
+        f"Pass catalog=<key> to scope it (available: {available}), or call "
+        "list_lvar_catalogs() for details."
+    )
+
+
+def _unknown_catalog_error(catalog: str, valid_keys: set[str]) -> dict:
+    """Error dict for an explicit but unrecognized `catalog` argument.
+
+    An invalid explicit key must error, not silently fall back to searching
+    everything under the caller's requested (wrong) label.
+    """
+    return {
+        "status": "error",
+        "error": "CATALOG_NOT_FOUND",
+        "message": f"Unknown catalog '{catalog}'.",
+        "suggestion": (
+            f"Use one of: {', '.join(sorted(valid_keys))} (see list_lvar_catalogs())."
+        ),
+    }
+
+
 @handle_simconnect_errors
 async def search_lvars(
     keyword: str,
     category: str | None = None,
     writable_only: bool = False,
     prefix: str | None = None,
+    catalog: str | None = None,
 ) -> dict:
     """Search known aircraft L-vars by keyword.
 
-    Searches the embedded L-var catalog for the current aircraft (auto-detected)
-    or all known aircraft. Much more reliable than guessing L-var names.
+    Searches the embedded L-var catalog for the current aircraft (auto-detected
+    from TITLE/ATC_MODEL) or all known aircraft if none is loaded or detected.
 
     Args:
         keyword: Search term (e.g., 'seatbelt', 'autopilot', 'heading', 'fuel')
@@ -215,23 +243,31 @@ async def search_lvars(
         writable_only: Only return variables that can be written to
         prefix: Filter by Fenix prefix type: S (switch), N (numeric readout),
                 E (event counter), I (indicator), A (analog), B (boolean indicator)
+        catalog: Explicit catalog key to search (see list_lvar_catalogs()),
+                 overriding auto-detection. Use this when the loaded aircraft
+                 isn't auto-detected, or to search a specific aircraft's
+                 catalog regardless of what's loaded.
 
     Returns:
-        Matching L-vars with names, display names, categories, and valid values.
+        Matching L-vars with names, display names, categories, and valid
+        values. When no aircraft catalog could be auto-detected and `catalog`
+        was not given, `catalog` is "all" and `message` explains how to
+        scope the search.
     """
-    from simconnect_mcp.data.catalog import search_catalog, detect_catalog
+    from simconnect_mcp.data.catalog import detect_catalog, list_catalogs, search_catalog
 
-    # Try to auto-detect aircraft catalog
-    catalog_key = None
-    manager = SimConnectManager()
-    if manager.is_connected:
-        try:
-            title = manager.aq.get("TITLE")
-            if title:
-                title_str = title.decode() if isinstance(title, bytes) else str(title)
-                catalog_key = detect_catalog(title_str)
-        except Exception:
-            pass
+    valid_keys = {c["key"] for c in list_catalogs()}
+    if catalog is not None and catalog not in valid_keys:
+        return _unknown_catalog_error(catalog, valid_keys)
+
+    # Explicit catalog wins outright -- no need to touch the sim at all.
+    catalog_key = catalog
+    auto_detect_failed = False
+    if catalog_key is None:
+        manager = SimConnectManager()
+        title, model = await manager.detect_aircraft_identity()
+        catalog_key = detect_catalog(title, model)
+        auto_detect_failed = catalog_key is None
 
     results = search_catalog(
         keyword,
@@ -240,7 +276,7 @@ async def search_lvars(
         writable_only=writable_only,
         prefix=prefix,
     )
-    return {
+    response = {
         "status": "ok",
         "count": len(results),
         "results": results,
@@ -252,10 +288,13 @@ async def search_lvars(
             "prefix": prefix,
         },
     }
+    if auto_detect_failed:
+        response["message"] = _no_detection_message("this searched all catalogs", valid_keys)
+    return response
 
 
 @handle_simconnect_errors
-async def list_lvar_panels(category: str | None = None) -> dict:
+async def list_lvar_panels(category: str | None = None, catalog: str | None = None) -> dict:
     """List available L-var panels/categories for the current aircraft.
 
     If a category name is provided, returns all variables in that panel
@@ -264,23 +303,33 @@ async def list_lvar_panels(category: str | None = None) -> dict:
     Args:
         category: Optional panel name to get details for (e.g., 'Signs', 'FCU',
                   'Electrical', 'Lights'). Omit to list all panels.
+        catalog: Explicit catalog key to use (see list_lvar_catalogs()),
+                 overriding auto-detection from the loaded aircraft.
 
     Returns:
-        Panel listing or detailed panel variable info.
+        Panel listing or detailed panel variable info. When no aircraft
+        catalog could be auto-detected and `catalog` was not given, panels
+        from all catalogs are listed and `message` explains how to scope it.
     """
-    from simconnect_mcp.data.catalog import list_panels, get_panel_variables, detect_catalog
+    from simconnect_mcp.data.catalog import (
+        detect_catalog,
+        get_panel_variables,
+        list_catalogs,
+        list_panels,
+    )
 
-    # Try to auto-detect aircraft catalog
-    catalog_key = None
-    manager = SimConnectManager()
-    if manager.is_connected:
-        try:
-            title = manager.aq.get("TITLE")
-            if title:
-                title_str = title.decode() if isinstance(title, bytes) else str(title)
-                catalog_key = detect_catalog(title_str)
-        except Exception:
-            pass
+    valid_keys = {c["key"] for c in list_catalogs()}
+    if catalog is not None and catalog not in valid_keys:
+        return _unknown_catalog_error(catalog, valid_keys)
+
+    # Explicit catalog wins outright -- no need to touch the sim at all.
+    catalog_key = catalog
+    auto_detect_failed = False
+    if catalog_key is None:
+        manager = SimConnectManager()
+        title, model = await manager.detect_aircraft_identity()
+        catalog_key = detect_catalog(title, model)
+        auto_detect_failed = catalog_key is None
 
     if category:
         panel = get_panel_variables(category, catalog_key)
@@ -294,12 +343,17 @@ async def list_lvar_panels(category: str | None = None) -> dict:
         return {"status": "ok", **panel}
     else:
         panels = list_panels(catalog_key)
-        return {
+        response = {
             "status": "ok",
             "catalog": catalog_key or "all",
             "count": len(panels),
             "panels": panels,
         }
+        if auto_detect_failed:
+            response["message"] = _no_detection_message(
+                "this listed panels from all catalogs", valid_keys
+            )
+        return response
 
 
 @handle_simconnect_errors

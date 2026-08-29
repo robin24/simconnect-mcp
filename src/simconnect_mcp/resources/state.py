@@ -17,20 +17,20 @@ def register_state_resources(mcp: FastMCP) -> None:
         return manager.get_status()
 
     @mcp.resource("simconnect://state/aircraft")
-    def state_aircraft() -> dict:
+    async def state_aircraft() -> dict:
         """Current aircraft title, type, and position."""
         manager = SimConnectManager()
-        if not manager.is_connected:
+        if not manager.is_connected or manager.accessor is None:
             return {"status": "not_connected"}
 
+        names = [
+            "TITLE", "ATC_TYPE", "ATC_ID",
+            "PLANE_LATITUDE", "PLANE_LONGITUDE", "PLANE_ALTITUDE",
+        ]
         try:
-            data = {}
-            for var in ["TITLE", "ATC_TYPE", "ATC_ID",
-                        "PLANE_LATITUDE", "PLANE_LONGITUDE", "PLANE_ALTITUDE"]:
-                try:
-                    data[var] = manager.aq.get(var)
-                except Exception:
-                    data[var] = None
-            return {"status": "ok", "aircraft": data}
+            data = await manager.run_sync(
+                lambda: manager.accessor.read_many([(n, None, None) for n in names])
+            )
         except Exception as e:
             return {"status": "error", "message": str(e)}
+        return {"status": "ok", "aircraft": data}

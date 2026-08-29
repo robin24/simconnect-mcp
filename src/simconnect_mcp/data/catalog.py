@@ -50,13 +50,23 @@ def _load_all_catalogs() -> None:
         logger.info("Loaded L-var catalog: %s (%d variables)", key, len(variables))
 
 
-def detect_catalog(aircraft_title: str) -> str | None:
-    """Detect which catalog matches the given aircraft title."""
+def detect_catalog(title: str | None, model: str | None = None) -> str | None:
+    """Detect which catalog matches the given aircraft TITLE or ATC_MODEL.
+
+    Checked in order: title, then model. Some add-ons set a terse TITLE
+    (e.g. a PMDG 777F's TITLE is "777F", which matches nothing) but carry
+    their vendor branding in ATC_MODEL instead, so both are checked against
+    every catalog's title_pattern before giving up. `model` is optional so
+    existing single-argument callers keep working unchanged.
+    """
     _load_all_catalogs()
-    title_lower = aircraft_title.lower()
-    for pattern, key in _TITLE_PATTERNS.items():
-        if pattern in title_lower:
-            return key
+    for candidate in (title, model):
+        if not candidate:
+            continue
+        candidate_lower = candidate.lower()
+        for pattern, key in _TITLE_PATTERNS.items():
+            if pattern in candidate_lower:
+                return key
     return None
 
 
