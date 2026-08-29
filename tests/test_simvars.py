@@ -7,7 +7,12 @@ from unittest.mock import patch
 
 import pytest
 
-from simconnect_mcp.simvar_access import SimVarNotFoundError, SimVarTimeoutError
+from simconnect_mcp.simvar_access import (
+    SimVarNotFoundError,
+    SimVarNotSettableError,
+    SimVarTimeoutError,
+    UnitMismatchError,
+)
 from simconnect_mcp.tools.simvars import (
     get_simvar,
     get_simvar_bulk,
@@ -38,10 +43,45 @@ async def test_get_simvar_not_found(mock_simconnect):
 @pytest.mark.asyncio
 async def test_set_simvar(mock_simconnect):
     """Writing a SimVar succeeds."""
+    mock_simconnect["accessor"].write.return_value = True
     result = await set_simvar("PLANE_LATITUDE", 48.0)
     assert result["status"] == "ok"
     assert result["value_set"] == 48.0
-    mock_simconnect["aq"].set.assert_called_with("PLANE_LATITUDE", 48.0)
+    assert result["verified"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_simvar_reports_failure_instead_of_faking_success(mock_simconnect):
+    """Regression: the old code discarded aq.set()'s False and returned ok."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotSettableError(
+        "SimVar 'AIRSPEED_INDICATED' cannot be written"
+    )
+    result = await set_simvar("AIRSPEED_INDICATED", 250.0)
+    assert result["status"] == "error"
+    assert result["error"] == "SIMVAR_NOT_SETTABLE"
+
+
+@pytest.mark.asyncio
+async def test_set_simvar_success_reports_the_unit_used(mock_simconnect):
+    mock_simconnect["accessor"].write.return_value = True
+    result = await set_simvar("AUTOPILOT_ALTITUDE_LOCK_VAR", 12000.0, unit="feet")
+    assert result["status"] == "ok"
+    assert result["unit"] == "feet"
+    assert result["value_set"] == 12000.0
+
+
+@pytest.mark.asyncio
+async def test_set_simvar_unknown_name_returns_not_found(mock_simconnect):
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError("nope")
+    result = await set_simvar("NOT_A_REAL_VAR", 1.0)
+    assert result["error"] == "SIMVAR_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_set_simvar_passes_index_zero(mock_simconnect):
+    mock_simconnect["accessor"].write.return_value = True
+    await set_simvar("GENERAL_ENG_THROTTLE_LEVER_POSITION", 50.0, index=0)
+    assert mock_simconnect["accessor"].write.call_args.kwargs["index"] == 0
 
 
 @pytest.mark.asyncio

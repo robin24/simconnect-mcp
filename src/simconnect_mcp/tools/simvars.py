@@ -16,6 +16,7 @@ from simconnect_mcp.data.simvar_catalog import (
 )
 from simconnect_mcp.simvar_access import (
     SimVarNotFoundError,
+    SimVarNotSettableError,
     SimVarTimeoutError,
     UnitMismatchError,
 )
@@ -99,39 +100,77 @@ async def get_simvar(name: str, unit: str | None = None, index: int | None = Non
 
 @handle_simconnect_errors
 @require_connection
-async def set_simvar(name: str, value: float, unit: str | None = None, index: int | None = None) -> dict:
+async def set_simvar(
+    name: str, value: float, unit: str | None = None, index: int | None = None
+) -> dict:
     """Write a value to a settable SimVar.
 
     Args:
         name: SimVar name (must be settable)
         value: Value to write
-        unit: Optional unit (e.g., 'degrees', 'feet')
-        index: Optional index for indexed SimVars
+        unit: Unit the value is expressed in. Defaults to the catalog unit.
+        index: Index for indexed SimVars. Index 0 is valid.
 
     Returns:
-        Confirmation dict.
+        Confirmation dict, or an error if the sim rejected the write.
     """
     manager = SimConnectManager()
+    resolved_unit = resolve_unit(name, unit)
 
-    def _write() -> bool:
-        key = name
-        if index is not None:
-            key = f"{name}:{index}"
-        try:
-            manager.aq.set(key, value)
-            return True
-        except Exception as e:
-            raise RuntimeError(f"Failed to set SimVar '{name}': {e}") from e
+    try:
+        # verify=True re-reads after the write. SimConnect does NOT raise for a
+        # write to a read-only variable -- it silently ignores it -- so read-back
+        # is the only way to tell the caller whether the value actually landed.
+        verified = await manager.run_sync(
+            lambda: manager.accessor.write(
+                name, value, unit=unit, index=index, verify=True
+            )
+        )
+    except SimVarNotSettableError as e:
+        return {
+            "status": "error",
+            "error": "SIMVAR_NOT_SETTABLE",
+            "message": str(e),
+            "suggestion": (
+                f"'{name}' is read-only. Use search_simvars to check the "
+                "'settable' flag, or trigger_event for an equivalent control."
+            ),
+        }
+    except SimVarNotFoundError:
+        result: dict[str, Any] = {
+            "status": "error",
+            "error": "SIMVAR_NOT_FOUND",
+            "message": f"SimConnect does not recognise SimVar '{name}'",
+            "suggestion": "Use search_simvars to find the correct name.",
+        }
+        suggestions = suggest_names(name)
+        if suggestions:
+            result["suggestions"] = suggestions
+        return result
+    except UnitMismatchError as e:
+        return {
+            "status": "error",
+            "error": "UNIT_MISMATCH",
+            "message": str(e),
+            "suggestion": f"Check the valid units for '{name}' with search_simvars.",
+        }
 
-    success = await manager.run_sync(_write)
-
-    return {
+    result: dict[str, Any] = {
         "status": "ok",
         "name": name,
         "value_set": value,
-        "unit": unit or "default",
+        "unit": resolved_unit,
         "index": index,
+        "verified": verified,
     }
+    if verified is False:
+        result["warning"] = (
+            f"The write was sent but '{name}' did not change. SimConnect does not "
+            "reject writes to read-only variables, so this usually means the "
+            "variable is not settable. It can also mean the sim immediately "
+            "overrode the value."
+        )
+    return result
 
 
 @handle_simconnect_errors
