@@ -89,7 +89,12 @@ async def set_aircraft_position(
         bank: Bank in degrees
 
     Returns:
-        Confirmation dict with the position applied and actual values reported.
+        Confirmation dict with the position read back from the sim after the
+        move. A field the read-back could not confirm is reported as null,
+        never as the requested value, and a "warning" explains which
+        field(s) that affected -- status still reports "ok" since the
+        reposition command itself may well have succeeded even if the
+        confirming read did not.
     """
     if not -90.0 <= latitude <= 90.0 or not -180.0 <= longitude <= 180.0:
         return {
@@ -104,11 +109,33 @@ async def set_aircraft_position(
     def _current(
         name: str, fallback: float, unit: str | None = None
     ) -> float:
+        """Best-effort read used only to fill in an omitted request field.
+
+        This is a genuine "we don't know, use this default" fallback for
+        picking a value to hand to set_pos when the caller didn't supply
+        one -- never used for reporting what actually happened, which is
+        `_verify`'s job below.
+        """
         try:
             value = manager.accessor.read(name, unit=unit)
             return float(value) if value is not None else fallback
         except Exception:
             return fallback
+
+    def _verify(name: str, unit: str | None = None) -> float | None:
+        """Read back a value after the write, for reporting. Never guesses.
+
+        Returns None on failure rather than echoing the request as if it
+        were a measurement: doing that made the response claim status "ok"
+        with the requested position reported as fact, and made the
+        divergence warning below impossible to trigger, since a request
+        compared against itself is always equal.
+        """
+        try:
+            value = manager.accessor.read(name, unit=unit)
+            return float(value) if value is not None else None
+        except Exception:
+            return None
 
     def _set_pos() -> dict:
         target_alt = (
@@ -133,21 +160,20 @@ async def set_aircraft_position(
         # report where the aircraft actually ended up rather than what we asked
         # for. Reading back inside the same locked callable avoids a race.
         time.sleep(0.3)
+        on_ground_actual = _verify("SIM_ON_GROUND")
         return {
-            "latitude": _current("PLANE_LATITUDE", latitude, unit="degrees"),
-            "longitude": _current(
-                "PLANE_LONGITUDE", longitude, unit="degrees"
-            ),
-            "altitude": _current("PLANE_ALTITUDE", target_alt, unit="feet"),
-            "heading": _current(
-                "PLANE_HEADING_DEGREES_TRUE", target_hdg, unit="degrees"
-            ),
-            "on_ground": bool(
-                _current("SIM_ON_GROUND", 1.0 if on_ground else 0.0)
-            ),
+            "latitude": _verify("PLANE_LATITUDE", unit="degrees"),
+            "longitude": _verify("PLANE_LONGITUDE", unit="degrees"),
+            "altitude": _verify("PLANE_ALTITUDE", unit="feet"),
+            "heading": _verify("PLANE_HEADING_DEGREES_TRUE", unit="degrees"),
+            "on_ground": None if on_ground_actual is None else bool(on_ground_actual),
         }
 
     actual = await manager.run_sync(_set_pos)
+
+    unverified = [field for field in
+                  ("latitude", "longitude", "altitude", "heading", "on_ground")
+                  if actual[field] is None]
 
     result = {
         "status": "ok",
@@ -162,10 +188,24 @@ async def set_aircraft_position(
             "airspeed": airspeed,
         },
     }
-    if altitude is not None and abs(actual["altitude"] - altitude) > 10:
-        result["warning"] = (
+
+    warnings = []
+    if unverified:
+        warnings.append(
+            "Could not read back " + ", ".join(unverified) + " after repositioning "
+            "(reported as null); the sim may have disconnected. These values were "
+            "not confirmed, only requested."
+        )
+    if (
+        altitude is not None
+        and actual["altitude"] is not None
+        and abs(actual["altitude"] - altitude) > 10
+    ):
+        warnings.append(
             f"Requested altitude {altitude} ft but aircraft is at "
             f"{actual['altitude']:.0f} ft. With on_ground set, the sim snaps "
             "the aircraft to terrain and ignores the requested altitude."
         )
+    if warnings:
+        result["warning"] = " ".join(warnings)
     return result

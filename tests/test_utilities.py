@@ -99,3 +99,48 @@ async def test_response_reports_actual_position_not_requested(mock_simconnect):
     assert result["requested"]["altitude"] == 433.0
     assert "warning" in result
     assert "125" in result["warning"]
+
+
+async def test_read_back_failure_reports_none_not_the_requested_value(mock_simconnect):
+    """Finding 5: _current() used to swallow read-back exceptions and return
+    the *requested* value as its fallback, so a failed confirming read made
+    the response echo the request back as if it were a measurement --
+    status stayed "ok" reporting a position that was never actually
+    confirmed. Fails against the current code because the old fallback
+    makes result["altitude"] come back as 433.0 (the request), not None."""
+    def flaky_read(name, unit=None, **k):
+        if name == "PLANE_ALTITUDE":
+            raise RuntimeError("sim disconnected")
+        return 47.6
+
+    mock_simconnect["accessor"].read.side_effect = flaky_read
+
+    result = await set_aircraft_position(latitude=47.6, longitude=-122.3, altitude=433.0)
+
+    assert result["status"] == "ok"
+    assert result["altitude"] is None, "must not echo the request as a measurement"
+    assert result["requested"]["altitude"] == 433.0
+    assert "warning" in result
+    assert "altitude" in result["warning"]
+
+
+async def test_total_read_back_failure_reports_all_nulls_without_crashing(mock_simconnect):
+    """When every read-back fails, every field must come back null rather
+    than echoing the request, and the altitude-divergence comparison below
+    must not blow up trying to subtract None from a number. Old code
+    returned the full requested position as if measured, with status "ok"
+    and no warning at all -- the divergence check could never fire because
+    the "actual" values equalled the request by construction."""
+    mock_simconnect["accessor"].read.side_effect = RuntimeError("sim disconnected")
+
+    result = await set_aircraft_position(
+        latitude=47.6, longitude=-122.3, altitude=433.0, on_ground=True
+    )
+
+    assert result["status"] == "ok"
+    assert result["latitude"] is None
+    assert result["longitude"] is None
+    assert result["altitude"] is None
+    assert result["heading"] is None
+    assert result["on_ground"] is None
+    assert "warning" in result
