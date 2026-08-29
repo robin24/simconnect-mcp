@@ -113,12 +113,12 @@ def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> ToolE
                 "or omit the unit argument to use the catalog default."
             ),
         )
-    if isinstance(e, SimVarTimeoutError):
-        return ToolError(
-            error="SIM_TIMEOUT",
-            message=str(e),
-            suggestion="The sim may be paused or loading. Try again shortly.",
-        )
+    # SimVarTimeoutError (and anything else, including a bare SimVarError)
+    # falls through to error_from: its SIM_TIMEOUT mapping in models.py's
+    # _ERROR_CODES is already word-for-word what a bespoke branch here would
+    # return, so a separate branch would be pure duplication -- exactly the
+    # kind of two-copies-of-one-fact drift risk this function exists to
+    # remove for the bare-SimVarError case below.
     return error_from(e)
 
 
@@ -241,8 +241,8 @@ async def get_simvar_bulk(
         Field(description="Variables to read. Each dict takes 'name' and optional "
                           "'unit' and 'index'. Example: "
                           '[{"name": "PLANE_LATITUDE"}, '
-                          '{"name": "ENG_N1_RPM", "index": 1, "unit": "percent"}]',
-              min_length=1, max_length=100),
+                          '{"name": "ENG_N1_RPM", "index": 1, "unit": "percent"}]. '
+                          f"At most {MAX_BULK_VARIABLES} entries per call."),
     ],
 ) -> SimVarBulkResult | ToolError:
     """Read several SimVars in one call.
@@ -250,6 +250,17 @@ async def get_simvar_bulk(
     Results are keyed by 'NAME' or 'NAME:index'. A failure on one variable
     does not abort the others -- that entry carries an 'error' instead.
     """
+    # Deliberately no min_length/max_length on the Field above: FastMCP
+    # validates a tool's arguments against its Pydantic-derived schema
+    # BEFORE the function body runs, so a schema-level max_length here would
+    # reject an over-limit call with a generic framework validation error
+    # and this handler -- and its friendly, actionable TOO_MANY_VARIABLES
+    # ToolError below -- would never run for a real MCP caller (confirmed
+    # against the installed mcp SDK's FuncMetadata.call_fn_with_arg_validation,
+    # which calls arg_model.model_validate(...) ahead of invoking the tool).
+    # Only a direct Python call (as tests do) would ever reach it, silently
+    # testing a path real callers can't take. The runtime check below is the
+    # only enforcement, so it stays reachable and keeps its own error shape.
     if len(variables) > MAX_BULK_VARIABLES:
         return ToolError(
             error="TOO_MANY_VARIABLES",
@@ -270,10 +281,11 @@ async def get_simvar_bulk(
     requests = []
     for var in variables:
         name = var["name"]
+        unit = var.get("unit")
         index = var.get("index")  # index 0 must survive
         key = name if index is None else f"{name}:{index}"
-        caller_units[key] = var.get("unit")
-        requests.append((name, var.get("unit"), index))
+        caller_units[key] = unit
+        requests.append((name, unit, index))
 
     results = await manager.run_sync(lambda: manager.accessor.read_many(requests))
 
