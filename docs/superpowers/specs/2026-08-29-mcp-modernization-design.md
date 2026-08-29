@@ -70,6 +70,17 @@ unit support, access to variables outside that table, string variables, and hone
 are all unreachable while reads go through it. A generic data-definition path fixes all four at
 once.
 
+**What write-failure detection can and cannot do.** Verified against a live sim: SimConnect
+raises for an unrecognised variable name and for an invalid unit, and those exceptions correlate
+back to the originating call. It does **not** raise when you write to a read-only variable — it
+silently ignores the write. Exception correlation therefore covers bad names and bad units only.
+The catalog's `settable` flag cannot fill the gap either: on real data it is wrong in both
+directions (`AIRSPEED_TRUE` is marked settable but ignores writes; `AUTOPILOT_ALTITUDE_LOCK_VAR`
+is marked read-only but accepts them), so it must never gate a write. Read-back is the only
+reliable signal, so `write()` takes an opt-in `verify` flag that re-reads and **reports** whether
+the value changed, rather than raising — writing a value the variable already holds, or one the
+sim immediately overrides, are both legitimate and must not be reported as failures.
+
 **Unit resolution.** SimConnect requires a unit string for every data definition, so the accessor
 resolves in this order: explicit `unit` argument → the `unit` field for that variable in
 `simvars_catalog.json` → `"number"`. This makes the bundled catalog load-bearing, and makes
