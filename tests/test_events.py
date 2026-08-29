@@ -47,6 +47,24 @@ async def test_search_events_with_category():
 
 
 @pytest.mark.asyncio
+async def test_search_events_reports_total_and_truncated():
+    """Minor: results[:50] returned a count computed after slicing, with no
+    way to tell 50-of-50 apart from 50-of-over-900 (the full library
+    catalog)."""
+    result = await search_events("a")
+    assert result["count"] == 50
+    assert result["total"] > 50
+    assert result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_search_events_reports_not_truncated_when_under_the_cap():
+    result = await search_events("xyznonexistenteventxyz")
+    assert result["total"] == 0
+    assert result["truncated"] is False
+
+
+@pytest.mark.asyncio
 async def test_trigger_event_not_connected():
     """Triggering event without connection returns error when sim is unavailable."""
     with patch.dict(sys.modules, {"SimConnect": None}):

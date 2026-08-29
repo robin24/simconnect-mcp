@@ -105,7 +105,7 @@ async def disconnect_from_sim() -> dict:
 async def get_connection_status() -> dict:
     """Check SimConnect connection state, whether sim is running/paused."""
     manager = SimConnectManager()
-    return manager.get_status()
+    return await manager.get_status()
 
 
 # Register tool functions

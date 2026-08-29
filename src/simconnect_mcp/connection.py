@@ -277,8 +277,18 @@ class SimConnectManager:
         title, _ = await self.detect_aircraft_identity()
         return title
 
-    def get_status(self) -> dict[str, Any]:
-        """Return current connection status."""
+    async def get_status(self) -> dict[str, Any]:
+        """Return current connection status.
+
+        The sim_paused/sim_running lookup goes through run_sync rather than
+        acquiring `_sim_lock` directly: this method used to take that lock
+        synchronously on the event loop thread. If some other call was
+        already holding it for a while (e.g. a large get_simvar_bulk against
+        a hung sim), that direct acquisition blocked the event loop itself
+        until the lock freed -- freezing every other tool call on the
+        server, not just this one. Routing the wait through an executor
+        keeps the event loop free regardless of how long the lock is held.
+        """
         result: dict[str, Any] = {
             "state": self._state.value,
             "connected": self.is_connected,
@@ -287,13 +297,19 @@ class SimConnectManager:
 
         if self.is_connected and self.sm is not None:
             try:
-                with self._sim_lock:
-                    result["sim_paused"] = bool(self.sm.paused)
-                    result["sim_running"] = bool(self.sm.running)
+                extra = await self.run_sync(self._read_sim_state)
+                result.update(extra)
             except Exception:
                 pass
 
         return result
+
+    def _read_sim_state(self) -> dict[str, Any]:
+        """Blocking read of sim_paused/sim_running. Call only via run_sync."""
+        return {
+            "sim_paused": bool(self.sm.paused),
+            "sim_running": bool(self.sm.running),
+        }
 
     def set_lvar(self, name: str, value: float) -> None:
         """Write an L-var using native SimConnect data definition.

@@ -13,6 +13,7 @@ from simconnect_mcp.simvar_access import (
     SimVarTimeoutError,
 )
 from simconnect_mcp.tools.simvars import (
+    MAX_BULK_VARIABLES,
     get_simvar,
     get_simvar_bulk,
     list_simvar_categories,
@@ -186,6 +187,81 @@ async def test_bulk_read_returns_a_value_per_variable(mock_simconnect):
 
 
 @pytest.mark.asyncio
+async def test_bulk_read_disambiguates_a_bad_unit_on_a_known_variable(mock_simconnect):
+    """Finding 6: get_simvar_bulk used to surface read_many's raw
+    SimVarNotFoundError message for every failure -- "SimConnect does not
+    recognise SimVar 'PLANE_ALTITUDE'" -- even when the catalog could tell
+    the unit, not the name, was at fault. Must match what get_simvar
+    reports for the identical situation (UNIT_MISMATCH naming the unit)."""
+    mock_simconnect["accessor"].read_many.side_effect = None
+    mock_simconnect["accessor"].read_many.return_value = {
+        "PLANE_ALTITUDE": {
+            "error": "SimConnect does not recognise SimVar 'PLANE_ALTITUDE'",
+            "error_type": "SimVarNotFoundError",
+            "unit": "bananas",
+        }
+    }
+    result = await get_simvar_bulk([{"name": "PLANE_ALTITUDE", "unit": "bananas"}])
+    entry = result["variables"]["PLANE_ALTITUDE"]
+    assert entry["error_code"] == "UNIT_MISMATCH"
+    assert "bananas" in entry["error"]
+    assert "suggestions" not in entry
+
+
+@pytest.mark.asyncio
+async def test_bulk_read_reports_not_found_with_suggestions_for_a_typo(mock_simconnect):
+    """A genuine bad name (no caller unit) must still get SIMVAR_NOT_FOUND
+    with name suggestions, not a bare unit-mismatch guess."""
+    mock_simconnect["accessor"].read_many.side_effect = None
+    mock_simconnect["accessor"].read_many.return_value = {
+        "PLANE_ALTITUD": {
+            "error": "SimConnect does not recognise SimVar 'PLANE_ALTITUD'",
+            "error_type": "SimVarNotFoundError",
+            "unit": "Feet",
+        }
+    }
+    result = await get_simvar_bulk([{"name": "PLANE_ALTITUD"}])
+    entry = result["variables"]["PLANE_ALTITUD"]
+    assert entry["error_code"] == "SIMVAR_NOT_FOUND"
+    assert "PLANE_ALTITUDE" in entry["suggestions"]
+
+
+@pytest.mark.asyncio
+async def test_get_simvar_bulk_rejects_more_than_the_max_variables(mock_simconnect):
+    """Finding 3: an uncapped caller-supplied list makes read_many hold
+    _sim_lock for up to len(variables) * timeout against a hung sim."""
+    variables = [{"name": "PLANE_ALTITUDE"}] * (MAX_BULK_VARIABLES + 1)
+    result = await get_simvar_bulk(variables)
+    assert result["status"] == "error"
+    assert result["error"] == "TOO_MANY_VARIABLES"
+    assert not mock_simconnect["accessor"].read_many.called
+
+
+@pytest.mark.asyncio
+async def test_get_simvar_bulk_accepts_exactly_the_max(mock_simconnect):
+    variables = [{"name": "PLANE_ALTITUDE"}] * MAX_BULK_VARIABLES
+    result = await get_simvar_bulk(variables)
+    assert result["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_search_simvars_reports_total_and_truncated():
+    """Minor: [:50] silently truncated with no way to tell 50-of-50 apart
+    from 50-of-many."""
+    result = await search_simvars("e")  # broad enough to exceed 50 matches
+    assert result["count"] == 50
+    assert result["total"] > 50
+    assert result["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_search_simvars_reports_not_truncated_when_under_the_cap():
+    result = await search_simvars("xyznonexistent123")
+    assert result["total"] == 0
+    assert result["truncated"] is False
+
+
+@pytest.mark.asyncio
 async def test_watch_simvar_honours_index_zero(mock_simconnect):
     await watch_simvar("ENG_N1_RPM", index=0, interval_ms=50, duration_s=1)
     assert mock_simconnect["accessor"].read.call_args.kwargs["index"] == 0
@@ -211,14 +287,42 @@ async def test_watch_simvar_reports_explicit_unit_when_given(mock_simconnect):
 
 @pytest.mark.asyncio
 async def test_watch_simvar_fails_fast_when_the_first_read_raises(mock_simconnect):
-    """A name that will never work must not loop for the full duration."""
+    """A name that will never work must not loop for the full duration.
+
+    Finding 6: this used to assert the umbrella SIMVAR_NOT_READABLE, which
+    watch_simvar returned for every first-sample failure regardless of
+    cause. A name with no unit and no catalog entry is a genuine
+    SIMVAR_NOT_FOUND -- the same diagnosis get_simvar gives the identical
+    situation (see test_unknown_var_without_a_unit_reports_not_found)."""
     import time
     mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
     start = time.monotonic()
     result = await watch_simvar("NOT_A_REAL_VAR", interval_ms=200, duration_s=30)
     elapsed = time.monotonic() - start
-    assert result["error"] == "SIMVAR_NOT_READABLE"
+    assert result["error"] == "SIMVAR_NOT_FOUND"
     assert elapsed < 5, f"should fail fast, took {elapsed:.1f}s"
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_bad_unit_on_a_known_var_reports_unit_mismatch(mock_simconnect):
+    """Finding 6: watch_simvar used to report every first-sample failure as
+    SIMVAR_NOT_READABLE with "check the name" -- wrong advice here, since
+    PLANE_ALTITUDE is a real, known variable and the unit is what's bad.
+    Must match what get_simvar reports for the identical situation (see
+    test_bad_unit_on_a_known_var_reports_unit_mismatch)."""
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    result = await watch_simvar("PLANE_ALTITUDE", unit="bananas", interval_ms=200, duration_s=30)
+    assert result["error"] == "UNIT_MISMATCH"
+    assert "bananas" in result["message"]
+    assert "suggestions" not in result, "must not suggest names when the name was fine"
+
+
+@pytest.mark.asyncio
+async def test_watch_simvar_timeout_is_reported_as_its_own_error(mock_simconnect):
+    mock_simconnect["accessor"].read.side_effect = SimVarTimeoutError("no response")
+    result = await watch_simvar("PLANE_ALTITUDE", interval_ms=200, duration_s=30)
+    assert result["error"] == "SIM_TIMEOUT"
+    assert "suggestion" in result
 
 
 @pytest.mark.asyncio

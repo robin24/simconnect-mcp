@@ -14,6 +14,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import math
+import time
 from collections import OrderedDict
 from ctypes.wintypes import DWORD
 
@@ -305,13 +306,34 @@ class SimVarAccessor:
 
         Keys are `NAME` or `NAME:index`, so indexed variables stay distinct.
         A failure on one variable never aborts the batch.
+
+        `timeout` is a TOTAL budget for the whole batch, not a per-item
+        timeout -- each read gets whatever of it remains when its turn
+        comes, down to zero. Previously every item waited up to the full
+        `timeout` independently, so a hung sim (paused, loading) held
+        `_sim_lock` for up to `len(requests) * timeout` seconds; since
+        get_simvar_bulk passes a caller-supplied list straight through,
+        that made the lock-hold time unbounded from the caller's side.
+        Once the deadline has passed, remaining entries are reported as a
+        timeout without even attempting SimConnect.
         """
         results: dict[str, dict] = {}
+        deadline = time.monotonic() + timeout
         for name, unit, index in requests:
             key = name if index is None else f"{name}:{index}"
             resolved = resolve_unit(name, unit)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                results[key] = {
+                    "error": (
+                        f"Timed out waiting for the batch read before reaching '{name}'."
+                    ),
+                    "error_type": SimVarTimeoutError.__name__,
+                    "unit": resolved,
+                }
+                continue
             try:
-                results[key] = {"value": self.read(name, unit, index, timeout),
+                results[key] = {"value": self.read(name, unit, index, remaining),
                                 "unit": resolved}
             except SimVarError as e:
                 results[key] = {"error": str(e), "error_type": type(e).__name__,

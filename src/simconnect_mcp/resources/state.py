@@ -11,10 +11,10 @@ def register_state_resources(mcp: FastMCP) -> None:
     """Register live state resources on the MCP server."""
 
     @mcp.resource("simconnect://state/connection")
-    def state_connection() -> dict:
+    async def state_connection() -> dict:
         """Current SimConnect connection status, sim running/paused."""
         manager = SimConnectManager()
-        return manager.get_status()
+        return await manager.get_status()
 
     @mcp.resource("simconnect://state/aircraft")
     async def state_aircraft() -> dict:

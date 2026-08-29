@@ -1,4 +1,5 @@
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -380,6 +381,59 @@ def test_read_many_keys_indexed_vars_distinctly():
         [("ENG_N1_RPM", None, 1), ("ENG_N1_RPM", None, 2)]
     )
     assert set(results) == {"ENG_N1_RPM:1", "ENG_N1_RPM:2"}
+
+
+def test_read_many_timeout_is_a_total_budget_not_a_per_item_timeout():
+    """Finding 3: read_many used to pass the full `timeout` to EVERY item
+    independently, so a hung sim (every item timing out) held _sim_lock for
+    len(requests) * timeout seconds -- and since get_simvar_bulk passes a
+    caller-supplied list straight through, that made the lock-hold time
+    unbounded from the caller's side. `timeout` is now a total budget for
+    the whole batch.
+
+    Fails against the current code: 5 items at a 0.15s per-item timeout
+    take ~0.75s total; this asserts well under that, using real wall-clock
+    waiting (FakeSM's timeout path genuinely blocks) rather than mocking
+    time.monotonic, so the measurement reflects actual blocking behaviour."""
+    sm = FakeSM(respond=False)
+    requests = [(f"VAR_{i}", None, None) for i in range(5)]
+
+    start = time.monotonic()
+    results = SimVarAccessor(sm).read_many(requests, timeout=0.15)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 0.4, (
+        f"expected the whole batch to respect one ~0.15s budget, took {elapsed:.2f}s "
+        "-- looks like each item is still waiting the full timeout independently"
+    )
+    assert len(results) == 5
+    for key in results:
+        assert results[key]["error_type"] == "SimVarTimeoutError"
+
+
+def test_read_many_reports_a_timeout_for_entries_past_the_deadline_without_calling_read():
+    """Once the total deadline has passed, remaining entries must be
+    reported as a timeout without even attempting SimConnect -- not just
+    with a very short per-item timeout, which would still send the DLL
+    calls and consume a request id and a definition slot for no benefit."""
+    sm = FakeSM(value=1.0)
+    accessor = SimVarAccessor(sm)
+    real_read = accessor.read
+    read_calls = []
+
+    def spy_read(name, unit=None, index=None, timeout=2.0):
+        read_calls.append(name)
+        return real_read(name, unit=unit, index=index, timeout=timeout)
+
+    accessor.read = spy_read
+
+    requests = [("PLANE_ALTITUDE", None, None), ("AIRSPEED_INDICATED", None, None)]
+    # A deadline already in the past when the loop reaches the second item.
+    results = accessor.read_many(requests, timeout=-1)
+
+    assert read_calls == [], "no item should be attempted once the deadline has passed"
+    assert results["PLANE_ALTITUDE"]["error_type"] == "SimVarTimeoutError"
+    assert results["AIRSPEED_INDICATED"]["error_type"] == "SimVarTimeoutError"
 
 
 def test_simconnect_name_helper_is_index_zero_safe():

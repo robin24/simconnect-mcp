@@ -20,20 +20,54 @@ def test_initial_state():
     assert not manager.mobiflight_available
 
 
-def test_get_status_disconnected():
+async def test_get_status_disconnected():
     """Status reports disconnected state."""
     manager = SimConnectManager()
-    status = manager.get_status()
+    status = await manager.get_status()
     assert status["state"] == "disconnected"
     assert status["connected"] is False
 
 
-def test_get_status_connected(mock_simconnect):
+async def test_get_status_connected(mock_simconnect):
     """Status reports connected state."""
     manager = mock_simconnect["manager"]
-    status = manager.get_status()
+    status = await manager.get_status()
     assert status["state"] == "connected"
     assert status["connected"] is True
+
+
+async def test_get_status_reports_sim_paused_and_running(mock_simconnect):
+    manager = mock_simconnect["manager"]
+    status = await manager.get_status()
+    assert status["sim_paused"] is False
+    assert status["sim_running"] is True
+
+
+async def test_get_status_fetches_sim_state_via_run_sync(mock_simconnect):
+    """Finding 3: get_status() used to acquire _sim_lock directly on the
+    event loop thread. If some other call already held that lock for a
+    while (e.g. a large get_simvar_bulk against a hung sim), a direct
+    acquisition there would block the event loop itself until it freed --
+    freezing every other tool call on the server, not just this one.
+    Routing the sim_paused/sim_running read through run_sync moves the wait
+    into a background thread instead. This fails against the current code
+    because get_status() is a plain `def`, not a coroutine: awaiting it
+    raises TypeError."""
+    manager = mock_simconnect["manager"]
+    calls = []
+    real_run_sync = manager.run_sync
+
+    async def spy_run_sync(fn, *args):
+        calls.append(fn)
+        return await real_run_sync(fn, *args)
+
+    manager.run_sync = spy_run_sync
+
+    status = await manager.get_status()
+
+    assert calls, "get_status() must fetch sim_paused/sim_running through run_sync"
+    assert status["sim_paused"] is False
+    assert status["sim_running"] is True
 
 
 def test_disconnect(mock_simconnect):

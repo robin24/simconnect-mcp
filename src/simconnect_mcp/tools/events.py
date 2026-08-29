@@ -267,7 +267,8 @@ def _builtin_event_catalog() -> dict[str, list[dict]]:
     }
 
 
-def _search_events(keyword: str, category: str | None = None) -> list[dict]:
+def _matching_events(keyword: str, category: str | None = None) -> list[dict]:
+    """All events matching keyword/category, uncapped -- callers paginate."""
     _load_event_catalog()
     assert _FLAT_EVENTS is not None
     keyword_lower = keyword.lower()
@@ -278,7 +279,12 @@ def _search_events(keyword: str, category: str | None = None) -> list[dict]:
         searchable = f"{evt.get('name', '')} {evt.get('description', '')}".lower()
         if keyword_lower in searchable:
             results.append(evt)
-    return results[:50]
+    return results
+
+
+def _search_events(keyword: str, category: str | None = None) -> list[dict]:
+    """Convenience wrapper over _matching_events, capped at 50 results."""
+    return _matching_events(keyword, category)[:50]
 
 
 def _to_dword(parameter: int) -> int:
@@ -402,12 +408,18 @@ async def search_events(keyword: str, category: str | None = None) -> dict:
         category: Optional category filter
 
     Returns:
-        Matching events.
+        Dict with up to 50 matching events, plus `total` (the full match
+        count before truncation) and `truncated` (whether more than 50
+        matched) -- without these, a caller cannot tell 50-of-50 apart from
+        50-of-many.
     """
-    results = _search_events(keyword, category)
+    all_results = _matching_events(keyword, category)
+    results = all_results[:50]
     return {
         "status": "ok",
         "count": len(results),
+        "total": len(all_results),
+        "truncated": len(all_results) > len(results),
         "results": results,
         "keyword": keyword,
         "category": category,
