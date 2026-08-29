@@ -205,7 +205,7 @@ Inventory after Phase 1 — 26 tools, down from 29:
 | Utilities | `msfs_send_sim_text`, `msfs_set_aircraft_position` |
 | PMDG | `msfs_get_pmdg_var`, `msfs_get_pmdg_cdu`, `msfs_send_pmdg_event` |
 
-Phase 2 adds five more, for 31 total.
+Phase 2 adds six more, for 32 total.
 
 **Resources.** Register the two orphaned PMDG docs (`pmdg_777.md`, `pmdg_737.md`) at
 `simconnect://docs/pmdg/{variant}`. Extract the duplicated section-filter logic in
@@ -231,7 +231,7 @@ calls go through `run_in_executor` — not the sim lock, since HubHop is HTTP ra
 SimConnect — with a 10 s timeout and an offline-friendly error.
 
 **Flight and scenario.** `msfs_load_flight(path)`, `msfs_save_flight(path, title, description)`,
-`msfs_set_flight_plan(path)` and `msfs_create_ai_object(...)` wrap `load_flight`, `save_flight`,
+`msfs_load_flight_plan(path)` and `msfs_create_ai_object(...)` wrap `load_flight`, `save_flight`,
 `load_flight_plan` and `createSimulatedObject`. Paths are validated as absolute, and as existing
 for loads, before dispatch. These tools are annotated destructive.
 
