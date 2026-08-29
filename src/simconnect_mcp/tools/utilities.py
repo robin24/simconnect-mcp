@@ -66,36 +66,72 @@ async def set_aircraft_position(
     altitude: float | None = None,
     heading: float | None = None,
     on_ground: bool = False,
+    airspeed: int = 0,
+    pitch: float = 0.0,
+    bank: float = 0.0,
 ) -> dict:
-    """Teleport aircraft to a specific position (test scenario setup).
+    """Reposition the aircraft (test scenario setup).
+
+    Uses SimConnect's SIMCONNECT_DATA_INITPOSITION, which repositions the
+    aircraft atomically. Writing PLANE_LATITUDE/LONGITUDE individually, as
+    this used to, is unreliable and cannot set the on-ground state.
 
     Args:
-        latitude: Target latitude in degrees
-        longitude: Target longitude in degrees
-        altitude: Target altitude in feet (optional — uses ground level if omitted)
-        heading: Target heading in degrees true (optional)
-        on_ground: If True, place aircraft on ground at the position
+        latitude: Target latitude, -90 to 90 degrees
+        longitude: Target longitude, -180 to 180 degrees
+        altitude: Target altitude in feet. Omit to keep the current altitude.
+        heading: Target heading in degrees true. Omit to keep the current heading.
+        on_ground: Place the aircraft on the ground at the position
+        airspeed: Target airspeed in knots (0 for a stationary placement)
+        pitch: Pitch in degrees
+        bank: Bank in degrees
 
     Returns:
-        Confirmation dict with new position.
+        Confirmation dict with the position applied.
     """
+    if not -90.0 <= latitude <= 90.0 or not -180.0 <= longitude <= 180.0:
+        return {
+            "status": "error",
+            "error": "INVALID_POSITION",
+            "message": f"Latitude {latitude} / longitude {longitude} is out of range.",
+            "suggestion": "Latitude must be -90..90 and longitude -180..180.",
+        }
+
     manager = SimConnectManager()
 
+    def _current(name: str, fallback: float) -> float:
+        try:
+            value = manager.accessor.read(name, unit="degrees" if name == "PLANE_HEADING_DEGREES_TRUE" else None)
+            return float(value) if value is not None else fallback
+        except Exception:
+            return fallback
+
     def _set_pos() -> None:
-        manager.aq.set("PLANE_LATITUDE", latitude)
-        manager.aq.set("PLANE_LONGITUDE", longitude)
-        if altitude is not None:
-            manager.aq.set("PLANE_ALTITUDE", altitude)
-        if heading is not None:
-            manager.aq.set("PLANE_HEADING_DEGREES_TRUE", heading)
+        target_alt = altitude if altitude is not None else _current("PLANE_ALTITUDE", 0.0)
+        target_hdg = (
+            heading if heading is not None
+            else _current("PLANE_HEADING_DEGREES_TRUE", 0.0)
+        )
+        manager.sm.set_pos(
+            _Altitude=target_alt,
+            _Latitude=latitude,
+            _Longitude=longitude,
+            _Airspeed=airspeed,
+            _Pitch=pitch,
+            _Bank=bank,
+            _Heading=target_hdg,
+            _OnGround=1 if on_ground else 0,
+        )
 
     await manager.run_sync(_set_pos)
 
     result = {
         "status": "ok",
-        "message": "Aircraft position updated",
+        "message": "Aircraft repositioned",
         "latitude": latitude,
         "longitude": longitude,
+        "on_ground": on_ground,
+        "airspeed": airspeed,
     }
     if altitude is not None:
         result["altitude"] = altitude
