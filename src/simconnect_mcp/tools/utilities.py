@@ -5,29 +5,56 @@ from __future__ import annotations
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
+# SIMCONNECT_TEXT_TYPE members for the PRINT_* colour variants.
+_TEXT_COLORS = {
+    "white": "SIMCONNECT_TEXT_TYPE_PRINT_WHITE",
+    "red": "SIMCONNECT_TEXT_TYPE_PRINT_RED",
+    "green": "SIMCONNECT_TEXT_TYPE_PRINT_GREEN",
+    "blue": "SIMCONNECT_TEXT_TYPE_PRINT_BLUE",
+    "yellow": "SIMCONNECT_TEXT_TYPE_PRINT_YELLOW",
+    "magenta": "SIMCONNECT_TEXT_TYPE_PRINT_MAGENTA",
+    "cyan": "SIMCONNECT_TEXT_TYPE_PRINT_CYAN",
+    "black": "SIMCONNECT_TEXT_TYPE_PRINT_BLACK",
+}
+
 
 @handle_simconnect_errors
 @require_connection
-async def send_sim_text(text: str, duration_s: float = 5.0) -> dict:
+async def send_sim_text(text: str, duration_s: float = 5.0, color: str = "white") -> dict:
     """Display a text overlay message in the simulator (debug feedback).
 
     Args:
         text: Text message to display in the sim
-        duration_s: How long to display (seconds, default 5)
+        duration_s: How long to display it, in seconds
+        color: One of white, red, green, blue, yellow, magenta, cyan, black
 
     Returns:
         Confirmation dict.
     """
+    color_key = color.strip().lower()
+    if color_key not in _TEXT_COLORS:
+        return {
+            "status": "error",
+            "error": "INVALID_COLOR",
+            "message": f"Unknown text colour '{color}'.",
+            "suggestion": f"Use one of: {', '.join(sorted(_TEXT_COLORS))}.",
+        }
+
     manager = SimConnectManager()
 
     def _send() -> None:
-        manager.sm.send_text(text, duration_s)
+        from SimConnect.Enum import SIMCONNECT_TEXT_TYPE
+
+        text_type = getattr(SIMCONNECT_TEXT_TYPE, _TEXT_COLORS[color_key])
+        # The library method is sendText, not send_text.
+        manager.sm.sendText(text, duration_s, text_type)
 
     await manager.run_sync(_send)
     return {
         "status": "ok",
         "message": f"Text displayed in sim: '{text}'",
         "duration_s": duration_s,
+        "color": color_key,
     }
 
 

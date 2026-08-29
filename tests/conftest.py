@@ -76,6 +76,7 @@ def mock_simconnect():
             FacilitiesRequests=MagicMock(),
         ),
         "SimConnect.Constants": MagicMock(),
+        "SimConnect.Enum": MagicMock(),
         "SimConnect.RequestList": MagicMock(),
     }):
         manager = SimConnectManager()
