@@ -95,6 +95,15 @@ class PendingRequest:
     RequestDataOnSimObject that follows it). `send_ids` accumulates every
     packet ID this request is waiting on, so an exception against any of
     them resolves it.
+
+    `resolved` is distinct from `done`: `done` is also set when the caller
+    gives up locally on a timeout (see SimVarAccessor.read()), but a local
+    timeout cancels nothing on the DLL side -- SimConnect may still deliver
+    SIMOBJECT_DATA for this request's ID later. `resolved` is set only by
+    resolve_data()/resolve_exception(), i.e. only when the DLL side is
+    actually known to be finished with this request's ID (data arrived, or
+    SimConnect rejected it and nothing is coming). RequestRegistry.discard()
+    uses this to decide whether the ID is safe to recycle.
     """
 
     request_id: int | None
@@ -103,6 +112,7 @@ class PendingRequest:
     value: Any = None
     exception: str | None = None
     done: threading.Event = field(default_factory=threading.Event)
+    resolved: bool = False
 
 
 class RequestRegistry:
@@ -176,6 +186,11 @@ class RequestRegistry:
         if req is None:
             return False
         req.value = value
+        # Set before done: a waiter that wakes because done is set must
+        # also observe resolved=True, since discard() (running on the
+        # waiter's thread right after it wakes) uses resolved to decide
+        # whether this request's ID is safe to recycle.
+        req.resolved = True
         req.done.set()
         return True
 
@@ -185,14 +200,34 @@ class RequestRegistry:
         if req is None:
             return False
         req.exception = name
+        req.resolved = True
         req.done.set()
         return True
 
     def discard(self, req: PendingRequest) -> None:
+        """Stop tracking a request, freeing its ID for reuse IF SAFE.
+
+        A request's ID is only added back to the free-list when `resolved`
+        is set -- i.e. resolve_data()/resolve_exception() actually ran for
+        it, so the DLL side is known to be finished with that ID. A local
+        timeout sets neither: it cancels nothing on the DLL side, so
+        SimConnect may still deliver SIMOBJECT_DATA for that ID later. If
+        that ID had already been recycled to a new, unrelated request, the
+        late delivery would resolve the WRONG request with someone else's
+        data (dwRequestID is all the wire format carries -- there is no
+        generation token the dispatch handler could use to detect this).
+        A timed-out ID is therefore retired rather than recycled: removed
+        from _by_request (so a late delivery hits the dead-letter branch in
+        _on_simobject_data, exactly as it always has) but never handed to
+        another request. This costs one permanently-unused ID per timeout,
+        bounded by how often timeouts occur (rare: a paused/hung sim), not
+        by read count -- the hot, successful-read path is unaffected.
+        """
         with self.pending_lock:
             if req.request_id is not None:
                 self._by_request.pop(req.request_id, None)
-                self._free_request_ids.append(req.request_id)
+                if req.resolved:
+                    self._free_request_ids.append(req.request_id)
             for send_id in req.send_ids:
                 self._by_send.pop(send_id, None)
 

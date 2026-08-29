@@ -93,7 +93,9 @@ def test_acquire_request_id_allocates_fresh_when_the_pool_is_empty():
 
 def test_acquire_request_id_reuses_an_id_a_discard_just_freed():
     """The whole point of the pool: a freed id is handed back out before the
-    (expensive) allocator is ever called again."""
+    (expensive) allocator is ever called again -- but only once the request
+    is actually resolved (see the race-condition tests below for why a
+    timed-out request's id must NOT be recycled this way)."""
     registry = RequestRegistry()
     calls = []
 
@@ -104,6 +106,7 @@ def test_acquire_request_id_reuses_an_id_a_discard_just_freed():
     first_id = registry.acquire_request_id(allocate)
     req = PendingRequest(request_id=first_id)
     registry.register(req)
+    registry.resolve_data(first_id, 1.0)  # the sim answered -- safe to recycle
     registry.discard(req)
 
     second_id = registry.acquire_request_id(allocate)
@@ -138,6 +141,7 @@ def test_concurrent_acquire_never_hands_out_the_same_freed_id():
     registry = RequestRegistry()
     freed_req = PendingRequest(request_id=42)
     registry.register(freed_req)
+    registry.resolve_data(42, 1.0)  # the sim answered -- safe to recycle
     registry.discard(freed_req)  # frees id 42
 
     alloc_lock = threading.Lock()
@@ -180,6 +184,85 @@ def test_discard_without_a_request_id_does_not_touch_the_free_list():
     registry.discard(req)
 
     assert registry.acquire_request_id(lambda: 999) == 999
+
+
+def test_a_timed_out_request_does_not_return_its_id_to_the_pool():
+    """A local timeout does not cancel the DLL request, so the sim may still
+    deliver for that id. Recycling it lets that late response land on
+    whoever holds the id next -- a real race, reproduced end to end below.
+    Fails against the pre-fix code, which recycled on every discard()
+    regardless of whether resolve_data()/resolve_exception() ever ran."""
+    registry = RequestRegistry()
+    allocated = []
+
+    def allocate():
+        allocated.append(len(allocated) + 1)
+        return allocated[-1]
+
+    first = registry.acquire_request_id(allocate)
+    req = PendingRequest(request_id=first)
+    registry.register(req)
+    registry.discard(req)  # timed out: never resolved
+
+    second = registry.acquire_request_id(allocate)
+    assert second != first, "a timed-out id must not be recycled"
+
+
+def test_a_resolved_request_does_return_its_id_to_the_pool():
+    registry = RequestRegistry()
+    counter = iter(range(1, 100))
+
+    def allocate():
+        return next(counter)
+
+    first = registry.acquire_request_id(allocate)
+    req = PendingRequest(request_id=first)
+    registry.register(req)
+    registry.resolve_data(first, 42.0)  # the sim answered
+    registry.discard(req)
+
+    assert registry.acquire_request_id(allocate) == first
+
+
+def test_an_exception_resolved_request_returns_its_id():
+    """A rejected request gets no data, so its id is safe to reuse."""
+    registry = RequestRegistry()
+    counter = iter(range(1, 100))
+
+    def allocate():
+        return next(counter)
+
+    first = registry.acquire_request_id(allocate)
+    req = PendingRequest(request_id=first)
+    registry.register(req)
+    registry.bind_send_id(req, send_id=7)
+    registry.resolve_exception(7, "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
+    registry.discard(req)
+
+    assert registry.acquire_request_id(allocate) == first
+
+
+def test_late_delivery_after_a_timeout_cannot_reach_a_later_request():
+    """The end-to-end race, as reproduced against real code: A times out, B
+    acquires next, a late response for A's id must not land on B."""
+    registry = RequestRegistry()
+    counter = iter(range(1, 100))
+
+    def allocate():
+        return next(counter)
+
+    id_a = registry.acquire_request_id(allocate)
+    a = PendingRequest(request_id=id_a)
+    registry.register(a)
+    registry.discard(a)  # timeout
+
+    id_b = registry.acquire_request_id(allocate)
+    b = PendingRequest(request_id=id_b)
+    registry.register(b)
+
+    registry.resolve_data(id_a, 999.999)  # the sim finally answers A
+    assert b.value is None, "B must not receive A's data"
+    assert not b.done.is_set()
 
 
 def test_write_request_has_no_request_id_but_still_matches_exceptions():

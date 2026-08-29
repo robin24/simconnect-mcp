@@ -359,5 +359,31 @@ async def test_state_aircraft_resource_does_not_touch_aq_directly(mock_simconnec
     assert not mock_simconnect["aq"].get.called
 
 
+async def test_state_aircraft_gives_read_many_a_total_budget_sized_for_six_reads(mock_simconnect):
+    """read_many's `timeout` is a TOTAL budget for the whole batch (Finding
+    3), not per item. This resource reads 6 names; passing the default
+    (sized for one read) through unchanged would give all 6 the budget one
+    used to get alone, so a merely sluggish (not hung) sim could spuriously
+    time out the later names. Must pass an explicit, larger total budget."""
+    from mcp.server.fastmcp import FastMCP
+
+    from simconnect_mcp.resources.state import register_state_resources
+    from simconnect_mcp.simvar_access import DEFAULT_TIMEOUT
+
+    mcp = FastMCP("test")
+    register_state_resources(mcp)
+
+    await mcp.read_resource("simconnect://state/aircraft")
+
+    call = mock_simconnect["accessor"].read_many.call_args
+    names_requested = call.args[0]
+    timeout_used = call.kwargs.get("timeout", call.args[1] if len(call.args) > 1 else None)
+
+    assert timeout_used is not None and timeout_used > DEFAULT_TIMEOUT, (
+        f"expected a total timeout scaled for {len(names_requested)} reads, "
+        f"got {timeout_used!r} (the single-read default is {DEFAULT_TIMEOUT})"
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

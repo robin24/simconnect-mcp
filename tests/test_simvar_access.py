@@ -35,9 +35,18 @@ class FakeSM:
     (a request built on a definition SimConnect just rejected does not also
     get a real response), so when `definition_exception` is set,
     `_respond_async` does not schedule a competing delivery.
+
+    `respond_after=` overrides the fixed 0.01s delivery delay -- set it
+    longer than a caller's `read(timeout=...)` to model a late arrival: the
+    DLL answers only *after* the caller has already given up locally.
+    Nothing in real SimConnect cancels an outstanding request just because
+    the caller stopped waiting, so this is not a contrived edge case.
     """
 
-    def __init__(self, value=None, exception=None, respond=True, definition_exception=None):
+    def __init__(
+        self, value=None, exception=None, respond=True, definition_exception=None,
+        respond_after: float = 0.01,
+    ):
         self.registry = RequestRegistry()
         self.hSimConnect = 1
         self.dll = MagicMock()
@@ -46,6 +55,7 @@ class FakeSM:
         self._exception = exception
         self._definition_exception = definition_exception
         self._respond = respond
+        self._respond_after = respond_after
         self.definitions = []
         self._packet_id = 500
         self.packet_ids_issued = []
@@ -60,7 +70,7 @@ class FakeSM:
         if self._definition_exception is not None:
             packet_id = self._packet_id
             threading.Timer(
-                0.01,
+                self._respond_after,
                 lambda: self.registry.resolve_exception(packet_id, self._definition_exception),
             ).start()
 
@@ -75,12 +85,21 @@ class FakeSM:
         if not self._respond:
             return
         request_packet_id = self._packet_id
+        # Snapshot _value/_exception now, at send time -- not when the timer
+        # fires. A real SimConnect response's payload is fixed by whatever
+        # was true when the sim processed the request, not by whatever this
+        # test object's attributes happen to hold later. Reading self._value
+        # lazily inside deliver() would let a value change made *after* this
+        # send (to set up a later, different request) silently retarget an
+        # earlier request's already-scheduled delivery.
+        scheduled_value = self._value
+        scheduled_exception = self._exception
         def deliver():
-            if self._exception is not None:
-                self.registry.resolve_exception(request_packet_id, self._exception)
+            if scheduled_exception is not None:
+                self.registry.resolve_exception(request_packet_id, scheduled_exception)
             else:
-                self.registry.resolve_data(req_id, self._value)
-        threading.Timer(0.01, deliver).start()
+                self.registry.resolve_data(req_id, scheduled_value)
+        threading.Timer(self._respond_after, deliver).start()
 
     def new_def_id(self):
         self._next_id += 1
@@ -255,6 +274,38 @@ def test_two_hundred_sequential_reads_allocate_far_fewer_than_two_hundred_ids():
     assert allocate_calls["n"] == 1, (
         f"expected exactly one fresh request id allocation across 200 sequential "
         f"reads (every later read should reuse the freed id), got {allocate_calls['n']}"
+    )
+
+
+def test_late_response_after_a_timeout_does_not_corrupt_the_next_read():
+    """The pool-recycling race, end to end through the real read() path.
+
+    A's local timeout does not cancel the DLL request, so SimConnect can
+    still deliver SIMOBJECT_DATA for A's id after read() already raised
+    SimVarTimeoutError and discarded A. If discard() had recycled A's id
+    (as the first version of the pool did), the very next read (B) would be
+    handed that exact id, and A's late, stale delivery would resolve B with
+    A's value instead of B's own -- silently returning the wrong SimVar's
+    value with no error at all.
+
+    Fails against the pre-fix code: B's read() returns 999.999 (A's stale
+    value) instead of B's own 42.0.
+    """
+    sm = FakeSM(value=999.999, respond=True, respond_after=0.2)
+    accessor = SimVarAccessor(sm)
+
+    with pytest.raises(SimVarTimeoutError):
+        accessor.read("PLANE_ALTITUDE", timeout=0.05)  # gives up well before 0.2s
+
+    # A's real (stale) response is still in flight, timed to land ~0.2s
+    # after A's own send. Change the value before B sends, so a delivery of
+    # A's stale value to B is unambiguous rather than a coincidental match.
+    sm._value = 42.0
+    result = accessor.read("AIRSPEED_INDICATED", timeout=0.5)
+
+    assert result == 42.0, (
+        f"expected B's own value (42.0), got {result!r} -- looks like A's "
+        "late, stale delivery landed on B instead of hitting the dead-letter branch"
     )
 
 
