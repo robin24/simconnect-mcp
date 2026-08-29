@@ -66,6 +66,114 @@ def test_discard_removes_every_bound_send_id():
     assert registry.resolve_exception(12, "X") is False
 
 
+def test_acquire_request_id_allocates_fresh_when_the_pool_is_empty():
+    """Finding 1: fails against current code because acquire_request_id does
+    not exist yet -- read() called self._sm.new_request_id() directly."""
+    registry = RequestRegistry()
+    calls = []
+
+    def allocate():
+        calls.append(1)
+        return 100 + len(calls)
+
+    id1 = registry.acquire_request_id(allocate)
+    id2 = registry.acquire_request_id(allocate)
+
+    assert id1 != id2
+    assert len(calls) == 2, "allocate must be called once per fresh id"
+
+
+def test_acquire_request_id_reuses_an_id_a_discard_just_freed():
+    """The whole point of the pool: a freed id is handed back out before the
+    (expensive) allocator is ever called again."""
+    registry = RequestRegistry()
+    calls = []
+
+    def allocate():
+        calls.append(1)
+        return 100 + len(calls)
+
+    first_id = registry.acquire_request_id(allocate)
+    req = PendingRequest(request_id=first_id)
+    registry.register(req)
+    registry.discard(req)
+
+    second_id = registry.acquire_request_id(allocate)
+
+    assert second_id == first_id, "must reuse the freed id rather than allocating fresh"
+    assert len(calls) == 1, "allocate must not be called again while the pool has an entry"
+
+
+def test_acquire_request_id_does_not_reuse_an_id_still_in_flight():
+    """An id must only enter the free-list via discard() -- never handed
+    out again while its owning request is still pending."""
+    registry = RequestRegistry()
+    calls = []
+
+    def allocate():
+        calls.append(1)
+        return 100 + len(calls)
+
+    first_id = registry.acquire_request_id(allocate)
+    registry.register(PendingRequest(request_id=first_id))  # still pending, not discarded
+
+    second_id = registry.acquire_request_id(allocate)
+
+    assert second_id != first_id
+    assert len(calls) == 2
+
+
+def test_concurrent_acquire_never_hands_out_the_same_freed_id():
+    """Two threads racing to acquire when exactly one id is free must not
+    both receive it: acquire_request_id runs under pending_lock end to end,
+    so only one of them may reuse it -- the other must allocate fresh."""
+    registry = RequestRegistry()
+    freed_req = PendingRequest(request_id=42)
+    registry.register(freed_req)
+    registry.discard(freed_req)  # frees id 42
+
+    alloc_lock = threading.Lock()
+    allocate_calls = []
+
+    def allocate():
+        with alloc_lock:
+            allocate_calls.append(1)
+            return 1000 + len(allocate_calls)
+
+    results = []
+    results_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+
+    def worker():
+        barrier.wait(timeout=1)
+        rid = registry.acquire_request_id(allocate)
+        with results_lock:
+            results.append(rid)
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=2)
+
+    assert len(results) == 2
+    assert len(set(results)) == 2, "two concurrent acquires must not share an id"
+    assert 42 in results, "the freed id must be handed out to exactly one caller"
+
+
+def test_discard_without_a_request_id_does_not_touch_the_free_list():
+    """Writes register with request_id=None; discard must not add None to
+    the pool (acquire_request_id would then hand back None as a "fresh" id
+    to a later read)."""
+    registry = RequestRegistry()
+    req = PendingRequest(request_id=None)
+    registry.register(req)
+    registry.bind_send_id(req, send_id=5)
+    registry.discard(req)
+
+    assert registry.acquire_request_id(lambda: 999) == 999
+
+
 def test_write_request_has_no_request_id_but_still_matches_exceptions():
     """Writes get no SIMOBJECT_DATA reply, so they are matched by send_id only."""
     registry = RequestRegistry()

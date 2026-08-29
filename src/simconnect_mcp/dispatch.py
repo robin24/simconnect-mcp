@@ -33,6 +33,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import threading
+from collections.abc import Callable
 from ctypes.wintypes import DWORD
 from dataclasses import dataclass, field
 from typing import Any
@@ -110,6 +111,32 @@ class RequestRegistry:
         self.pending_lock = threading.Lock()
         self._by_request: dict[int, PendingRequest] = {}
         self._by_send: dict[int, PendingRequest] = {}
+        self._free_request_ids: list[int] = []
+
+    def acquire_request_id(self, allocate: Callable[[], int]) -> int:
+        """Get a SimConnect request ID, reusing one `discard()` just freed.
+
+        SimConnect.new_request_id() rebuilds an Enum from every prior member
+        plus one, on *every* call, so allocating fresh per read makes cost
+        grow with the cumulative number of reads ever issued rather than
+        with the number of distinct variables in flight -- unbounded over a
+        long-running server (measured on real hardware: single-call cost
+        rising from ~4.5ms at 600 cumulative allocations to ~31ms at 2000,
+        cumulative time into the tens of seconds).
+
+        This pool bounds the real allocator to (at most) the number of
+        requests concurrently in flight: a freed id is handed back out
+        before `allocate` is ever called. `allocate` is supplied by the
+        caller -- SimVarAccessor holds the SimConnect instance the
+        registry does not -- and is invoked only while the free-list is
+        empty. The whole operation runs under `pending_lock` so two
+        concurrent callers can never be handed the same id, whether that id
+        comes from the free-list or from `allocate`.
+        """
+        with self.pending_lock:
+            if self._free_request_ids:
+                return self._free_request_ids.pop()
+            return allocate()
 
     def register(self, req: PendingRequest) -> None:
         with self.pending_lock:
@@ -159,6 +186,7 @@ class RequestRegistry:
         with self.pending_lock:
             if req.request_id is not None:
                 self._by_request.pop(req.request_id, None)
+                self._free_request_ids.append(req.request_id)
             for send_id in req.send_ids:
                 self._by_send.pop(send_id, None)
 

@@ -123,8 +123,14 @@ class SimVarAccessor:
 
         Definition IDs are a finite SimConnect resource and new_def_id()
         rebuilds an Enum on every call, so they must not be created per read.
-        Eviction drops only our mapping; SimConnect definitions are not
-        reclaimable, so the bound caps growth rather than recycling IDs.
+        Eviction here drops only our own cache mapping -- SimConnect
+        definitions ARE reclaimable (dll.ClearDataDefinition is bound in
+        SimConnect.Attributes, and the vendored RequestList.redefine() calls
+        it), but this cache does not call it, so an evicted definition stays
+        registered with SimConnect for the life of the connection. The cache
+        bound therefore caps how many distinct (name, unit, index)
+        combinations we track at once; it does not free the underlying
+        SimConnect-side resource.
 
         `unit` doubles as part of the cache key even for string variables,
         where the caller passes the literal sentinel "string" rather than a
@@ -136,12 +142,36 @@ class SimVarAccessor:
         string SimVar, including TITLE, unreadable). So the sentinel is
         substituted with None right at the DLL call below, and never leaks
         into the cache key.
+
+        `name`/`unit` are encoded to ASCII up front, before new_def_id() is
+        even called, so a non-ASCII value (e.g. get_simvar(..., unit="°"))
+        raises the same typed SimVarNotFoundError/UnitMismatchError the tool
+        layer already knows how to report -- rather than a raw
+        UnicodeEncodeError that handle_simconnect_errors' generic `except
+        Exception` turns into an opaque UNEXPECTED envelope -- and never
+        burns a definition slot on a value that was never going to work.
         """
         key = self._cache_key(name, unit, index, is_string)
         cached = self._definitions.get(key)
         if cached is not None:
             self._definitions.move_to_end(key)
             return cached, None
+
+        try:
+            encoded_name = simconnect_name(name, index)
+        except UnicodeEncodeError as e:
+            raise SimVarNotFoundError(
+                f"SimVar name '{name}' is not valid ASCII: {e}"
+            ) from e
+
+        encoded_unit = None
+        if not is_string:
+            try:
+                encoded_unit = unit.encode("ascii")
+            except UnicodeEncodeError as e:
+                raise UnitMismatchError(
+                    f"Unit '{unit}' is not valid ASCII: {e}"
+                ) from e
 
         def_id = self._sm.new_def_id().value
         datatype = (
@@ -152,8 +182,8 @@ class SimVarAccessor:
         self._sm.dll.AddToDataDefinition(
             self._sm.hSimConnect,
             def_id,
-            simconnect_name(name, index),
-            None if is_string else unit.encode("ascii"),
+            encoded_name,
+            encoded_unit,
             datatype,
             ctypes.c_float(0.0),
             SIMCONNECT_UNUSED,
@@ -213,36 +243,44 @@ class SimVarAccessor:
         resolved_unit = "string" if as_string else resolve_unit(name, unit)
         key = self._cache_key(name, resolved_unit, index, as_string)
 
-        req_id = self._sm.new_request_id().value
+        req_id = self._sm.registry.acquire_request_id(lambda: self._sm.new_request_id().value)
         pending = PendingRequest(request_id=req_id, is_string=as_string)
-        self._sm.registry.register(pending)
 
-        # The lock spans BOTH sends: on a cache miss, AddToDataDefinition can
-        # itself raise NAME_UNRECOGNIZED (bad variable) or a DATA_ERROR-style
-        # code (bad unit), and that exception correlates to its own packet,
-        # not to the RequestDataOnSimObject that follows. Binding only the
-        # request's send ID would leave a definition-level exception
-        # unmatched, and the caller would see a timeout instead of the
-        # correct typed error.
-        with self._sm.registry.pending_lock:
-            def_id, def_send_id = self.definition_id(name, resolved_unit, index, as_string)
-            if def_send_id is not None:
-                self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
-
-            self._sm.dll.RequestDataOnSimObject(
-                self._sm.hSimConnect,
-                req_id,
-                def_id,
-                SIMCONNECT_OBJECT_ID_USER,
-                SIMCONNECT_PERIOD.SIMCONNECT_PERIOD_ONCE,
-                0,
-                0,
-                0,
-                0,
-            )
-            self._sm.registry.bind_send_id(pending, self._last_packet_id(), _locked=True)
-
+        # register() runs inside this try (rather than before it) so that
+        # ANYTHING raised before the request completes -- including
+        # definition_id()'s ASCII encoding of a caller-supplied name/unit --
+        # still reaches the finally below and discards the registry entry.
+        # A registration that outlives its request leaks permanently: the
+        # request ID is never freed for reuse and, if a send ID had already
+        # been bound, that entry is never removed from `_by_send` either.
         try:
+            self._sm.registry.register(pending)
+
+            # The lock spans BOTH sends: on a cache miss, AddToDataDefinition
+            # can itself raise NAME_UNRECOGNIZED (bad variable) or a
+            # DATA_ERROR-style code (bad unit), and that exception correlates
+            # to its own packet, not to the RequestDataOnSimObject that
+            # follows. Binding only the request's send ID would leave a
+            # definition-level exception unmatched, and the caller would see
+            # a timeout instead of the correct typed error.
+            with self._sm.registry.pending_lock:
+                def_id, def_send_id = self.definition_id(name, resolved_unit, index, as_string)
+                if def_send_id is not None:
+                    self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
+
+                self._sm.dll.RequestDataOnSimObject(
+                    self._sm.hSimConnect,
+                    req_id,
+                    def_id,
+                    SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_PERIOD.SIMCONNECT_PERIOD_ONCE,
+                    0,
+                    0,
+                    0,
+                    0,
+                )
+                self._sm.registry.bind_send_id(pending, self._last_packet_id(), _locked=True)
+
             if not pending.done.wait(timeout):
                 raise SimVarTimeoutError(
                     f"No response for SimVar '{name}' within {timeout}s. "
@@ -329,30 +367,38 @@ class SimVarAccessor:
         key = self._cache_key(name, resolved_unit, index, False)
 
         pending = PendingRequest(request_id=None)
-        self._sm.registry.register(pending)
-
         payload = (ctypes.c_double * 1)(float(value))
 
-        # The lock spans BOTH sends, exactly as in read(): AddToDataDefinition
-        # can itself raise NAME_UNRECOGNIZED for a bad variable, correlated to
-        # its own packet rather than the SetDataOnSimObject that follows.
-        # `definition_id` returns (def_id, send_id_or_None) -- None on a cache hit.
-        with self._sm.registry.pending_lock:
-            def_id, def_send_id = self.definition_id(name, resolved_unit, index, False)
-            if def_send_id is not None:
-                self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
-            self._sm.dll.SetDataOnSimObject(
-                self._sm.hSimConnect,
-                def_id,
-                SIMCONNECT_OBJECT_ID_USER,
-                SIMCONNECT_DATA_SET_FLAG.SIMCONNECT_DATA_SET_FLAG_DEFAULT,
-                0,
-                ctypes.sizeof(ctypes.c_double),
-                ctypes.cast(payload, ctypes.c_void_p),
-            )
-            self._sm.registry.bind_send_id(pending, self._last_packet_id(), _locked=True)
-
+        # register() runs inside this try for the same reason as in read():
+        # anything raised before the write completes -- including
+        # definition_id()'s ASCII encoding of a caller-supplied name/unit,
+        # or an exception from either DLL call below -- must still reach the
+        # finally and discard the registry entry, or a send ID bound by the
+        # first call (AddToDataDefinition) leaks forever if the second call
+        # (SetDataOnSimObject) is what raises.
         try:
+            self._sm.registry.register(pending)
+
+            # The lock spans BOTH sends, exactly as in read():
+            # AddToDataDefinition can itself raise NAME_UNRECOGNIZED for a
+            # bad variable, correlated to its own packet rather than the
+            # SetDataOnSimObject that follows. `definition_id` returns
+            # (def_id, send_id_or_None) -- None on a cache hit.
+            with self._sm.registry.pending_lock:
+                def_id, def_send_id = self.definition_id(name, resolved_unit, index, False)
+                if def_send_id is not None:
+                    self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
+                self._sm.dll.SetDataOnSimObject(
+                    self._sm.hSimConnect,
+                    def_id,
+                    SIMCONNECT_OBJECT_ID_USER,
+                    SIMCONNECT_DATA_SET_FLAG.SIMCONNECT_DATA_SET_FLAG_DEFAULT,
+                    0,
+                    ctypes.sizeof(ctypes.c_double),
+                    ctypes.cast(payload, ctypes.c_void_p),
+                )
+                self._sm.registry.bind_send_id(pending, self._last_packet_id(), _locked=True)
+
             # An exception, if any, arrives within one dispatch round trip.
             if pending.done.wait(grace) and pending.exception is not None:
                 self._evict(key)

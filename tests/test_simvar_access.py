@@ -225,6 +225,105 @@ def test_read_discards_the_pending_request_after_success():
     assert sm.registry.resolve_data(captured["req_id"], 999.0) is False
 
 
+def test_two_hundred_sequential_reads_allocate_far_fewer_than_two_hundred_ids():
+    """Finding 1: new_request_id() must not be called once per read -- it
+    rebuilds an Enum from every prior member plus one, on every call, so a
+    per-read allocation makes read cost grow with cumulative read count
+    rather than with the number of distinct variables in flight. Each
+    sequential read here discards its id (freeing it for reuse) before the
+    next one starts, so after the very first read, new_request_id() should
+    never be called again.
+
+    Fails against the current code, which calls
+    self._sm.new_request_id().value unconditionally on every read -- 200
+    reads would allocate 200 fresh ids."""
+    sm = FakeSM(value=1.0)
+    accessor = SimVarAccessor(sm)
+    allocate_calls = {"n": 0}
+    real_new_request_id = sm.new_request_id
+
+    def counting_new_request_id():
+        allocate_calls["n"] += 1
+        return real_new_request_id()
+
+    sm.new_request_id = counting_new_request_id
+
+    for _ in range(200):
+        accessor.read("PLANE_ALTITUDE")
+
+    assert allocate_calls["n"] == 1, (
+        f"expected exactly one fresh request id allocation across 200 sequential "
+        f"reads (every later read should reuse the freed id), got {allocate_calls['n']}"
+    )
+
+
+def test_non_ascii_unit_does_not_leak_the_pending_registry_entry():
+    """Finding 2: register() used to run before the try/finally that
+    discards it. unit.encode('ascii') -- fed straight from the caller, e.g.
+    get_simvar('PLANE_ALTITUDE', unit='°') -- raises UnicodeEncodeError
+    inside that unprotected window, so the registry entry survived forever
+    instead of being discarded.
+
+    Fails against the current code two ways: the wrong exception type
+    escapes (UnicodeEncodeError, not UnitMismatchError) and, even ignoring
+    that, the request id is never freed."""
+    sm = FakeSM(value=1.0)
+    accessor = SimVarAccessor(sm)
+    captured = {}
+    real_new_request_id = sm.new_request_id
+
+    def spy():
+        result = real_new_request_id()
+        captured["req_id"] = result.value
+        return result
+
+    sm.new_request_id = spy
+
+    with pytest.raises(UnitMismatchError):
+        accessor.read("PLANE_ALTITUDE", unit="°")  # degree sign, not ASCII
+
+    assert "req_id" in captured
+    assert sm.registry.resolve_data(captured["req_id"], 999.0) is False
+
+
+def test_non_ascii_name_raises_not_found_not_a_bare_unicode_error():
+    """Same shape as the unit case, for the name instead: a non-ASCII name
+    must surface as the typed SimVarNotFoundError the tool layer already
+    knows how to report, not a raw UnicodeEncodeError that
+    handle_simconnect_errors turns into an opaque UNEXPECTED envelope."""
+    sm = FakeSM(value=1.0)
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).read("PLANE_ALTITUDE_°")
+
+
+def test_read_request_id_and_send_id_are_not_leaked_if_request_data_raises():
+    """Same leak shape as the non-ASCII case, triggered differently: an
+    exception from the SECOND DLL call (RequestDataOnSimObject) used to
+    leak both the request id and the send id bound by the FIRST call
+    (AddToDataDefinition), because the try/finally that discards them did
+    not open until after both calls had already been made."""
+    sm = FakeSM(value=1.0)
+    sm.dll.RequestDataOnSimObject.side_effect = RuntimeError("boom")
+    accessor = SimVarAccessor(sm)
+    captured = {}
+    real_new_request_id = sm.new_request_id
+
+    def spy():
+        result = real_new_request_id()
+        captured["req_id"] = result.value
+        return result
+
+    sm.new_request_id = spy
+
+    with pytest.raises(RuntimeError):
+        accessor.read("PLANE_ALTITUDE")
+
+    definition_send_id = sm.packet_ids_issued[0]
+    assert "req_id" in captured
+    assert sm.registry.resolve_data(captured["req_id"], 1.0) is False
+    assert sm.registry.resolve_exception(definition_send_id, "X") is False
+
+
 def test_string_definitions_are_registered_with_a_null_unit():
     """STRING256 definitions must take a NULL unit. Passing "string" makes
     SimConnect raise NAME_UNRECOGNIZED -- verified against a live sim, where
@@ -366,6 +465,30 @@ def test_write_bad_name_on_add_to_data_definition_is_correlated():
     sm = FakeWriteSM(definition_exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
     with pytest.raises(SimVarNotFoundError):
         SimVarAccessor(sm).write("NOT_A_REAL_VAR", 1.0, grace=0.2)
+
+
+def test_write_non_ascii_unit_raises_unit_mismatch_not_a_bare_unicode_error():
+    """Finding 2, write() side: same defect shape as read() -- a non-ASCII
+    unit must surface as UnitMismatchError, not a raw UnicodeEncodeError."""
+    sm = FakeWriteSM()
+    with pytest.raises(UnitMismatchError):
+        SimVarAccessor(sm).write("AUTOPILOT_ALTITUDE_LOCK_VAR", 1.0, unit="°")
+
+
+def test_write_send_id_is_not_leaked_if_set_data_on_sim_object_raises():
+    """Finding 2, write() side: write()'s try/finally used to open only
+    after both DLL sends, so an exception from the SECOND call
+    (SetDataOnSimObject) left the send id bound by the FIRST call
+    (AddToDataDefinition) stuck in the registry forever."""
+    sm = FakeWriteSM()
+    sm.dll.SetDataOnSimObject.side_effect = RuntimeError("boom")
+    accessor = SimVarAccessor(sm)
+
+    with pytest.raises(RuntimeError):
+        accessor.write("AUTOPILOT_ALTITUDE_LOCK_VAR", 1.0)
+
+    definition_send_id = sm.packet_ids_issued[0]
+    assert sm.registry.resolve_exception(definition_send_id, "X") is False
 
 
 def test_failed_write_is_not_left_in_the_cache():
