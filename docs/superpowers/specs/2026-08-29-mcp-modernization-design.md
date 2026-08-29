@@ -71,15 +71,24 @@ are all unreachable while reads go through it. A generic data-definition path fi
 once.
 
 **What write-failure detection can and cannot do.** Verified against a live sim: SimConnect
-raises for an unrecognised variable name and for an invalid unit, and those exceptions correlate
-back to the originating call. It does **not** raise when you write to a read-only variable — it
-silently ignores the write. Exception correlation therefore covers bad names and bad units only.
-The catalog's `settable` flag cannot fill the gap either: on real data it is wrong in both
-directions (`AIRSPEED_TRUE` is marked settable but ignores writes; `AUTOPILOT_ALTITUDE_LOCK_VAR`
-is marked read-only but accepts them), so it must never gate a write. Read-back is the only
-reliable signal, so `write()` takes an opt-in `verify` flag that re-reads and **reports** whether
-the value changed, rather than raising — writing a value the variable already holds, or one the
-sim immediately overrides, are both legitimate and must not be reported as failures.
+raises for an unrecognised variable name, for an invalid unit, and for many read-only variables
+(`ENG_N1_RPM` and `AMBIENT_TEMPERATURE` both return `DATA_ERROR`), and those exceptions correlate
+back to the originating call. But it does not raise for *every* rejected write, so exceptions
+alone cannot prove a value landed. The catalog's `settable` flag cannot close the gap: it carries
+false negatives on real data (`AUTOPILOT_ALTITUDE_LOCK_VAR` is marked read-only but accepts
+writes), so it must never gate a write — only advise.
+
+`write()` therefore takes an opt-in `verify` flag that re-reads the value and **reports** whether
+it changed, rather than raising. Reporting is deliberate: writing a value the variable already
+holds looks identical to a rejected write, and a continuously-recomputed variable will drift
+between the write and the read-back — observed live on `AIRSPEED_TRUE` while the aircraft was
+moving, where the write succeeded but the read-back no longer matched. Both are legitimate, so
+`verify` informs the caller instead of failing.
+
+**String variables take a NULL unit.** A `STRING256` data definition must be registered with a
+null unit; passing a unit string raises `NAME_UNRECOGNIZED`, verified live against `TITLE`. The
+accessor therefore uses `"string"` only as an internal cache-key sentinel and passes `None` to
+`AddToDataDefinition`.
 
 **Unit resolution.** SimConnect requires a unit string for every data definition, so the accessor
 resolves in this order: explicit `unit` argument → the `unit` field for that variable in
