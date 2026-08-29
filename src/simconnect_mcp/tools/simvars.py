@@ -9,6 +9,7 @@ from typing import Any
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.data.simvar_catalog import (
     load_catalog,
+    lookup,
     resolve_unit,
     search_catalog,
     suggest_names,
@@ -43,6 +44,22 @@ async def get_simvar(name: str, unit: str | None = None, index: int | None = Non
             lambda: manager.accessor.read(name, unit=unit, index=index)
         )
     except SimVarNotFoundError:
+        # SimConnect reports a bad unit and a bad name with the same
+        # NAME_UNRECOGNIZED exception (verified against a live sim), so the
+        # exception alone cannot tell them apart. The catalog can: if we know
+        # this variable, the name is fine and the caller's unit is at fault.
+        entry = lookup(name)
+        if entry is not None and unit:
+            valid = entry.get("units") or "number"
+            return {
+                "status": "error",
+                "error": "UNIT_MISMATCH",
+                "message": f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
+                "suggestion": (
+                    f"'{name}' is measured in '{valid}'. Omit the unit argument "
+                    "to use that, or pass a compatible SimConnect unit."
+                ),
+            }
         result: dict[str, Any] = {
             "status": "error",
             "error": "SIMVAR_NOT_FOUND",

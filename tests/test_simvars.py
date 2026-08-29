@@ -10,10 +10,10 @@ import pytest
 from simconnect_mcp.simvar_access import SimVarNotFoundError, SimVarTimeoutError
 from simconnect_mcp.tools.simvars import (
     get_simvar,
-    set_simvar,
     get_simvar_bulk,
-    search_simvars,
     list_simvar_categories,
+    search_simvars,
+    set_simvar,
 )
 
 
@@ -133,3 +133,39 @@ async def test_timeout_is_reported_as_its_own_error(mock_simconnect):
 async def test_index_zero_is_passed_through(mock_simconnect):
     await get_simvar("GENERAL_ENG_THROTTLE_LEVER_POSITION", index=0)
     assert mock_simconnect["accessor"].read.call_args.kwargs["index"] == 0
+
+
+@pytest.mark.asyncio
+async def test_bad_unit_on_a_known_var_reports_unit_mismatch(mock_simconnect):
+    """SimConnect raises NAME_UNRECOGNIZED for a bad unit AND a bad name.
+    The catalog disambiguates: PLANE_ALTITUDE exists, so the unit is at fault."""
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    result = await get_simvar("PLANE_ALTITUDE", unit="bananas")
+    assert result["error"] == "UNIT_MISMATCH"
+    assert "bananas" in result["message"]
+    assert "Feet" in result["suggestion"] or "feet" in result["suggestion"].lower()
+    assert "suggestions" not in result, "must not suggest names when the name was fine"
+
+
+@pytest.mark.asyncio
+async def test_bad_name_still_reports_not_found_with_suggestions(mock_simconnect):
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    result = await get_simvar("PLANE_ALTITUD", unit="feet")
+    assert result["error"] == "SIMVAR_NOT_FOUND"
+    assert "PLANE_ALTITUDE" in result["suggestions"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_var_without_a_unit_reports_not_found(mock_simconnect):
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    result = await get_simvar("TOTALLY_MADE_UP_VAR")
+    assert result["error"] == "SIMVAR_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_known_var_failing_without_a_caller_unit_is_not_blamed_on_the_unit(mock_simconnect):
+    """unit=None means we used the catalog's own unit, so a failure there is
+    a real name/catalog problem, not the caller's mistake."""
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    result = await get_simvar("PLANE_ALTITUDE")
+    assert result["error"] == "SIMVAR_NOT_FOUND"
