@@ -89,3 +89,9 @@ async def test_get_simvar_not_connected():
     with patch.dict(sys.modules, {"SimConnect": None}):
         result = await get_simvar("PLANE_LATITUDE")
         assert result["status"] == "error"
+
+
+def test_title_mock_returns_bytes_like_the_real_sim(mock_simconnect):
+    """The sim returns bytes for string SimVars; the mock must match or
+    bytes-handling bugs stay invisible to the suite."""
+    assert isinstance(mock_simconnect["aq"].get("TITLE"), bytes)
