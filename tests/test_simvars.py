@@ -85,7 +85,7 @@ async def test_set_simvar_passes_index_zero(mock_simconnect):
 
 
 @pytest.mark.asyncio
-async def test_bad_unit_on_a_known_var_reports_unit_mismatch(mock_simconnect):
+async def test_set_simvar_bad_unit_on_a_known_var_reports_unit_mismatch(mock_simconnect):
     """When SimConnect rejects a write with NAME_UNRECOGNIZED, the catalog
     disambiguates: if the name exists and the caller supplied a unit, the unit
     is at fault, not the name."""
@@ -131,6 +131,21 @@ async def test_not_settable_suggestion_does_not_recommend_the_settable_flag(mock
     mock_simconnect["accessor"].write.side_effect = SimVarNotSettableError("read-only")
     result = await set_simvar("ENG_N1_RPM", 50.0, index=1)
     assert "unreliable" in result["suggestion"]
+
+
+@pytest.mark.parametrize("tool", [get_simvar, set_simvar])
+@pytest.mark.asyncio
+async def test_both_tools_report_the_sanitised_unit_on_mismatch(tool, mock_simconnect):
+    """ENG_N1_RPM's raw catalog unit is prose. Both tools must say 'Rpm'."""
+    mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError("nope")
+    kwargs = {"index": 1, "unit": "bananas"}
+    result = await (tool("ENG_N1_RPM", 50.0, **kwargs) if tool is set_simvar
+                    else tool("ENG_N1_RPM", **kwargs))
+    assert result["error"] == "UNIT_MISMATCH"
+    assert "'Rpm'" in result["suggestion"]
+    assert "(0 to 16384" not in result["suggestion"]
+
 
 
 

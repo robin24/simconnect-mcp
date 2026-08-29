@@ -14,7 +14,7 @@ get_simvar("AIRSPEED_INDICATED", "knots") → 250.0
 
 ## Writing SimVars
 
-Only SimVars marked as **settable** can be written. Use `set_simvar(name, value, unit)`.
+Use `set_simvar(name, value, unit)` to write to a variable. The catalog's **settable** flag is advisory only — it has false negatives, meaning some variables marked read-only will accept writes in the real sim. The tool always attempts the write and reports whether it succeeded.
 
 ```
 set_simvar("PLANE_LATITUDE", 47.6062, "degrees")

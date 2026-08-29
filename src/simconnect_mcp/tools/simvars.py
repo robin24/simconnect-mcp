@@ -23,6 +23,32 @@ from simconnect_mcp.simvar_access import (
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
 
+def _disambiguate_not_found(name: str, unit: str | None) -> dict | None:
+    """Tell a bad unit apart from a bad name.
+
+    SimConnect raises the same NAME_UNRECOGNIZED for an unknown variable and
+    for a known variable with an invalid unit (verified against a live sim),
+    so the exception alone cannot distinguish them. The catalog can: if we
+    know this variable and the caller supplied a unit, the name is fine and
+    the unit is what was rejected.
+
+    Returns a UNIT_MISMATCH envelope, or None to fall through to
+    SIMVAR_NOT_FOUND. `unit` must be truthy -- with no caller unit we used
+    the catalog's own, so a failure there is a genuine name problem.
+    """
+    if not unit or lookup(name) is None:
+        return None
+    return {
+        "status": "error",
+        "error": "UNIT_MISMATCH",
+        "message": f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
+        "suggestion": (
+            f"'{name}' is measured in '{resolve_unit(name, None)}'. Omit the unit "
+            "argument to use that, or pass a compatible SimConnect unit."
+        ),
+    }
+
+
 @handle_simconnect_errors
 @require_connection
 async def get_simvar(name: str, unit: str | None = None, index: int | None = None) -> dict:
@@ -45,22 +71,9 @@ async def get_simvar(name: str, unit: str | None = None, index: int | None = Non
             lambda: manager.accessor.read(name, unit=unit, index=index)
         )
     except SimVarNotFoundError:
-        # SimConnect reports a bad unit and a bad name with the same
-        # NAME_UNRECOGNIZED exception (verified against a live sim), so the
-        # exception alone cannot tell them apart. The catalog can: if we know
-        # this variable, the name is fine and the caller's unit is at fault.
-        entry = lookup(name)
-        if entry is not None and unit:
-            valid = entry.get("units") or "number"
-            return {
-                "status": "error",
-                "error": "UNIT_MISMATCH",
-                "message": f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
-                "suggestion": (
-                    f"'{name}' is measured in '{valid}'. Omit the unit argument "
-                    "to use that, or pass a compatible SimConnect unit."
-                ),
-            }
+        mismatch = _disambiguate_not_found(name, unit)
+        if mismatch is not None:
+            return mismatch
         result: dict[str, Any] = {
             "status": "error",
             "error": "SIMVAR_NOT_FOUND",
@@ -139,21 +152,9 @@ async def set_simvar(
             ),
         }
     except SimVarNotFoundError:
-        # SimConnect reports a bad unit and a bad name with the same
-        # NAME_UNRECOGNIZED exception (verified against a live sim), so the exception
-        # alone cannot tell them apart. The catalog can: if we know this variable, the
-        # name is fine and the caller's unit is at fault.
-        entry = lookup(name)
-        if entry is not None and unit:
-            return {
-                "status": "error",
-                "error": "UNIT_MISMATCH",
-                "message": f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
-                "suggestion": (
-                    f"'{name}' is measured in '{resolve_unit(name, None)}'. Omit the "
-                    "unit argument to use that, or pass a compatible SimConnect unit."
-                ),
-            }
+        mismatch = _disambiguate_not_found(name, unit)
+        if mismatch is not None:
+            return mismatch
         result: dict[str, Any] = {
             "status": "error",
             "error": "SIMVAR_NOT_FOUND",
@@ -170,6 +171,13 @@ async def set_simvar(
             "error": "UNIT_MISMATCH",
             "message": str(e),
             "suggestion": f"Check the valid units for '{name}' with search_simvars.",
+        }
+    except SimVarTimeoutError as e:
+        return {
+            "status": "error",
+            "error": "SIM_TIMEOUT",
+            "message": str(e),
+            "suggestion": "The sim may be paused or loading. Try again shortly.",
         }
 
     result: dict[str, Any] = {
