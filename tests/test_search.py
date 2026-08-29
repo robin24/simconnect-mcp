@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from simconnect_mcp.tools.simvars import search_simvars, _search_catalog, _fuzzy_suggest
-from simconnect_mcp.tools.events import search_events, _search_events
+from simconnect_mcp.data.simvar_catalog import search_catalog, suggest_names
+from simconnect_mcp.tools.events import _search_events, search_events
+from simconnect_mcp.tools.simvars import search_simvars
 
 
 @pytest.mark.asyncio
@@ -34,16 +35,17 @@ async def test_event_search_case_insensitive():
 
 def test_fuzzy_suggest():
     """Fuzzy suggestions return similar variable names."""
-    suggestions = _fuzzy_suggest("PLANE_LAT")
+    suggestions = suggest_names("PLANE_LAT")
     assert len(suggestions) > 0
     assert any("LATITUDE" in s or "PLANE" in s for s in suggestions)
 
 
-def test_search_catalog_capped():
-    """Search results are capped at 50."""
+def test_search_catalog_uncapped():
+    """Search results are uncapped — callers paginate."""
     # Search for something very broad
-    results = _search_catalog("a")
-    assert len(results) <= 50
+    results = search_catalog("a")
+    # The actual catalog should have many more than 50 variables containing 'a'
+    assert len(results) > 50
 
 
 def test_event_search_capped():
