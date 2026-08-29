@@ -9,8 +9,14 @@ from typing import Any
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.data.simvar_catalog import (
     load_catalog,
+    resolve_unit,
     search_catalog,
     suggest_names,
+)
+from simconnect_mcp.simvar_access import (
+    SimVarNotFoundError,
+    SimVarTimeoutError,
+    UnitMismatchError,
 )
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 
@@ -22,54 +28,54 @@ async def get_simvar(name: str, unit: str | None = None, index: int | None = Non
 
     Args:
         name: SimVar name (e.g., 'PLANE_LATITUDE', 'AIRSPEED_INDICATED')
-        unit: Optional unit override (e.g., 'degrees', 'knots', 'feet')
-        index: Optional index for indexed SimVars (e.g., engine number 1-4)
+        unit: Unit to read in (e.g., 'feet', 'meters', 'knots'). Defaults to
+              the catalog unit for this variable, then to 'number'.
+        index: Index for indexed SimVars (e.g., engine number). Index 0 is valid.
 
     Returns:
-        Dict with the variable name, value, and unit.
+        Dict with the variable name, value, and the unit actually used.
     """
     manager = SimConnectManager()
+    resolved_unit = resolve_unit(name, unit)
 
-    def _read() -> Any:
-        # Build the request key
-        key = name
-        if index is not None:
-            key = f"{name}:{index}"
-
-        # Try via AircraftRequests first
-        try:
-            value = manager.aq.get(key)
-            if value is not None:
-                return value
-        except Exception:
-            pass
-
-        # Fallback: direct SimConnect data request
-        from SimConnect.Constants import DATATYPE_FLOAT64
-        req_name = key.replace(":", "_")
-        manager.sm.add_to_data_definition(
-            manager.sm.new_data_definition(), key, None, DATATYPE_FLOAT64
+    try:
+        value = await manager.run_sync(
+            lambda: manager.accessor.read(name, unit=unit, index=index)
         )
-        return None
-
-    value = await manager.run_sync(_read)
-
-    if value is None:
-        suggestions = suggest_names(name)
+    except SimVarNotFoundError:
         result: dict[str, Any] = {
             "status": "error",
             "error": "SIMVAR_NOT_FOUND",
-            "message": f"Could not read SimVar '{name}'",
+            "message": f"SimConnect does not recognise SimVar '{name}'",
+            "suggestion": "Use search_simvars to find the correct name.",
         }
+        suggestions = suggest_names(name)
         if suggestions:
             result["suggestions"] = suggestions
         return result
+    except UnitMismatchError as e:
+        return {
+            "status": "error",
+            "error": "UNIT_MISMATCH",
+            "message": str(e),
+            "suggestion": (
+                f"Check the units for '{name}' with search_simvars, "
+                "or omit the unit argument to use the catalog default."
+            ),
+        }
+    except SimVarTimeoutError as e:
+        return {
+            "status": "error",
+            "error": "SIM_TIMEOUT",
+            "message": str(e),
+            "suggestion": "The sim may be paused or loading. Try again shortly.",
+        }
 
     return {
         "status": "ok",
         "name": name,
         "value": value,
-        "unit": unit or "default",
+        "unit": resolved_unit,
         "index": index,
     }
 
