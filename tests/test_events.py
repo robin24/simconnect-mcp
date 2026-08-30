@@ -149,7 +149,7 @@ def test_search_events_finds_an_event_absent_from_the_builtin_list():
 
     events._EVENT_CATALOG = None
     events._FLAT_EVENTS = None
-    found = events._search_events("pushback")
+    found = events._matching_events("pushback")
     assert any("PUSHBACK" in e["name"].upper() for e in found)
 
 

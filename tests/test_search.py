@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from simconnect_mcp.data.simvar_catalog import search_catalog, suggest_names
-from simconnect_mcp.tools.events import _search_events, search_events
+from simconnect_mcp.tools.events import search_events
 from simconnect_mcp.tools.formatting import ResponseFormat
 from simconnect_mcp.tools.lvars import browse_lvar_catalog, search_lvars
 from simconnect_mcp.tools.simvars import search_simvars
@@ -48,12 +48,6 @@ def test_search_catalog_uncapped():
     results = search_catalog("a")
     # The actual catalog should have many more than 50 variables containing 'a'
     assert len(results) > 50
-
-
-def test_event_search_capped():
-    """Event search results are capped at 50."""
-    results = _search_events("a")
-    assert len(results) <= 50
 
 
 def test_simvar_catalog_is_not_loaded_as_an_aircraft_catalog():

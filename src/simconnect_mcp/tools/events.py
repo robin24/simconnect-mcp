@@ -291,11 +291,6 @@ def _matching_events(keyword: str, category: str | None = None) -> list[dict]:
     return results
 
 
-def _search_events(keyword: str, category: str | None = None) -> list[dict]:
-    """Convenience wrapper over _matching_events, capped at 50 results."""
-    return _matching_events(keyword, category)[:50]
-
-
 def _to_dword(parameter: int) -> int:
     """SimConnect event parameters are unsigned DWORDs.
 
