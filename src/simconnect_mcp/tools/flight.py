@@ -107,7 +107,8 @@ async def load_flight(
                        "and that the sim is not mid-load.",
         )
     return FlightResult(
-        action="load_flight", path=str(validated), message=f"Loaded flight '{validated.name}'"
+        action="msfs_load_flight", path=str(validated),
+        message=f"Loaded flight '{validated.name}'",
     )
 
 
@@ -128,10 +129,10 @@ async def save_flight(
 ) -> FlightResult | ToolError:
     """Save the current flight to a .FLT file.
 
-    Capture a known state so a later load_flight call can restore it.
+    Capture a known state so a later msfs_load_flight call can restore it.
     Refuses to replace an existing file unless overwrite=True.
 
-    The library's save_flight() ends with an unconditional `return False`,
+    The library's `sm.save_flight()` ends with an unconditional `return False`,
     so its return value says nothing about success -- this checks whether
     the file was actually written instead. Its body also reads the file
     straight back (flight_to_dic) immediately after issuing an asynchronous
@@ -170,7 +171,7 @@ async def save_flight(
         # would report a save that actually landed as an opaque UNEXPECTED.
         save_error = e
         logger.debug(
-            "save_flight library call raised; verifying via a file poll "
+            "sm.save_flight() call raised; verifying via a file poll "
             "instead of trusting this exception alone",
             exc_info=True,
         )
@@ -184,7 +185,7 @@ async def save_flight(
                        "a flight is currently loaded.",
         )
     return FlightResult(
-        action="save_flight",
+        action="msfs_save_flight",
         path=str(validated),
         message=(
             f"Saved flight to '{validated.name}'"
@@ -216,7 +217,7 @@ async def load_flight_plan(
             suggestion="Check the file is a valid .PLN for this MSFS version.",
         )
     return FlightResult(
-        action="load_flight_plan", path=str(validated),
+        action="msfs_load_flight_plan", path=str(validated),
         message=f"Loaded flight plan '{validated.name}'",
     )
 

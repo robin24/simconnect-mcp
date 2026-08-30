@@ -405,7 +405,8 @@ class FlightResult(OkModel):
     """Confirmation that a flight/flight-plan file operation completed."""
 
     action: str = Field(
-        ..., description="Which operation ran: load_flight, save_flight, or load_flight_plan"
+        ..., description="Which operation ran: msfs_load_flight, msfs_save_flight, or "
+        "msfs_load_flight_plan"
     )
     path: str = Field(..., description="Absolute path of the file involved")
     message: str

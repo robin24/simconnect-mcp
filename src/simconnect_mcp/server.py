@@ -53,6 +53,12 @@ from simconnect_mcp.tools.facilities import (  # noqa: E402
     get_facility_info,
     get_nearby_airports,
 )
+from simconnect_mcp.tools.flight import (  # noqa: E402
+    create_ai_object,
+    load_flight,
+    load_flight_plan,
+    save_flight,
+)
 from simconnect_mcp.tools.hubhop import (  # noqa: E402
     list_hubhop_aircraft,
     search_hubhop,
@@ -175,6 +181,22 @@ _register(search_hubhop, "msfs_search_hubhop", "Search HubHop Presets",
           read_only=True, idempotent=True)
 _register(list_hubhop_aircraft, "msfs_list_hubhop_aircraft", "List HubHop Aircraft",
           read_only=True, idempotent=True)
+
+# --- Flight and scenario ---
+_register(load_flight, "msfs_load_flight", "Load Saved Flight", read_only=False)
+# Non-destructive only because save_flight refuses to overwrite an existing
+# file unless the caller passes overwrite=True (tools/flight.py) -- without
+# that guard this would be a false claim.
+_register(save_flight, "msfs_save_flight", "Save Current Flight",
+          read_only=False, destructive=False, idempotent=True)
+# Unlike save_flight, load_flight_plan has no overwrite-style guard: it
+# replaces whatever flight plan is currently active with no prompt and no
+# way to opt out. Left at the read_only=False default (destructive=True),
+# matching load_flight above rather than copying save_flight's override.
+_register(load_flight_plan, "msfs_load_flight_plan", "Load Flight Plan",
+          read_only=False, idempotent=True)
+_register(create_ai_object, "msfs_create_ai_object", "Create AI Object",
+          read_only=False)
 
 # Register resources and prompts
 register_doc_resources(mcp)
