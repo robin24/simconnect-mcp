@@ -9,7 +9,7 @@ import pytest
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.data.simvar_catalog import is_string_var, resolve_unit
-from simconnect_mcp.simvar_access import SimVarTimeoutError, values_match
+from simconnect_mcp.simvar_access import MAX_BATCH_BUDGET, SimVarTimeoutError, values_match
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +134,12 @@ def mock_simconnect():
             return values_match(float(value), float(value)) if verify else None
 
         def _read_many(reqs, per_item_timeout=2.0):
-            budget = len(reqs) * per_item_timeout
+            # Mirrors the real SimVarAccessor.read_many's cap (simvar_access.py)
+            # so a test that drives per_item_timeout/len(reqs) high enough to
+            # hit MAX_BATCH_BUDGET sees the same truncated budget here that it
+            # would against the real accessor, rather than an uncapped one
+            # this mock cannot express.
+            budget = min(len(reqs) * per_item_timeout, MAX_BATCH_BUDGET)
             spent = 0.0
             out = {}
             for n, u, i in reqs:
