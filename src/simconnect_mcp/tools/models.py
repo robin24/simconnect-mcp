@@ -399,3 +399,27 @@ class ConnectionStatus(OkModel):
     message: str | None = Field(
         None, description="Human-readable line from the manager, e.g. 'Connected to MSFS'"
     )
+
+
+class FlightResult(OkModel):
+    """Confirmation that a flight/flight-plan file operation completed."""
+
+    action: str = Field(
+        ..., description="Which operation ran: load_flight, save_flight, or load_flight_plan"
+    )
+    path: str = Field(..., description="Absolute path of the file involved")
+    message: str
+
+
+class AiObjectResult(OkModel):
+    """Confirmation that an AI object spawn request was sent to MSFS.
+
+    MSFS accepts a title that matches no installed aircraft without any
+    error -- the object is simply never created -- so this only confirms
+    the request was sent, never that anything actually appeared in the sim.
+    """
+
+    title: str
+    latitude: float
+    longitude: float
+    message: str
