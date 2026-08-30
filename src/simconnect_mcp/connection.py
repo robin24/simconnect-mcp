@@ -67,13 +67,16 @@ class SimConnectManager:
         self.pmdg_ng3 = None  # PmdgNG3DataManager (737), lazy-initialized
         # (timestamp, title, model); see detect_aircraft_identity().
         self._title_cache: tuple[float, str | None, str | None] | None = None
-        # Result of tools.pmdg's client-data-area probe, e.g. "pmdg_737".
+        # (title, model, variant) from tools.pmdg's client-data-area probe.
         # That probe is a real SimConnect round trip against two data areas
-        # (expensive relative to a SimVar read), and the loaded aircraft
-        # cannot change without a reconnect, so this is cached for the
-        # connection's lifetime rather than on the short title-cache TTL --
-        # see get_cached_pmdg_variant/set_cached_pmdg_variant below.
-        self._pmdg_variant_cache: str | None = None
+        # (expensive relative to a SimVar read), so the result is cached --
+        # but the loaded aircraft CAN change mid-connection with no
+        # reconnect (confirmed against real usage: a user swapped aircraft
+        # mid-session), so this is keyed on the aircraft identity it was
+        # found under, not cached unconditionally for the connection's
+        # whole lifetime. See get_cached_pmdg_variant/set_cached_pmdg_variant
+        # below -- a cache hit requires the *current* identity to match.
+        self._pmdg_variant_cache: tuple[str | None, str | None, str] | None = None
 
     @property
     def state(self) -> ConnectionState:
@@ -285,17 +288,30 @@ class SimConnectManager:
         title, _ = await self.detect_aircraft_identity()
         return title
 
-    def get_cached_pmdg_variant(self) -> str | None:
-        """Return the PMDG variant found by tools.pmdg's data-area probe.
+    def get_cached_pmdg_variant(self, title: str | None, model: str | None) -> str | None:
+        """Return the PMDG variant probed for this exact aircraft identity.
 
-        None if no probe has run yet this connection, or none responded.
-        Cleared on disconnect() -- see the attribute's own comment.
+        None if no probe has run yet, none responded, or -- critically --
+        the cached result was found under a *different* (title, model): the
+        loaded aircraft can change mid-connection with no reconnect, so a
+        cache that ignored identity would keep answering with a previous
+        aircraft's variant, mislabelled "probed" for the current one. This
+        is exact rather than time-based: `title`/`model` is the same signal
+        detect_aircraft_identity() uses to notice a swap at all, so a
+        mismatch here means the aircraft has definitely changed, not just
+        that some arbitrary TTL elapsed. Cleared on disconnect() regardless.
         """
-        return self._pmdg_variant_cache
+        if self._pmdg_variant_cache is None:
+            return None
+        cached_title, cached_model, variant = self._pmdg_variant_cache
+        if (cached_title, cached_model) != (title, model):
+            return None
+        return variant
 
-    def set_cached_pmdg_variant(self, variant: str) -> None:
-        """Record a successful probe result for the rest of this connection."""
-        self._pmdg_variant_cache = variant
+    def set_cached_pmdg_variant(self, title: str | None, model: str | None, variant: str) -> None:
+        """Record a successful probe result, keyed to the aircraft identity
+        it was found under."""
+        self._pmdg_variant_cache = (title, model, variant)
 
     async def get_status(self) -> dict[str, Any]:
         """Return current connection status.

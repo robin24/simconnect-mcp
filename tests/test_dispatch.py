@@ -453,23 +453,36 @@ def test_crosstalk_filter_keeps_warnings_from_named_loggers():
     assert _MobiFlightCrossTalkFilter().filter(record) is True
 
 
-def test_crosstalk_filter_is_installed_on_the_root_logger_exactly_once():
-    """dispatch.py installs this at import time; re-importing (or
-    constructing more than one dispatcher) must not stack duplicates --
-    each additional filter instance is one more no-op scan per log record
-    forever."""
-    import importlib
+def test_suppress_mobiflight_cross_talk_warning_does_not_stack_duplicates():
+    """_suppress_mobiflight_cross_talk_warning() must be idempotent -- each
+    additional filter instance is one more no-op scan per log record
+    forever. Calls the install function directly, twice, rather than
+    reloading the module.
 
-    import simconnect_mcp.dispatch as dispatch_module
+    A prior version of this test used importlib.reload(dispatch_module) to
+    simulate a second install. That does not work: reload executes the
+    module body in a fresh namespace, so it creates a NEW
+    _MobiFlightCrossTalkFilter *class* object -- the isinstance() guard
+    (correctly) does not recognise the old instance as one of the new
+    class, so reload demonstrably added a second filter (measured: 1
+    filter before, 2 after), while the reload-based test's own before/after
+    comparison used the stale pre-reload class throughout and so still saw
+    "1 == 1" and passed. A test that cannot fail against the bug it names
+    is worse than none; calling the function twice directly, with no
+    reload, actually exercises the guard the production code relies on.
+    """
+    from simconnect_mcp.dispatch import _suppress_mobiflight_cross_talk_warning
 
+    root_logger = logging.getLogger()
     before = sum(
-        isinstance(f, _MobiFlightCrossTalkFilter) for f in logging.getLogger().filters
+        isinstance(f, _MobiFlightCrossTalkFilter) for f in root_logger.filters
     )
     assert before >= 1, "expected the filter installed by dispatch.py's own import"
 
-    importlib.reload(dispatch_module)
+    _suppress_mobiflight_cross_talk_warning()
+    _suppress_mobiflight_cross_talk_warning()
 
     after = sum(
-        isinstance(f, _MobiFlightCrossTalkFilter) for f in logging.getLogger().filters
+        isinstance(f, _MobiFlightCrossTalkFilter) for f in root_logger.filters
     )
     assert after == before

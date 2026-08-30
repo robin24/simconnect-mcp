@@ -254,7 +254,11 @@ class PmdgVarResult(OkModel):
     """One PMDG SDK data field, from either the 777 or 737 NG3 catalog."""
 
     name: str
-    value: float | int | str | None = None
+    value: float | int | bool | str | None = Field(
+        None, description="Many PMDG SDK fields are ctypes.c_bool; bool is listed "
+        "explicitly so a switch position round-trips as true/false rather than "
+        "being coerced to 1.0/0.0"
+    )
     display_name: str
     category: str
     catalog: str

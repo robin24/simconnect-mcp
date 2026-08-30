@@ -398,9 +398,29 @@ class TestGetPmdgVarToolNG3:
 
         assert isinstance(result, PmdgVarResult)
         assert result.name == "FCTL_YawDamper_Sw"
-        assert result.value == 1.0  # True, coerced by the value: float|int|str union
+        assert result.value is True
         assert result.catalog == "pmdg_737"
         assert result.variant_source == "explicit"
+
+    async def test_boolean_field_survives_as_a_bool_not_a_float(self, mock_simconnect):
+        """Regression, NG3 dispatch branch: see the identical 777 test in
+        test_pmdg.py for the full reasoning. PmdgVarResult.value used to be
+        typed float|int|str|None with no bool in the union, silently turning
+        a ctypes.c_bool field's True/False into 1.0/0.0."""
+        from simconnect_mcp.pmdg_ng3 import PMDG_NG3_DataStruct, PmdgNG3DataManager
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgNG3DataManager(sm=manager.sm)
+        pmdg.data_subscribed = True
+        pmdg._data_struct = PMDG_NG3_DataStruct()
+        pmdg._data_struct.FCTL_YawDamper_Sw = False
+        pmdg._data_timestamp = time.time()
+        manager.pmdg_ng3 = pmdg
+
+        off = await get_pmdg_var("FCTL_YawDamper_Sw", variant="pmdg_737")
+        assert off.value is False
+        assert type(off.value) is bool
 
     async def test_reports_no_data_when_area_never_responds(self, mock_simconnect):
         """asyncio.sleep is patched to a no-op so this exercises the real

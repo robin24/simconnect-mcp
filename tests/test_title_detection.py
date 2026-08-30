@@ -373,7 +373,9 @@ async def test_probe_returns_none_when_neither_data_area_responds(mock_simconnec
         result = await _probe_pmdg_variant()
 
     assert result is None
-    assert mock_simconnect["manager"].get_cached_pmdg_variant() is None
+    manager = mock_simconnect["manager"]
+    title, model = await manager.detect_aircraft_identity()
+    assert manager.get_cached_pmdg_variant(title, model) is None
 
 
 async def test_probe_finds_the_737_ng3_data_area(mock_simconnect):
@@ -433,7 +435,8 @@ async def test_successful_probe_is_cached_for_the_connection(mock_simconnect):
 
     first = await _probe_pmdg_variant()
     assert first == "pmdg_737"
-    assert manager.get_cached_pmdg_variant() == "pmdg_737"
+    title, model = await manager.detect_aircraft_identity()
+    assert manager.get_cached_pmdg_variant(title, model) == "pmdg_737"
 
     with patch.object(
         manager, "run_sync", new=AsyncMock(side_effect=AssertionError("must not re-probe"))
@@ -443,16 +446,64 @@ async def test_successful_probe_is_cached_for_the_connection(mock_simconnect):
     assert second == "pmdg_737"
 
 
-def test_pmdg_variant_cache_is_cleared_on_disconnect(mock_simconnect):
-    """Cache invalidation: the loaded aircraft can change on a reconnect, so
-    a stale probe result must not survive disconnect()."""
+async def test_cached_probe_result_is_not_reused_after_the_aircraft_changes(mock_simconnect):
+    """Live-verified concern: a user can swap aircraft mid-session without a
+    reconnect. A cache keyed only on "a probe succeeded this connection"
+    (rather than on the identity it succeeded for) would keep answering
+    with the PREVIOUS aircraft's variant -- exactly the failure this task
+    exists to prevent, just relabelled "probed" instead of "fallback".
+    Fails against a cache with no identity check: the second call would
+    return the first aircraft's cached "pmdg_737" instead of re-probing and
+    finding the second aircraft's "pmdg_777"."""
+    from simconnect_mcp.pmdg import PmdgDataManager
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.pmdg import _probe_pmdg_variant
+
     manager = mock_simconnect["manager"]
-    manager.set_cached_pmdg_variant("pmdg_737")
-    assert manager.get_cached_pmdg_variant() == "pmdg_737"
+
+    # First aircraft: a 737 that responds to the probe.
+    mock_simconnect["simvar_values"]["TITLE"] = b"737-600 PAX TC"
+    mock_simconnect["simvar_values"]["ATC_MODEL"] = b"ATCCOM.AC_MODEL B736.0.text"
+    manager._title_cache = None
+    ng3 = PmdgNG3DataManager(sm=manager.sm)
+    ng3.data_subscribed = True
+    ng3._data_timestamp = time.time()
+    manager.pmdg_ng3 = ng3
+    manager.pmdg = PmdgDataManager(sm=manager.sm)  # never responds
+
+    first = await _probe_pmdg_variant()
+    assert first == "pmdg_737"
+
+    # Aircraft swapped mid-session, no reconnect: new identity. The old
+    # aircraft's data area has gone stale (it's no longer being updated --
+    # that add-on unloaded), and the new one now responds instead.
+    mock_simconnect["simvar_values"]["TITLE"] = b"777-300ER PAX"
+    mock_simconnect["simvar_values"]["ATC_MODEL"] = b"ATCCOM.AC_MODEL B77L.0.text"
+    manager._title_cache = None
+    ng3._data_timestamp = 0.0
+    b777 = PmdgDataManager(sm=manager.sm)
+    b777.data_subscribed = True
+    b777._data_timestamp = time.time()
+    manager.pmdg = b777
+
+    second = await _probe_pmdg_variant()
+
+    assert second == "pmdg_777"
+
+
+def test_pmdg_variant_cache_is_cleared_on_disconnect(mock_simconnect):
+    """Cache invalidation: the loaded aircraft can change on a reconnect (or,
+    per the test above, even without one), so a stale probe result must not
+    survive disconnect()."""
+    manager = mock_simconnect["manager"]
+    manager.set_cached_pmdg_variant("Boeing 747-8i", "ATCCOM.AC_MODEL B747.0.text", "pmdg_737")
+    assert manager.get_cached_pmdg_variant(
+        "Boeing 747-8i", "ATCCOM.AC_MODEL B747.0.text"
+    ) == "pmdg_737"
 
     manager.disconnect()
 
-    assert manager.get_cached_pmdg_variant() is None
+    assert manager.get_cached_pmdg_variant("Boeing 747-8i", "ATCCOM.AC_MODEL B747.0.text") is None
 
 
 async def test_resolve_pmdg_catalog_reports_probed_for_the_737_600_defect(mock_simconnect):

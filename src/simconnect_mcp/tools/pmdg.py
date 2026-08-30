@@ -82,12 +82,19 @@ async def _probe_pmdg_variant() -> str | None:
     loaded at all), this honestly returns None rather than guessing.
 
     The result is cached on the connection (SimConnectManager.
-    get/set_cached_pmdg_variant) since this performs a real SimConnect
-    round trip against two data areas and the loaded aircraft cannot change
-    without a reconnect -- so it only ever runs once per connection.
+    get/set_cached_pmdg_variant), keyed to the aircraft identity
+    (TITLE/ATC_MODEL) it was found under -- the loaded aircraft CAN change
+    mid-connection with no reconnect, so this only skips a fresh round trip
+    when the identity still matches, not unconditionally for the
+    connection's whole lifetime. The identity lookup itself is cheap: it
+    goes through the same TTL-cached detect_aircraft_identity() that
+    _detect_pmdg_variant already called moments earlier in
+    _resolve_pmdg_catalog, so this is normally a cache hit, not a second
+    SimVar read.
     """
     manager = SimConnectManager()
-    cached = manager.get_cached_pmdg_variant()
+    title, model = await manager.detect_aircraft_identity()
+    cached = manager.get_cached_pmdg_variant(title, model)
     if cached is not None:
         return cached
 
@@ -111,7 +118,7 @@ async def _probe_pmdg_variant() -> str | None:
     while elapsed < _PROBE_MAX_WAIT_S:
         for key, mgr in managers.items():
             if mgr.data_age != float("inf"):
-                manager.set_cached_pmdg_variant(key)
+                manager.set_cached_pmdg_variant(title, model, key)
                 return key
         await asyncio.sleep(_PROBE_POLL_INTERVAL_S)
         elapsed += _PROBE_POLL_INTERVAL_S

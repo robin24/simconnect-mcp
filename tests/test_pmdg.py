@@ -592,10 +592,40 @@ class TestGetPmdgVarTool:
 
         assert isinstance(result, PmdgVarResult)
         assert result.name == "ELEC_Battery_Sw_ON"
-        assert result.value == 1.0  # True, coerced by the value: float|int|str union
+        assert result.value is True
         assert result.display_name == "ELEC Battery Sw ON"
         assert result.catalog == "pmdg_777"
         assert result.variant_source == "explicit"
+
+    async def test_boolean_field_survives_as_a_bool_not_a_float(self, mock_simconnect):
+        """Regression: PmdgVarResult.value used to be typed float|int|str|None,
+        with no bool in the union. Many PMDG SDK fields are ctypes.c_bool
+        (ELEC_Battery_Sw_ON here), and read_field() returns a native Python
+        bool for them -- but constructing the old model coerced that bool to
+        a float (True -> 1.0), silently turning a switch position into what
+        looks like a measurement. Fails against the pre-fix union: `result.value
+        is True` would be False (it would be 1.0, a float) even though
+        `result.value == True` happens to still hold (1.0 == True in Python),
+        which is why this asserts identity/type, not just equality."""
+        from simconnect_mcp.pmdg import PMDG_777X_DataStruct, PmdgDataManager
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgDataManager(sm=manager.sm)
+        pmdg.data_subscribed = True
+        pmdg._data_struct = PMDG_777X_DataStruct()
+        pmdg._data_struct.ELEC_Battery_Sw_ON = False
+        pmdg._data_timestamp = time.time()
+        manager.pmdg = pmdg
+
+        off = await get_pmdg_var("ELEC_Battery_Sw_ON", variant="pmdg_777")
+        assert off.value is False
+        assert type(off.value) is bool
+
+        pmdg._data_struct.ELEC_Battery_Sw_ON = True
+        on = await get_pmdg_var("ELEC_Battery_Sw_ON", variant="pmdg_777")
+        assert on.value is True
+        assert type(on.value) is bool
 
     async def test_unknown_field_returns_field_not_found(self, mock_simconnect):
         from simconnect_mcp.tools.models import ToolError
