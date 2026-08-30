@@ -39,6 +39,18 @@ STRING_SIZE = 256
 DEFINITION_CACHE_SIZE = 256
 DEFAULT_TIMEOUT = 2.0
 
+# Ceiling on read_many's total _sim_lock hold time, independent of how many
+# variables were requested. Without it, a batch's budget is
+# `len(requests) * per_item_timeout` with nothing capping the product, which
+# reaches 200s at MAX_BULK_VARIABLES=100 (tools/simvars.py) and
+# DEFAULT_TIMEOUT=2.0 -- and, worse, one unresponsive variable anywhere in
+# the batch could consume that entire 200s by itself (see the per-item cap
+# in read_many below), starving every variable after it. Measured live, a
+# healthy 100-variable read completes in 2.94s. 20s gives roughly 7x
+# headroom over that measurement while capping the worst case at a tenth of
+# what it was.
+MAX_BATCH_BUDGET = 20.0
+
 
 class SimVarError(Exception):
     """Base class for SimVar access failures."""
@@ -382,12 +394,11 @@ class SimVarAccessor:
         Keys are `NAME` or `NAME:index`, so indexed variables stay distinct.
         A failure on one variable never aborts the batch.
 
-        `per_item_timeout` is the budget for ONE variable. The batch's real
-        budget is `len(requests) * per_item_timeout`, turned into a single
-        deadline computed once here; each read then gets whatever of it
-        remains when its turn comes, down to zero. Once the deadline has
-        passed, remaining entries are reported without even attempting
-        SimConnect.
+        `per_item_timeout` is the budget for ONE variable. The batch's
+        nominal budget is `len(requests) * per_item_timeout`, capped at
+        MAX_BATCH_BUDGET and turned into a single deadline computed once
+        here. Once the deadline has passed, remaining entries are reported
+        without even attempting SimConnect.
 
         This parameter is deliberately per-item rather than the total it
         used to be. As a total it was impossible to get right at the call
@@ -398,10 +409,23 @@ class SimVarAccessor:
         bulk read finished 71 variables and reported the other 29 as
         failures purely because the batch budget had run out.
 
-        The single-deadline shape is what bounds lock-hold time: every read
-        draws on one shrinking budget rather than each waiting the full
-        timeout independently, which is what made `_sim_lock` hold time
-        unbounded from the caller's side before.
+        Two bounds work together to keep lock-hold time under control, and
+        both are needed -- neither alone is enough:
+
+        * **The shared deadline** (`budget`/`deadline` below) means every
+          read draws down one shrinking allowance rather than each waiting
+          its own full timeout independently -- otherwise `_sim_lock`
+          hold time would be unbounded from the caller's side.
+        * **The per-item cap** (`this_read` below) means no single variable
+          -- wherever it falls in the batch -- can spend more than
+          `per_item_timeout` of that shared allowance. Without it, a
+          variable early in the batch that hangs is simply handed whatever
+          of the (possibly large) shared deadline remains as its own
+          timeout, so it alone can exhaust the entire budget and starve
+          every variable queued after it: at MAX_BULK_VARIABLES=100 and
+          DEFAULT_TIMEOUT=2.0, that budget is 200s. Capped, that same hang
+          costs at most `per_item_timeout` and the rest of the batch still
+          gets its turn.
 
         An entry that misses out on time reports SimVarBatchTimeoutError,
         never the plain SimVarTimeoutError -- a batch running out of its own
@@ -411,7 +435,7 @@ class SimVarAccessor:
         """
         results: dict[str, dict] = {}
         total = len(requests)
-        budget = total * per_item_timeout
+        budget = min(total * per_item_timeout, MAX_BATCH_BUDGET)
         deadline = time.monotonic() + budget
         for position, (name, unit, index) in enumerate(requests):
             key = name if index is None else f"{name}:{index}"
@@ -429,8 +453,12 @@ class SimVarAccessor:
                     "unit": resolved,
                 }
                 continue
+            # Capped at per_item_timeout so no single variable -- wherever
+            # it falls in the batch -- can spend more than its own share of
+            # the shared deadline, even when far more than that remains.
+            this_read = min(remaining, per_item_timeout)
             try:
-                results[key] = {"value": self.read(name, unit, index, remaining),
+                results[key] = {"value": self.read(name, unit, index, this_read),
                                 "unit": resolved}
             except SimVarTimeoutError as e:
                 # A read that got less than a full per-item share was

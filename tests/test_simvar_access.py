@@ -1,9 +1,11 @@
 import ctypes
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
 
+import simconnect_mcp.simvar_access as simvar_access_module
 from simconnect_mcp.dispatch import RequestRegistry
 from simconnect_mcp.simvar_access import (
     DEFAULT_TIMEOUT,
@@ -456,21 +458,18 @@ def _spy_on_read(accessor):
     return seen
 
 
-def test_read_many_draws_every_item_from_one_shared_deadline():
-    """The batch budget is ONE deadline computed once, not a fresh timeout
-    handed to each item.
+def test_read_many_caps_each_item_at_per_item_timeout():
+    """B1: no single item may spend more than per_item_timeout, even though
+    the shared deadline computed from the whole batch is far larger.
 
-    That single-deadline shape is what bounds _sim_lock hold time: before
-    it, every item waited up to the full timeout independently, and since
-    get_simvar_bulk passes a caller-supplied list straight through, the
-    lock-hold time was unbounded from the caller's side.
-
-    Fails against a per-item implementation, which would hand every read
-    the same `per_item_timeout` no matter how much of the batch had already
-    elapsed: the recorded timeouts would be flat at 0.05 rather than
-    starting at the whole 0.25s budget and strictly decreasing. FakeSM
-    genuinely blocks for `respond_after`, so the shrinkage is real elapsed
-    time, not a mocked clock.
+    Before this cap (wave A's read_many), the FIRST item was simply handed
+    whatever of the shared budget remained as ITS OWN timeout -- here, the
+    whole 0.25s (5 * 0.05s) -- so one hung variable at or near the front of
+    a large batch could hold _sim_lock for the batch's entire worst-case
+    budget by itself (200s at MAX_BULK_VARIABLES=100 and
+    DEFAULT_TIMEOUT=2.0). Every recorded timeout must be flat at the 0.05s
+    per-item cap instead. FakeSM genuinely blocks for `respond_after`, so
+    this exercises real elapsed time, not a mocked clock.
     """
     sm = FakeSM(value=1.0, respond_after=0.02)
     accessor = SimVarAccessor(sm)
@@ -481,36 +480,142 @@ def test_read_many_draws_every_item_from_one_shared_deadline():
 
     assert len(results) == 5
     assert len(seen) == 5
-    assert seen[0] == pytest.approx(0.25, rel=0.1), (
-        f"first item should hold the whole 5 * 0.05s budget, got {seen[0]:.3f}s "
-        "-- looks like each item is still handed its own full timeout"
-    )
-    assert seen == sorted(seen, reverse=True) and seen[-1] < seen[0], (
-        f"timeouts {seen} should shrink as one shared budget is consumed"
+    assert seen == [pytest.approx(0.05)] * 5, (
+        f"expected every item capped at the 0.05s per_item_timeout, got {seen} "
+        "-- looks like the shared 0.25s budget is being handed to an item "
+        "uncapped again"
     )
 
 
-def test_read_many_budget_is_proportional_to_the_number_of_variables():
-    """A batch at the tool's own advertised maximum must get a budget sized
-    for that many variables, not for one.
+def test_read_many_budget_scales_with_variable_count_up_to_the_cap():
+    """The shared budget still grows with how many variables were asked
+    for -- just capped at MAX_BATCH_BUDGET now (B1; see
+    test_read_many_caps_the_total_budget_regardless_of_variable_count for
+    the cap itself).
 
     This is the defect measured live: get_simvar_bulk passed no budget at
     all, so 100 variables shared DEFAULT_TIMEOUT -- one variable's worth --
     and 29 of them were reported as failures purely because the batch ran
-    out of time on an idle sim.
+    out of time on an idle sim. A budget still stuck at one item's worth
+    would only let the first of these ever be attempted; proving every one
+    of them reaches SimConnect confirms the total actually scaled with
+    count instead.
 
-    Asserting the timeout handed to the FIRST read is the sharp form: it is
-    the whole budget before anything has been spent, so it reads back the
-    batch's sizing directly rather than inferring it from wall clock.
+    Every item responds quickly (respond_after well under per_item_timeout)
+    rather than hanging to the edge of its own share -- so real elapsed
+    time stays a small fraction of the budget throughout and the assertion
+    does not ride the same knife-edge as a batch where every item consumes
+    its full per-item timeout (OS scheduler granularity on `Event.wait()`
+    can overshoot a very tight per-item timeout by several milliseconds,
+    which compounds across many items sitting right at the boundary).
     """
-    sm = FakeSM(value=1.0, respond_after=0.0)
+    sm = FakeSM(value=1.0, respond_after=0.005)
     accessor = SimVarAccessor(sm)
-    seen = _spy_on_read(accessor)
+    read_calls: list[str] = []
+    real_read = accessor.read
 
-    requests = [(f"VAR_{i}", None, None) for i in range(MAX_BULK_VARIABLES)]
-    accessor.read_many(requests, per_item_timeout=DEFAULT_TIMEOUT)
+    def counting_read(name, unit=None, index=None, timeout=2.0):
+        read_calls.append(name)
+        return real_read(name, unit=unit, index=index, timeout=timeout)
 
-    assert seen[0] == pytest.approx(MAX_BULK_VARIABLES * DEFAULT_TIMEOUT, rel=0.01)
+    accessor.read = counting_read
+
+    total = 8
+    per_item_timeout = 0.05
+    requests = [(f"VAR_{i}", None, None) for i in range(total)]
+    # total * per_item_timeout = 0.4s, comfortably under MAX_BATCH_BUDGET,
+    # so nothing here should be skipped as budget-exhausted.
+    results = accessor.read_many(requests, per_item_timeout=per_item_timeout)
+
+    assert len(read_calls) == total, (
+        f"expected every one of {total} variables to be attempted -- a "
+        f"budget stuck at one item's worth ({per_item_timeout}s) would only "
+        f"reach 1, got {len(read_calls)}"
+    )
+    assert all(r.get("value") == 1.0 for r in results.values()), (
+        f"every variable should have been read successfully, got {results}"
+    )
+
+
+def test_read_many_caps_the_total_budget_regardless_of_variable_count(monkeypatch):
+    """B1: MAX_BATCH_BUDGET bounds the shared deadline even for a very large
+    batch, so _sim_lock hold time has a firm ceiling regardless of how many
+    variables a caller asks for in one call.
+
+    MAX_BATCH_BUDGET is patched down so this fits in a fast, deterministic
+    test rather than requiring the real 20s ceiling (which would need
+    minutes of hung reads at a realistic per_item_timeout to observe).
+    """
+    monkeypatch.setattr(simvar_access_module, "MAX_BATCH_BUDGET", 0.1)
+
+    sm = FakeSM(respond=False)
+    accessor = SimVarAccessor(sm)
+    read_calls: list[str] = []
+    real_read = accessor.read
+
+    def counting_read(name, unit=None, index=None, timeout=2.0):
+        read_calls.append(name)
+        return real_read(name, unit=unit, index=index, timeout=timeout)
+
+    accessor.read = counting_read
+
+    per_item_timeout = 0.02
+    total = 50  # uncapped this would be 1.0s -- far more than the 0.1s cap
+    requests = [(f"VAR_{i}", None, None) for i in range(total)]
+    results = accessor.read_many(requests, per_item_timeout=per_item_timeout)
+
+    assert 0 < len(read_calls) < total, (
+        f"expected only a few of {total} variables to be attempted under "
+        f"a budget capped well below their combined {total * per_item_timeout:.2f}s, "
+        f"got {len(read_calls)}"
+    )
+    exhausted = [
+        k for k, v in results.items() if v.get("error_type") == "SimVarBatchTimeoutError"
+    ]
+    assert exhausted, "expected some entries reported as budget-exhausted"
+
+
+def test_one_hung_variable_does_not_starve_the_rest_of_the_batch():
+    """B1's actual real-world payoff: a single unresponsive variable must
+    cost at most per_item_timeout, not the whole batch's shared budget.
+
+    Before the per-item cap, the first item was simply handed the whole
+    remaining budget as its own timeout, so a hang there consumed the
+    entire thing and every variable queued after it was reported as
+    budget-exhausted without SimConnect ever being asked. Verified below:
+    against the OLD (uncapped) behaviour this assertion fails, because
+    read_many would report all 9 remaining entries as
+    SimVarBatchTimeoutError instead of reading them.
+    """
+    sm = FakeSM(value=1.0)
+    accessor = SimVarAccessor(sm)
+    real_read = accessor.read
+    call_count = 0
+
+    def hang_first(name, unit=None, index=None, timeout=2.0):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # A real hang: burn the whole timeout it was given, exactly as
+            # PendingRequest.done.wait(timeout) would against an
+            # unresponsive sim, then report what that genuinely means.
+            time.sleep(timeout)
+            raise SimVarTimeoutError(f"No response for SimVar '{name}' within {timeout}s.")
+        return real_read(name, unit=unit, index=index, timeout=timeout)
+
+    accessor.read = hang_first
+
+    requests = [(f"VAR_{i}", None, None) for i in range(10)]
+    results = accessor.read_many(requests, per_item_timeout=0.05)
+
+    starved = {
+        key: entry for key, entry in results.items()
+        if entry.get("error_type") == "SimVarBatchTimeoutError"
+    }
+    assert not starved, f"expected no budget-exhausted entries, got {starved}"
+    assert results["VAR_0"]["error_type"] == "SimVarTimeoutError"
+    for i in range(1, 10):
+        assert results[f"VAR_{i}"]["value"] == 1.0, f"VAR_{i} should have been read normally"
 
 
 def test_read_many_reports_a_timeout_for_entries_past_the_deadline_without_calling_read():
@@ -558,23 +663,45 @@ def test_exhausted_budget_is_not_reported_as_a_sim_stall():
     assert "paused" not in entry["error"].lower()
 
 
-def test_a_squeezed_later_item_is_reported_as_budget_exhaustion_not_a_stall():
+def test_a_squeezed_later_item_is_reported_as_budget_exhaustion_not_a_stall(monkeypatch):
     """An item that got LESS than a full per-item share and timed out was
     squeezed by its predecessors, not stalled by the sim.
 
-    The first item here consumes almost the whole budget and succeeds; the
-    second is left a sliver, times out on it, and must be diagnosed as
-    batch-budget exhaustion. Reporting SimVarTimeoutError here would blame
-    a sim that had just answered the previous read.
+    Since B1's per-item cap, a single predecessor can no longer eat into a
+    later item's share just by being slow within its OWN per_item_timeout
+    (this_read = min(remaining, per_item_timeout) bounds every item at that
+    same ceiling, position 0 included) -- so a genuine squeeze now only
+    shows up once accumulated real time approaches the shared deadline
+    itself, which is why MAX_BATCH_BUDGET is patched down here: two
+    predecessors each burn their own full per-item timeout (0.1s x 2), and
+    what is left of the artificially small 0.25s shared budget for the
+    third item (~0.05s) is clearly less than its own 0.1s share. Reporting
+    SimVarTimeoutError for that third item would blame a sim that never
+    even got asked for that long.
+
+    Absolute times are held well above typical OS scheduler granularity
+    (Windows' default timer resolution alone can overshoot a bare
+    `Event.wait(timeout)` by several milliseconds) so the classification of
+    the first two items does not itself ride that same knife-edge.
     """
-    sm = FakeSM(value=1.0, respond_after=0.18)
+    monkeypatch.setattr(simvar_access_module, "MAX_BATCH_BUDGET", 0.25)
+
+    sm = FakeSM(respond=False)  # every read genuinely hangs for its timeout
     accessor = SimVarAccessor(sm)
 
-    requests = [("PLANE_ALTITUDE", None, None), ("AIRSPEED_INDICATED", None, None)]
+    requests = [
+        ("PLANE_ALTITUDE", None, None),
+        ("AIRSPEED_INDICATED", None, None),
+        ("VERTICAL_SPEED", None, None),
+    ]
+    # Uncapped this would be 3 * 0.1 = 0.3s; MAX_BATCH_BUDGET above caps it
+    # to 0.25s. The first two each burn their full 0.1s share (0.2s total),
+    # leaving VERTICAL_SPEED only ~0.05s -- less than its own 0.1s share.
     results = accessor.read_many(requests, per_item_timeout=0.1)
 
-    assert results["PLANE_ALTITUDE"]["value"] == 1.0
-    assert results["AIRSPEED_INDICATED"]["error_type"] == "SimVarBatchTimeoutError"
+    assert results["PLANE_ALTITUDE"]["error_type"] == "SimVarTimeoutError"
+    assert results["AIRSPEED_INDICATED"]["error_type"] == "SimVarTimeoutError"
+    assert results["VERTICAL_SPEED"]["error_type"] == "SimVarBatchTimeoutError"
 
 
 def test_simconnect_name_helper_is_index_zero_safe():
