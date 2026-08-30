@@ -702,6 +702,33 @@ def test_a_squeezed_later_item_is_reported_as_budget_exhaustion_not_a_stall(monk
     assert results["VERTICAL_SPEED"]["error_type"] == "SimVarBatchTimeoutError"
 
 
+def test_a_capped_first_item_is_reported_as_budget_exhaustion_not_a_stall(monkeypatch):
+    """D3: the MAX_BATCH_BUDGET cap can squeeze even the FIRST item of a
+    batch, not just a later one -- `position > 0` alone cannot see this,
+    because a single-item batch is never a later item.
+
+    read_many(one_var, per_item_timeout=1.0) computes
+    budget = min(1 * 1.0, MAX_BATCH_BUDGET); with MAX_BATCH_BUDGET patched
+    down to 0.05 here, that item is truncated to less than its requested
+    1.0s share by the cap itself, not by any predecessor (there is none).
+    Before the classifier accounted for `budget < per_item_timeout`, this
+    was misreported as a genuine sim stall. No production call site passes
+    a per-item timeout above the real MAX_BATCH_BUDGET (20s) today, but
+    read_many's contract does not forbid it, and a caller that ever does
+    deserves the correct diagnosis.
+    """
+    monkeypatch.setattr(simvar_access_module, "MAX_BATCH_BUDGET", 0.05)
+
+    sm = FakeSM(respond=False)  # genuinely hangs for whatever timeout it's given
+    accessor = SimVarAccessor(sm)
+
+    results = accessor.read_many([("PLANE_ALTITUDE", None, None)], per_item_timeout=1.0)
+
+    entry = results["PLANE_ALTITUDE"]
+    assert entry["error_type"] == "SimVarBatchTimeoutError"
+    assert "budget" in entry["error"]
+
+
 def test_simconnect_name_helper_is_index_zero_safe():
     assert simconnect_name("ENG_N1_RPM", 0) == b"ENG N1 RPM:0"
     assert simconnect_name("ENG_N1_RPM", None) == b"ENG N1 RPM"

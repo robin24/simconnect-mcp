@@ -466,15 +466,33 @@ class SimVarAccessor:
                 # that had its whole share and still got nothing is a real
                 # sim timeout.
                 #
-                # `position > 0` is load-bearing, not a special case: the
-                # first item always holds the entire budget, which is
-                # `total * per_item_timeout` -- but the few microseconds
-                # spent computing the deadline mean the bare comparison
-                # reads marginally BELOW per_item_timeout for a
-                # single-element batch, misreporting a genuine sim stall as
-                # budget exhaustion. Only a later item can truly be
-                # squeezed, because only a predecessor can consume budget.
-                if position > 0 and remaining < per_item_timeout:
+                # Two independent ways a read can be squeezed below its own
+                # per_item_timeout, either of which makes `remaining <
+                # per_item_timeout` a real signal rather than noise:
+                #
+                # * `position > 0`: a predecessor spent part of the shared
+                #   budget before this item's turn.
+                # * `budget < per_item_timeout`: the MAX_BATCH_BUDGET cap
+                #   (`:438` above) left the WHOLE batch less than one item's
+                #   nominal share, so even the first item never had a full
+                #   per_item_timeout available. total * per_item_timeout is
+                #   only the budget when it is under the cap -- a single-item
+                #   batch with per_item_timeout=30 gets
+                #   budget=min(30, MAX_BATCH_BUDGET)=20, for example. No
+                #   production call site passes a per-item timeout above
+                #   MAX_BATCH_BUDGET today, so this path is reachable but
+                #   untested outside test_simvar_access.py.
+                #
+                # Neither applies to position 0 in an uncapped batch (budget
+                # >= per_item_timeout there): its `remaining` reads a few
+                # microseconds below per_item_timeout purely from the cost of
+                # computing the deadline, and that timing artifact must NOT
+                # be misreported as budget exhaustion -- only a genuine
+                # squeeze should be.
+                if (
+                    (position > 0 or budget < per_item_timeout)
+                    and remaining < per_item_timeout
+                ):
                     results[key] = {
                         "error": (
                             f"The batch read budget of {budget:.1f}s left only "
