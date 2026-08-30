@@ -263,7 +263,14 @@ async def execute_calculator_code(
 
     await manager.run_sync(_execute)
     return CalculatorResult(
-        code=code, mode="execute", message="Calculator code executed successfully"
+        code=code,
+        mode="execute",
+        # Not "executed successfully": manager.mobiflight.set() writes to a
+        # client data area with no response channel read (see
+        # MobiFlightVariableRequests.set/send_command in
+        # vendor/mobiflight_variable_requests.py), so nothing here confirms
+        # the WASM module actually ran this code -- only that it was sent.
+        message="Calculator code sent to the sim; execution is not confirmed",
     )
 
 

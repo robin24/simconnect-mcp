@@ -331,3 +331,18 @@ async def test_trigger_custom_event_success_returns_a_model(mock_simconnect):
     mock_simconnect["manager"].mobiflight.trigger_event.assert_called_once_with(
         "MobiFlight.TEST", 5
     )
+
+
+@pytest.mark.asyncio
+async def test_trigger_custom_event_message_does_not_overclaim_confirmation(mock_simconnect):
+    """B9: the MobiFlight WASM bridge writes to a client data area with no
+    response channel read, so nothing here actually confirms the event
+    fired -- the message must say it was sent, not that it "triggered
+    successfully"."""
+    mock_simconnect["manager"]._mobiflight_available = True
+    mock_simconnect["manager"].mobiflight = MagicMock()
+
+    result = await trigger_custom_event("MobiFlight.TEST")
+
+    assert "successfully" not in result.message.lower()
+    assert "sent" in result.message.lower()

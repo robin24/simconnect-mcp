@@ -477,5 +477,10 @@ async def trigger_custom_event(
         event=name,
         parameter=parameter,
         custom=True,
-        message=f"Custom event '{name}' triggered successfully",
+        # Not "triggered successfully": the MobiFlight WASM bridge writes to
+        # a client data area with no response channel read (see
+        # MobiFlightVariableRequests.set/send_command in
+        # vendor/mobiflight_variable_requests.py), so nothing here confirms
+        # the event actually fired -- only that it was sent.
+        message=f"Custom event '{name}' sent; delivery is not confirmed",
     )

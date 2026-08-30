@@ -299,6 +299,19 @@ async def test_execute_calculator_code_mode_execute_forces_set(mock_simconnect):
     mobiflight.get.assert_not_called()
 
 
+async def test_execute_calculator_code_message_does_not_overclaim_confirmation(mock_simconnect):
+    """B9: mobiflight.set()/send_command() write to a client data area with
+    no response channel read, so nothing here actually confirms the WASM
+    module ran this code -- the message must say it was sent, not that it
+    "executed successfully"."""
+    _enable_mobiflight(mock_simconnect)
+
+    result = await execute_calculator_code("1 (>K:PARKING_BRAKES)", mode="execute")
+
+    assert "successfully" not in result.message.lower()
+    assert "sent" in result.message.lower()
+
+
 async def test_execute_calculator_code_without_mobiflight_returns_error(mock_simconnect):
     result = await execute_calculator_code("(L:MyVar)")
     assert isinstance(result, ToolError)
