@@ -223,9 +223,13 @@ async def list_lvars(
     list as complete when it does -- see 'truncated' in the result, which is
     set whenever that cap was hit. A busy add-on setup (e.g. GSX) can crowd
     an aircraft's own L-vars out of a capped response entirely; msfs_get_lvar
-    reads any name directly regardless of whether it showed up here. Use
-    msfs_search_lvars / msfs_browse_lvar_catalog for aircraft with a bundled
-    catalog.
+    reads any name directly regardless of whether it showed up here.
+
+    Returns bare names only -- no description, category, or writability per
+    variable, unlike msfs_search_lvars' catalogued rows. Use msfs_search_lvars
+    / msfs_browse_lvar_catalog for aircraft with a bundled catalog when that
+    detail is what you need; use this tool for aircraft that have none, or
+    to see everything currently registered regardless of catalog coverage.
 
     Internally sends a harmless no-op RPN command immediately before the
     WASM request, to re-arm the module against a quirk where it otherwise
@@ -306,20 +310,34 @@ async def list_lvars(
         bridge.send_command(_REARM_COMMAND)
         bridge.send_command("MF.LVars.List")
 
-    bridge.add_response_handler(_on_response)
-    try:
-        await manager.run_sync(_send_list_request)
+    # Review finding (task-4-report.md addendum): run_sync only holds
+    # _sim_lock for the synchronous send, releasing it well before
+    # `finished.wait()` returns -- so without a lock spanning the whole
+    # register -> send -> wait -> cleanup cycle, a second concurrent call
+    # can register its own handler and fire its own MF.LVars.List burst
+    # while this one is still collecting. The vendored fan-out
+    # (_deliver_response) delivers every response to every registered
+    # handler with no per-call correlation, so that second burst lands in
+    # THIS call's `names` list too -- inflating the raw count and able to
+    # trip `truncated` for a response nowhere near the real cap. Same bug
+    # class this codebase already found and fixed one module over
+    # (SimConnectManager.facility_lock, tools/facilities.py) -- mirrored
+    # here rather than reinvented.
+    async with manager.list_lvars_lock():
+        bridge.add_response_handler(_on_response)
         try:
-            await asyncio.wait_for(finished.wait(), timeout=_LIST_TIMEOUT_S)
-        except asyncio.TimeoutError:
-            # Some WASM builds may send no terminator. Accept what arrived,
-            # as long as something did.
-            pass
-        # Give any trailing names a chance to land before reading `names`.
-        if not finished.is_set():
-            await asyncio.sleep(_LIST_SETTLE_S)
-    finally:
-        bridge.remove_response_handler(_on_response)
+            await manager.run_sync(_send_list_request)
+            try:
+                await asyncio.wait_for(finished.wait(), timeout=_LIST_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                # Some WASM builds may send no terminator. Accept what
+                # arrived, as long as something did.
+                pass
+            # Give any trailing names a chance to land before reading `names`.
+            if not finished.is_set():
+                await asyncio.sleep(_LIST_SETTLE_S)
+        finally:
+            bridge.remove_response_handler(_on_response)
 
     if not names:
         return ToolError(
@@ -459,6 +477,16 @@ def _unknown_catalog_error(catalog: str, valid_keys: set[str]) -> ToolError:
     )
 
 
+# list_lvars above deliberately has no response_format/markdown, unlike
+# search_lvars and browse_lvar_catalog below (both render LVAR_COLUMNS
+# through render_paginated_table). Adjudicated, not an oversight: its rows
+# are bare WASM-reported names with no description/category/writable to
+# put in other columns, so a one-column markdown table would be strictly
+# worse than the JSON array it already returns -- and with no markdown
+# format to default to, there is no footer to omit either, which is the
+# Phase 1 defect (browse_lvar_catalog's dropped "more results" footer)
+# this convention otherwise guards against. Page.has_more/truncated are
+# handed to the caller directly instead.
 LVAR_COLUMNS = [
     ("name", "L-Var"),
     ("display_name", "Description"),

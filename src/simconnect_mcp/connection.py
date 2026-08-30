@@ -101,6 +101,20 @@ class SimConnectManager:
         # is safe -- unlike _facility_cache, it is not connection-specific
         # state that could go stale.
         self._facility_locks: dict[str, asyncio.Lock] = {}
+        # Serializes msfs_list_lvars invocations end to end (register
+        # response handler -> send -> wait -> unregister). Same bug class
+        # as _facility_locks above, found the same way: the vendored
+        # MobiFlightVariableRequests fan-out (_deliver_response) delivers
+        # every WASM response-channel message to every currently
+        # registered handler with no per-call correlation, so two
+        # overlapping list_lvars calls would each receive the other's
+        # MF.LVars.List burst too -- inflating the raw pre-dedup count and
+        # able to trip the 1000-name truncation cap for a response nowhere
+        # near it. One lock, not a dict like facility_lock's: there is
+        # only one kind of listing here, unlike facilities' four kinds.
+        # Not cleared on disconnect for the same reason _facility_locks
+        # isn't -- see the comment above.
+        self._list_lvars_lock = asyncio.Lock()
 
     @property
     def state(self) -> ConnectionState:
@@ -378,6 +392,16 @@ class SimConnectManager:
             lock = asyncio.Lock()
             self._facility_locks[kind] = lock
         return lock
+
+    def list_lvars_lock(self) -> asyncio.Lock:
+        """Lock serializing tools/lvars.py's list_lvars end to end.
+
+        See the comment on `_list_lvars_lock` above for why this exists --
+        same bug class as facility_lock, one call site rather than four
+        kinds, so this returns a single pre-built lock rather than
+        maintaining a dict.
+        """
+        return self._list_lvars_lock
 
     async def get_status(self) -> dict[str, Any]:
         """Return current connection status.

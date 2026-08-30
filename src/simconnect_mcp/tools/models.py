@@ -216,11 +216,16 @@ class LVarList(OkModel):
     lvars: list[str]
     truncated: bool = Field(
         False,
-        description="True when the raw response hit the MobiFlight WASM module's "
-        "~1000-name cap. The module still reports its list as complete even when "
-        "capped, so a truncated response is otherwise indistinguishable from an "
-        "exhaustive one -- when true, neither 'lvars' nor 'page.total' should be "
-        "read as every L-var the aircraft has registered. See 'message'.",
+        description="True when the raw response hit (or exceeded) the MobiFlight WASM "
+        "module's ~1000-name cap. The module still reports its list as complete even "
+        "when capped, so a truncated response is otherwise indistinguishable from an "
+        "exhaustive one -- when true, neither 'lvars' nor 'page.total' should be read "
+        "as every L-var the aircraft has registered. See 'message'. This is judged on "
+        "the count alone, so an aircraft that genuinely registers exactly 1000 L-vars "
+        "(or more, which the module cannot even report) would also be flagged "
+        "truncated for a response that happens to be complete -- a deliberate false "
+        "positive: wrongly doubting a complete list is far less harmful than wrongly "
+        "trusting an incomplete one.",
     )
     message: str | None = Field(
         None,
