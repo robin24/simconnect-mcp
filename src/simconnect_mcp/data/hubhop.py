@@ -43,6 +43,8 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
+import time
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
@@ -52,6 +54,16 @@ logger = logging.getLogger(__name__)
 
 API_URL = "https://hubhop-api-mgtm.azure-api.net/api/v1/msfs2020/presets"
 USER_AGENT = "simconnect-mcp/0.1"
+
+# How long a fetched database stays valid before a call triggers a re-fetch.
+# HubHop has no cache-control headers to key off and is an actively-growing
+# community database, so this is a flat wall-clock budget rather than
+# anything derived from the response. 6 hours is long enough that a normal
+# working session -- even one running for hours -- pays the ~8s/17MB fetch
+# (see this task's addendum) at most once, but short enough that a server
+# process left running overnight still picks up whatever the community
+# added that day instead of serving an indefinitely stale snapshot.
+_CACHE_TTL_S = 6 * 60 * 60
 
 # L-var extraction patterns from RPN calculator code
 _LVAR_READ = re.compile(r"\(L:([A-Za-z0-9_]+)")
@@ -103,32 +115,62 @@ class HubHopClient:
     def __init__(self, api_url: str = API_URL, cache: bool = True) -> None:
         self._api_url = api_url
         self._cache: list[dict] | None = None
+        self._cache_time: float | None = None
         self._use_cache = cache
+        # Guards the check-fetch-populate sequence in fetch_all. Without
+        # it, two callers that both see a cold (or expired) cache -- e.g.
+        # an agent harness firing search_hubhop and list_hubhop_aircraft
+        # together -- would each kick off the full ~17MB download instead
+        # of the second one waiting for the first's result.
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Fetching
     # ------------------------------------------------------------------
 
-    def fetch_all(self) -> list[dict]:
+    def _cache_expired(self) -> bool:
+        """True when there is no cached fetch yet, or it is older than
+        _CACHE_TTL_S. Must only be called while holding self._lock --
+        _cache and _cache_time are always read/written together."""
+        return self._cache_time is None or (time.monotonic() - self._cache_time) >= _CACHE_TTL_S
+
+    def fetch_all(self, timeout: float = 120, force_refresh: bool = False) -> list[dict]:
         """Fetch the complete preset database (~31K presets, ~17 MB).
 
-        Results are cached in memory for the lifetime of the client.
+        Results are cached in memory for _CACHE_TTL_S. The whole check
+        (cache valid?) - fetch - populate sequence runs under self._lock:
+        a second thread that arrives while the first is still fetching
+        blocks on the lock rather than starting a second download, and
+        re-checks the (now warm) cache once it acquires it instead of
+        fetching again.
+
+        `force_refresh=True` skips the cache-read check -- always fetching
+        -- but still repopulates the cache afterwards (when caching is
+        enabled at all), so it bypasses a stale cache without disabling
+        caching for whatever calls this client next.
         """
-        if self._use_cache and self._cache is not None:
-            return self._cache
+        with self._lock:
+            if (
+                self._use_cache
+                and not force_refresh
+                and self._cache is not None
+                and not self._cache_expired()
+            ):
+                return self._cache
 
-        logger.info("Fetching presets from %s …", self._api_url)
-        req = urllib.request.Request(
-            self._api_url,
-            headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data: list[dict] = json.loads(resp.read())
+            logger.info("Fetching presets from %s …", self._api_url)
+            req = urllib.request.Request(
+                self._api_url,
+                headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data: list[dict] = json.loads(resp.read())
 
-        logger.info("Fetched %d presets", len(data))
-        if self._use_cache:
-            self._cache = data
-        return data
+            logger.info("Fetched %d presets", len(data))
+            if self._use_cache:
+                self._cache = data
+                self._cache_time = time.monotonic()
+            return data
 
     def fetch_presets(
         self,
@@ -136,6 +178,8 @@ class HubHopClient:
         aircraft: str | None = None,
         system: str | None = None,
         preset_type: str | None = None,
+        timeout: float = 120,
+        force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch and filter presets. Filtering is client-side.
 
@@ -144,8 +188,12 @@ class HubHopClient:
             aircraft: Filter by aircraft model (e.g. "A320", "B737-700").
             system: Filter by system (e.g. "Engines", "Autopilot").
             preset_type: Filter by type ("Input", "Output", "Input (Potentiometer)").
+            timeout: Socket timeout in seconds, passed straight to urlopen
+                (only spent on an actual fetch; a cache hit ignores it).
+            force_refresh: Bypass a still-valid cache and fetch fresh --
+                see fetch_all.
         """
-        data = self.fetch_all()
+        data = self.fetch_all(timeout=timeout, force_refresh=force_refresh)
         if vendor:
             data = [p for p in data if p.get("vendor") == vendor]
         if aircraft:
@@ -170,11 +218,19 @@ class HubHopClient:
             key=lambda x: -x["presets"],
         )
 
-    def list_aircraft(self, vendor: str | None = None) -> list[dict[str, Any]]:
-        """List aircraft models, optionally filtered by vendor."""
+    def list_aircraft(
+        self,
+        vendor: str | None = None,
+        timeout: float = 120,
+        force_refresh: bool = False,
+    ) -> list[dict[str, Any]]:
+        """List aircraft models, optionally filtered by vendor.
+
+        `timeout`/`force_refresh` are forwarded to fetch_all -- see there.
+        """
         counts: dict[str, set[str]] = defaultdict(set)
         aircraft_vendors: dict[str, str] = {}
-        for p in self.fetch_all():
+        for p in self.fetch_all(timeout=timeout, force_refresh=force_refresh):
             v = p.get("vendor", "Unknown")
             if vendor and v != vendor:
                 continue

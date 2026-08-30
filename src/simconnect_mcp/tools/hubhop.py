@@ -4,19 +4,13 @@ Wraps the existing data/hubhop.py client so agents can look up events and
 L-vars for aircraft that have no bundled catalog -- HubHop covers far more
 aircraft than the three catalogs shipped in data/*.json.
 
-Two things this module deliberately does NOT touch in data/hubhop.py:
-
-* The "msfs2020" segment in API_URL. That is HubHop's own naming for an
-  endpoint whose presets apply across MSFS 2020 and 2024 both -- not a
-  stale reference to fix.
-* The `timeout=120` passed to urlopen() inside fetch_all(). Two minutes is
-  not a bound any MCP tool call should sit behind; instead, every call
-  into the client from this module goes through `_run()` below, which
-  applies its own tighter timeout (_TIMEOUT_S) and turns an expiry into an
-  actionable ToolError rather than a long silent hang.
+One thing this module deliberately does NOT touch in data/hubhop.py: the
+"msfs2020" segment in API_URL. That is HubHop's own naming for an endpoint
+whose presets apply across MSFS 2020 and 2024 both -- not a stale
+reference to fix.
 
 HubHop is an HTTP API, not SimConnect, which changes how these tools reach
-it in two ways:
+it in several ways:
 
 * Calls go through `run_in_executor` directly, in `_run()` below, rather
   than SimConnectManager.run_sync. run_sync holds `_sim_lock` for the
@@ -30,6 +24,19 @@ it in two ways:
   than raising -- not because these failures are SimConnect-shaped, but
   because nothing else in tools/__init__.py fits an HTTP client and the
   envelope contract still applies.
+* `_TIMEOUT_S` is passed all the way down to `urlopen()` (via
+  HubHopClient.fetch_presets/list_aircraft/fetch_all's `timeout` argument),
+  not just wrapped around the await in `_run()`. `asyncio.wait_for`
+  cancels the *await*, not a blocking call already running in a worker
+  thread -- if the socket call itself only ever saw the client's own
+  120s default, a timed-out fetch would keep occupying a thread in the
+  default executor for up to 120s after this module had already given up
+  and returned HUBHOP_TIMEOUT to the caller. That executor is shared with
+  every other `run_in_executor(None, ...)` call on the server, including
+  SimConnect's, so a stuck HubHop fetch could starve unrelated tools of
+  worker threads. Passing the same _TIMEOUT_S down means the socket read
+  itself gives up at approximately the same time the await does, instead
+  of up to 90s later.
 """
 from __future__ import annotations
 
@@ -72,16 +79,20 @@ AIRCRAFT_COLUMNS = [
 # gives roughly 4x headroom over that observed cost while still bounding
 # an agent's wait to something it can sit through -- the client's own
 # `timeout=120` default is not an acceptable worst case for a single tool
-# call, so this is passed explicitly to `_run()` rather than relied on.
+# call, so this value is used both for _run()'s own wait_for and passed
+# down to the client's underlying urlopen() call (see module docstring),
+# rather than relying on either default.
 _TIMEOUT_S = 30.0
 
 # One client for this server process's lifetime, not one per call. HubHop's
-# own HubHopClient caches the fetched database in memory on the instance
-# (see fetch_all in data/hubhop.py) -- a fresh HubHopClient() per tool call
-# would discard that cache immediately after building it, turning "the
-# first call is slow" into "every call is slow". Sharing one instance here
-# means msfs_search_hubhop and msfs_list_hubhop_aircraft both draw on the
-# same in-memory copy after whichever of them runs first pays the fetch.
+# own HubHopClient caches the fetched database in memory on the instance,
+# behind a lock and a 6-hour TTL (see fetch_all in data/hubhop.py) -- a
+# fresh HubHopClient() per tool call would discard that cache immediately
+# after building it, turning "the first call is slow" into "every call is
+# slow". Sharing one instance here means msfs_search_hubhop and
+# msfs_list_hubhop_aircraft both draw on the same in-memory copy after
+# whichever of them runs first pays the fetch, and the shared lock means
+# two such calls landing at once still only trigger one download.
 _client = HubHopClient()
 
 
@@ -109,6 +120,24 @@ def _hubhop_timeout() -> ToolError:
         message=f"The HubHop API did not respond within {_TIMEOUT_S:g}s.",
         suggestion="The API may be slow or temporarily down. Try again shortly, "
                    "or work offline with msfs_search_lvars against the bundled catalogs.",
+    )
+
+
+def _hubhop_bad_response() -> ToolError:
+    """Fresh ToolError per call. HubHop answering with HTTP 200 and a body
+    that isn't valid JSON (truncated response, an HTML error page, ...) is
+    a different failure from an unreachable or slow API -- distinct from
+    both _hubhop_unavailable and _hubhop_timeout so it doesn't inherit
+    either's advice. Without this, a bare json.JSONDecodeError (a
+    ValueError) would fall through to handle_simconnect_errors' catch-all,
+    which suggests checking whether MSFS is running -- nonsensical for a
+    response-parsing failure that has nothing to do with the simulator."""
+    return ToolError(
+        error="HUBHOP_BAD_RESPONSE",
+        message="HubHop responded, but the response body was not valid JSON.",
+        suggestion="This is likely a transient issue on HubHop's end. Try again "
+                   "shortly, or work offline with msfs_search_lvars against the "
+                   "bundled catalogs.",
     )
 
 
@@ -148,6 +177,14 @@ async def search_hubhop(
     response_format: Annotated[
         ResponseFormat, Field(description="'markdown' for a table, 'json' for rows")
     ] = ResponseFormat.MARKDOWN,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass the cached preset database and re-fetch from "
+                          "HubHop before searching. Use this if you just added or "
+                          "changed a preset on HubHop and want to see it "
+                          "immediately, rather than waiting for the normal cache "
+                          "refresh."),
+    ] = False,
 ) -> SearchResult | ToolError:
     """Search the MobiFlight HubHop community preset database.
 
@@ -162,7 +199,11 @@ async def search_hubhop(
     database (roughly 32,000 presets, ~17 MB) and keeps it in memory; that
     call alone can take several seconds. This is expected, not a hang.
     Later calls, including to msfs_list_hubhop_aircraft, reuse the same
-    in-memory copy and return quickly.
+    in-memory copy and return quickly, for up to 6 hours -- after that the
+    next call re-fetches automatically, since HubHop is a community
+    database that keeps growing. Pass refresh=True to force an immediate
+    re-fetch instead of waiting on that, e.g. right after publishing a new
+    preset yourself.
 
     Requires internet access. Supply at least one of query, vendor,
     aircraft or system -- the database is too large to browse unfiltered.
@@ -177,12 +218,15 @@ async def search_hubhop(
 
     try:
         presets = await _run(
-            _client.fetch_presets, vendor=vendor, aircraft=aircraft, system=system
+            _client.fetch_presets, vendor=vendor, aircraft=aircraft, system=system,
+            timeout=_TIMEOUT_S, force_refresh=refresh,
         )
     except asyncio.TimeoutError:
         return _hubhop_timeout()
     except OSError:
         return _hubhop_unavailable()
+    except ValueError:
+        return _hubhop_bad_response()
 
     if query:
         needle = query.lower()
@@ -221,14 +265,19 @@ async def list_hubhop_aircraft(
     Like msfs_search_hubhop, the first call in this server's session
     downloads the full preset database (roughly 32,000 presets, ~17 MB),
     which can take several seconds; the two tools share the same in-memory
-    copy afterwards. Requires internet access.
+    copy afterwards, refreshed automatically every 6 hours. Requires
+    internet access.
     """
     try:
-        aircraft = await _run(_client.list_aircraft, vendor=vendor)
+        aircraft = await _run(
+            _client.list_aircraft, vendor=vendor, timeout=_TIMEOUT_S
+        )
     except asyncio.TimeoutError:
         return _hubhop_timeout()
     except OSError:
         return _hubhop_unavailable()
+    except ValueError:
+        return _hubhop_bad_response()
 
     return build_search_result(
         aircraft, offset, limit, response_format, AIRCRAFT_COLUMNS,

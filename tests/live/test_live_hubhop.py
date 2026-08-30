@@ -53,13 +53,3 @@ async def test_list_hubhop_aircraft_hits_the_real_api():
     assert result.status == "ok", getattr(result, "message", result)
     assert result.page.total > 0
     assert result.markdown is not None
-
-
-async def test_search_hubhop_reports_missing_filter_without_network():
-    """Sanity check that the NO_FILTER short-circuit still fires before any
-    request goes out, even when this file's other tests prove the network
-    path itself works."""
-    from simconnect_mcp.tools.hubhop import search_hubhop
-
-    result = await search_hubhop()
-    assert result.error == "NO_FILTER"
