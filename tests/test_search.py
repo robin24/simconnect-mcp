@@ -30,7 +30,7 @@ async def test_event_search_case_insensitive():
     """Event search is case-insensitive."""
     result1 = await search_events("LIGHT")
     result2 = await search_events("light")
-    assert result1["count"] == result2["count"]
+    assert result1.page.count == result2.page.count
 
 
 def test_fuzzy_suggest():

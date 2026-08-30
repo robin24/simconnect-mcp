@@ -6,16 +6,30 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError as MCPToolError
 
-from simconnect_mcp.tools.events import search_events, trigger_event
+from simconnect_mcp.tools.events import search_events, trigger_custom_event, trigger_event
+from simconnect_mcp.tools.formatting import ResponseFormat
+from simconnect_mcp.tools.models import EventResult, SearchResult
+
+
+@pytest.mark.asyncio
+async def test_trigger_event_returns_a_model(mock_simconnect):
+    """Brief's own test: trigger_event must return the EventResult model,
+    not a dict, and the default mock (ae.find succeeds) resolves via the
+    static catalog."""
+    result = await trigger_event("PARKING_BRAKES")
+    assert isinstance(result, EventResult)
+    assert result.resolved_via == "catalog"
 
 
 @pytest.mark.asyncio
 async def test_trigger_event(mock_simconnect):
     """Triggering an event succeeds."""
     result = await trigger_event("PARKING_BRAKES")
-    assert result["status"] == "ok"
-    assert result["event"] == "PARKING_BRAKES"
+    assert result.status == "ok"
+    assert result.event == "PARKING_BRAKES"
     mock_simconnect["ae"].find.assert_called_with("PARKING_BRAKES")
     mock_simconnect["event"].assert_called_once()
 
@@ -24,44 +38,88 @@ async def test_trigger_event(mock_simconnect):
 async def test_trigger_event_with_parameter(mock_simconnect):
     """Triggering an event with parameter passes it through."""
     result = await trigger_event("THROTTLE_SET", parameter=8192)
-    assert result["status"] == "ok"
-    assert result["parameter"] == 8192
+    assert result.status == "ok"
+    assert result.parameter == 8192
     mock_simconnect["event"].assert_called_once_with(8192)
 
 
 @pytest.mark.asyncio
-async def test_search_events():
-    """Search events returns results."""
-    result = await search_events("autopilot")
-    assert result["status"] == "ok"
-    assert result["count"] > 0
+async def test_search_events_paginates_over_the_full_catalog(mock_simconnect):
+    """Brief's own test: real pagination must span the library's full
+    994-event catalog, not the 50-entry builtin fallback list."""
+    result = await search_events("set", limit=10, response_format=ResponseFormat.JSON)
+    assert isinstance(result, SearchResult)
+    assert result.page.total > 50, "should span the 994-event catalog, not 50 builtins"
+    assert result.page.count == 10
 
 
 @pytest.mark.asyncio
-async def test_search_events_with_category():
+async def test_search_events_defaults_to_markdown(mock_simconnect):
+    result = await search_events("autopilot")
+    assert result.markdown is not None
+    assert result.results is None
+
+
+@pytest.mark.asyncio
+async def test_search_events_json_format_returns_rows(mock_simconnect):
+    result = await search_events("autopilot", response_format=ResponseFormat.JSON)
+    assert result.results is not None
+    assert result.markdown is None
+
+
+@pytest.mark.asyncio
+async def test_search_events(mock_simconnect):
+    """Search events returns results."""
+    result = await search_events("autopilot")
+    assert result.status == "ok"
+    assert result.page.count > 0
+
+
+@pytest.mark.asyncio
+async def test_search_events_with_category(mock_simconnect):
     """Search events with category filter."""
-    result = await search_events("master", category="Autopilot")
-    assert result["status"] == "ok"
-    for r in result["results"]:
+    result = await search_events(
+        "master", category="Autopilot", response_format=ResponseFormat.JSON
+    )
+    assert result.status == "ok"
+    for r in result.results:
         assert r["category"] == "Autopilot"
 
 
 @pytest.mark.asyncio
-async def test_search_events_reports_total_and_truncated():
-    """Minor: results[:50] returned a count computed after slicing, with no
-    way to tell 50-of-50 apart from 50-of-over-900 (the full library
-    catalog)."""
-    result = await search_events("a")
-    assert result["count"] == 50
-    assert result["total"] > 50
-    assert result["truncated"] is True
+async def test_search_events_paginates_instead_of_truncating(mock_simconnect):
+    """The old code sliced [:50] with no total and no signal to the caller;
+    real pagination must expose has_more/next_offset and each page must
+    actually advance through the catalog rather than repeating results."""
+    first = await search_events("a", limit=10, offset=0, response_format=ResponseFormat.JSON)
+    assert first.page.total > 50
+    assert first.page.count == 10
+    assert first.page.has_more is True
+
+    second = await search_events("a", limit=10, offset=10, response_format=ResponseFormat.JSON)
+    assert second.results[0] != first.results[0]
 
 
-@pytest.mark.asyncio
-async def test_search_events_reports_not_truncated_when_under_the_cap():
-    result = await search_events("xyznonexistenteventxyz")
-    assert result["total"] == 0
-    assert result["truncated"] is False
+async def test_search_events_limit_over_bound_is_rejected_by_fastmcp():
+    """le=200 must be enforced by FastMCP's own generated schema, not a soft
+    clamp inside the tool body -- a direct Python call bypasses validation
+    completely and would pass even with the Field bound deleted (confirmed:
+    the pre-conversion search_events(keyword, category=None) has no `limit`
+    parameter at all, so FastMCP's arg model silently drops the extra
+    `limit` field -- Pydantic's default extra="ignore" -- and the call
+    succeeds instead of raising, which is exactly why this must go through
+    mcp.call_tool rather than a direct await).
+
+    search_events carries no @require_connection, so routing this through a
+    real FastMCP instance cannot open a SimConnect connection -- unlike
+    trigger_event/trigger_custom_event, which do and must never be used for
+    this kind of check (a previous task inadvertently connected to the
+    user's live sim doing exactly that).
+    """
+    test_mcp = FastMCP("test-events")
+    test_mcp.tool()(search_events)
+    with pytest.raises(MCPToolError, match="200"):
+        await test_mcp.call_tool("search_events", {"keyword": "a", "limit": 5000})
 
 
 @pytest.mark.asyncio
@@ -103,8 +161,8 @@ async def test_trigger_falls_back_to_map_to_sim_event(mock_simconnect):
 
     result = await trigger_event("SOME_THIRD_PARTY_EVENT")
 
-    assert result["status"] == "ok"
-    assert result["resolved_via"] == "mapped"
+    assert result.status == "ok"
+    assert result.resolved_via == "mapped"
     mock_simconnect["sm"].map_to_sim_event.assert_called_once_with(b"SOME_THIRD_PARTY_EVENT")
 
 
@@ -129,14 +187,14 @@ async def test_unmappable_event_returns_event_not_found(mock_simconnect):
 
     result = await trigger_event("DEFINITELY_NOT_AN_EVENT")
 
-    assert result["error"] == "EVENT_NOT_FOUND"
-    assert "search_events" in result["suggestion"]
+    assert result.error == "EVENT_NOT_FOUND"
+    assert "search_events" in result.suggestion
 
 
 @pytest.mark.asyncio
 async def test_known_event_reports_catalog_resolution(mock_simconnect):
     result = await trigger_event("PARKING_BRAKES")
-    assert result["resolved_via"] == "catalog"
+    assert result.resolved_via == "catalog"
 
 
 @pytest.mark.asyncio
@@ -184,8 +242,8 @@ async def test_unknown_mapped_event_is_reported_not_faked(mock_simconnect):
 
     result = await trigger_event("A_TOTALLY_MADE_UP_EVENT_XYZ")
 
-    assert result["status"] == "error"
-    assert result["error"] == "EVENT_NOT_FOUND"
+    assert result.status == "error"
+    assert result.error == "EVENT_NOT_FOUND"
 
 
 @pytest.mark.asyncio
@@ -228,8 +286,8 @@ async def test_valid_mapped_event_still_succeeds(mock_simconnect):
 
     result = await trigger_event("SOME_THIRD_PARTY_EVENT")
 
-    assert result["status"] == "ok"
-    assert result["resolved_via"] == "mapped"
+    assert result.status == "ok"
+    assert result.resolved_via == "mapped"
 
 
 @pytest.mark.asyncio
@@ -245,5 +303,31 @@ async def test_missing_registry_falls_back_without_crashing(mock_simconnect):
 
     result = await trigger_event("SOME_EVENT")
 
-    assert result["status"] == "ok"
-    assert result["resolved_via"] == "mapped"
+    assert result.status == "ok"
+    assert result.resolved_via == "mapped"
+
+
+@pytest.mark.asyncio
+async def test_custom_event_without_mobiflight_returns_error(mock_simconnect):
+    mock_simconnect["manager"]._mobiflight_available = False
+    result = await trigger_custom_event("MobiFlight.TEST")
+    assert result.error == "MOBIFLIGHT_NOT_AVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_trigger_custom_event_success_returns_a_model(mock_simconnect):
+    """The success path was previously untested -- mock_simconnect leaves
+    _mobiflight_available False by default, so this wires up the MobiFlight
+    mock explicitly rather than relying on fixture defaults."""
+    mock_simconnect["manager"]._mobiflight_available = True
+    mock_simconnect["manager"].mobiflight = MagicMock()
+
+    result = await trigger_custom_event("MobiFlight.TEST", parameter=5)
+
+    assert isinstance(result, EventResult)
+    assert result.status == "ok"
+    assert result.custom is True
+    assert result.parameter == 5
+    mock_simconnect["manager"].mobiflight.trigger_event.assert_called_once_with(
+        "MobiFlight.TEST", 5
+    )

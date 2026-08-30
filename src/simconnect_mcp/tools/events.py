@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import logging
 from ctypes.wintypes import DWORD
+from typing import Annotated
+
+from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.dispatch import PendingRequest
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
+from simconnect_mcp.tools.formatting import (
+    DEFAULT_LIMIT,
+    ResponseFormat,
+    build_search_result,
+)
+from simconnect_mcp.tools.models import EventResult, SearchResult, ToolError
 
 logger = logging.getLogger(__name__)
 
@@ -298,22 +307,26 @@ def _to_dword(parameter: int) -> int:
 
 @handle_simconnect_errors
 @require_connection
-async def trigger_event(name: str, parameter: int | None = None) -> dict:
+async def trigger_event(
+    name: Annotated[
+        str,
+        Field(description="Event name, e.g. 'PARKING_BRAKES', 'AP_MASTER', "
+                          "'THROTTLE_SET'", min_length=1, max_length=128),
+    ],
+    parameter: Annotated[
+        int | None,
+        Field(description="Integer parameter for events that take one. Negative "
+                          "values are supported (e.g. AP_VS_VAR_SET_ENGLISH)."),
+    ] = None,
+) -> EventResult | ToolError:
     """Fire a SimConnect event.
 
-    Resolves through the library's event catalog first, then falls back to
+    Resolves through the library's 994-event catalog first, then falls back to
     mapping the name directly, so third-party and newer MSFS events work too.
 
     When using the mapping fallback on a dispatcher-equipped connection,
     exceptions from SimConnect (NAME_UNRECOGNIZED, ERROR) are correlated back
     to the map and send packets to detect non-existent events.
-
-    Args:
-        name: Event name (e.g., 'PARKING_BRAKES', 'AP_MASTER', 'THROTTLE_SET')
-        parameter: Optional integer parameter. Negative values are supported.
-
-    Returns:
-        Confirmation dict including how the event name was resolved.
     """
     manager = SimConnectManager()
     name = name.strip().upper()
@@ -380,79 +393,83 @@ async def trigger_event(name: str, parameter: int | None = None) -> dict:
     try:
         resolved_via = await manager.run_sync(_fire)
     except LookupError:
-        return {
-            "status": "error",
-            "error": "EVENT_NOT_FOUND",
-            "message": f"SimConnect could not map event '{name}'.",
-            "suggestion": (
+        return ToolError(
+            error="EVENT_NOT_FOUND",
+            message=f"SimConnect could not map event '{name}'.",
+            suggestion=(
                 "Check the name with search_events. For aircraft-specific "
                 "controls use trigger_custom_event or execute_calculator_code."
             ),
-        }
+        )
 
-    return {
-        "status": "ok",
-        "event": name,
-        "parameter": parameter,
-        "resolved_via": resolved_via,
-        "message": f"Event '{name}' triggered successfully",
-    }
+    return EventResult(
+        event=name,
+        parameter=parameter,
+        resolved_via=resolved_via,
+        message=f"Event '{name}' triggered successfully",
+    )
+
+
+EVENT_COLUMNS = [("name", "Event"), ("category", "Category"), ("description", "Description")]
 
 
 @handle_simconnect_errors
-async def search_events(keyword: str, category: str | None = None) -> dict:
+async def search_events(
+    keyword: Annotated[
+        str, Field(description="Search term, e.g. 'autopilot', 'light', 'engine'",
+                   min_length=1, max_length=100)
+    ],
+    category: Annotated[
+        str | None, Field(description="Restrict to one category, e.g. 'Autopilot'")
+    ] = None,
+    limit: Annotated[int, Field(description="Maximum results", ge=1, le=200)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Field(description="Results to skip, for paging", ge=0)] = 0,
+    response_format: Annotated[
+        ResponseFormat, Field(description="'markdown' for a compact table, 'json' for rows")
+    ] = ResponseFormat.MARKDOWN,
+) -> SearchResult | ToolError:
     """Search SimConnect events by keyword, optionally filtered by category.
 
-    Args:
-        keyword: Search term (e.g., 'autopilot', 'light', 'engine')
-        category: Optional category filter
-
-    Returns:
-        Dict with up to 50 matching events, plus `total` (the full match
-        count before truncation) and `truncated` (whether more than 50
-        matched) -- without these, a caller cannot tell 50-of-50 apart from
-        50-of-many.
+    Spans the library's full 994-event catalog, not just the builtin
+    fallback list. Results are paginated.
     """
-    all_results = _matching_events(keyword, category)
-    results = all_results[:50]
-    return {
-        "status": "ok",
-        "count": len(results),
-        "total": len(all_results),
-        "truncated": len(all_results) > len(results),
-        "results": results,
-        "keyword": keyword,
-        "category": category,
-    }
+    rows = _matching_events(keyword, category)
+    return build_search_result(
+        rows, offset, limit, response_format, EVENT_COLUMNS,
+        title=f"Events matching '{keyword}'",
+        query=keyword, filters={"category": category},
+    )
 
 
 @handle_simconnect_errors
 @require_connection
-async def trigger_custom_event(name: str, parameter: int | None = None) -> dict:
+async def trigger_custom_event(
+    name: Annotated[
+        str,
+        Field(description="Custom event name, e.g. "
+                          "'MobiFlight.AS1000_PFD_SOFTKEYS_1'",
+              min_length=1, max_length=128),
+    ],
+    parameter: Annotated[
+        int | None, Field(description="Optional integer parameter")
+    ] = None,
+) -> EventResult | ToolError:
     """Fire a MobiFlight/custom event by name.
 
-    Requires MobiFlight WASM module. Used for custom aircraft events that
+    Requires the MobiFlight WASM module. Used for custom aircraft events that
     are not in the standard SimConnect event list.
-
-    Args:
-        name: Custom event name (e.g., 'MobiFlight.AS1000_PFD_SOFTKEYS_1')
-        parameter: Optional integer parameter
-
-    Returns:
-        Confirmation dict.
     """
     manager = SimConnectManager()
 
     if not manager.mobiflight_available:
-        return {
-            "status": "error",
-            "error": "MOBIFLIGHT_NOT_AVAILABLE",
-            "message": "MobiFlight WASM extension is not available.",
-            "suggestion": (
+        return ToolError(
+            error="MOBIFLIGHT_NOT_AVAILABLE",
+            message="MobiFlight WASM extension is not available.",
+            suggestion=(
                 "Install MSFSPythonSimConnectMobiFlightExtension and the MobiFlight WASM "
                 "module in MSFS."
             ),
-        }
+        )
 
     def _fire() -> None:
         if parameter is not None:
@@ -461,10 +478,9 @@ async def trigger_custom_event(name: str, parameter: int | None = None) -> dict:
             manager.mobiflight.trigger_event(name)
 
     await manager.run_sync(_fire)
-    return {
-        "status": "ok",
-        "event": name,
-        "parameter": parameter,
-        "custom": True,
-        "message": f"Custom event '{name}' triggered successfully",
-    }
+    return EventResult(
+        event=name,
+        parameter=parameter,
+        custom=True,
+        message=f"Custom event '{name}' triggered successfully",
+    )
