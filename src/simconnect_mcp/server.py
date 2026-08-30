@@ -53,6 +53,10 @@ from simconnect_mcp.tools.facilities import (  # noqa: E402
     get_facility_info,
     get_nearby_airports,
 )
+from simconnect_mcp.tools.hubhop import (  # noqa: E402
+    list_hubhop_aircraft,
+    search_hubhop,
+)
 from simconnect_mcp.tools.lvars import (  # noqa: E402
     browse_lvar_catalog,
     execute_calculator_code,
@@ -95,7 +99,9 @@ def _register(fn, name: str, title: str, *, read_only: bool, idempotent: bool = 
             readOnlyHint=read_only,
             destructiveHint=(not read_only) if destructive is None else destructive,
             idempotentHint=idempotent,
-            openWorldHint=True,  # every tool talks to a live external simulator
+            # Every tool talks to a live external system: the simulator, or
+            # (HubHop's two tools) its community preset API.
+            openWorldHint=True,
         ),
     )(fn)
 
@@ -160,6 +166,15 @@ _register(get_pmdg_var, "msfs_get_pmdg_var", "Read PMDG Variable",
 _register(get_pmdg_cdu, "msfs_get_pmdg_cdu", "Read PMDG CDU Screen",
           read_only=True, idempotent=True)
 _register(send_pmdg_event, "msfs_send_pmdg_event", "Send PMDG Event", read_only=False)
+
+# --- HubHop ---
+# Unlike every tool above, these two reach an HTTP API, not the simulator --
+# see tools/hubhop.py's module docstring. Both work with MSFS closed, so
+# neither is wired through @require_connection.
+_register(search_hubhop, "msfs_search_hubhop", "Search HubHop Presets",
+          read_only=True, idempotent=True)
+_register(list_hubhop_aircraft, "msfs_list_hubhop_aircraft", "List HubHop Aircraft",
+          read_only=True, idempotent=True)
 
 # Register resources and prompts
 register_doc_resources(mcp)

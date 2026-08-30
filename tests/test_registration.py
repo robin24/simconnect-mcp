@@ -73,7 +73,7 @@ async def test_every_tool_is_msfs_prefixed():
 
 
 async def test_expected_tool_count():
-    assert len(await _tools()) == 26
+    assert len(await _tools()) == 28
 
 
 async def test_consolidated_tools_replaced_their_predecessors():
