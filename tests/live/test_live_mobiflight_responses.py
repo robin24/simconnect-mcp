@@ -56,7 +56,7 @@ async def test_lvars_list_responses_reach_a_registered_handler(
 
     await live_manager.run_sync(_send)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     deadline = loop.time() + 10
     while loop.time() < deadline:
         if seen and seen[-1] == "MF.LVars.List.End":

@@ -497,3 +497,73 @@ class TestSendPmdgEventToolNG3:
         assert result.parameter == 12000
         assert result.catalog == "pmdg_737"
         assert result.variant_source == "explicit"
+
+    async def test_control_data_event_message_says_accepted_not_successfully(
+        self, mock_simconnect
+    ):
+        """NG3 counterpart of TestSendPmdgEventTool's test of the same name
+        (test_pmdg.py) -- PmdgNG3DataManager.send_control (pmdg_ng3.py)
+        carries the identical correlation fix as PmdgDataManager's, and this
+        exercises that copy directly rather than assuming the two files
+        stayed in sync because they look alike."""
+        import threading
+
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        class MockRegistry:
+            def __init__(self):
+                self.pending_lock = threading.Lock()
+
+            def register(self, req):
+                pass
+
+            def bind_send_id(self, req, send_id, _locked=False):
+                req.done.set()  # no exception -- SimConnect accepted it
+
+            def discard(self, req):
+                pass
+
+        mock_simconnect["sm"].registry = MockRegistry()
+
+        result = await send_pmdg_event(
+            "EVT_OH_PRESS_FLT_ALT_SET", parameter=12000, variant="pmdg_737"
+        )
+
+        assert isinstance(result, PmdgEventResult)
+        assert "successfully" not in result.message.lower()
+        assert "accepted" in result.message.lower()
+
+    async def test_control_data_event_rejected_by_simconnect_is_an_error(
+        self, mock_simconnect
+    ):
+        """NG3 counterpart of the rejection case in test_pmdg.py."""
+        import threading
+
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        class MockRegistry:
+            def __init__(self):
+                self.pending_lock = threading.Lock()
+
+            def register(self, req):
+                pass
+
+            def bind_send_id(self, req, send_id, _locked=False):
+                req.exception = "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS"
+                req.done.set()
+
+            def discard(self, req):
+                pass
+
+        mock_simconnect["sm"].registry = MockRegistry()
+
+        result = await send_pmdg_event(
+            "EVT_OH_PRESS_FLT_ALT_SET", parameter=12000, variant="pmdg_737"
+        )
+
+        assert isinstance(result, ToolError)
+        assert result.error == "PMDG_CONTROL_REJECTED"
+        assert "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS" in result.message
+        assert result.suggestion

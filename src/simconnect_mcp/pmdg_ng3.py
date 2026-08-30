@@ -766,37 +766,74 @@ class PmdgNG3DataManager:
             0, 0, 0, 0,
         )
 
-    def send_control(self, event_id: int, parameter: int) -> None:
-        """Write an event to the PMDG_NG3_Control data area."""
+    def send_control(self, event_id: int, parameter: int) -> tuple[bool | None, str | None]:
+        """Write an event to the PMDG_NG3_Control data area.
+
+        Returns ``(accepted, exception_name)`` -- see
+        ``PmdgDataManager.send_control`` (pmdg.py) for the full contract and
+        the live evidence behind it; this is the identical mechanism
+        applied to the 737 NG3's control area.
+        """
         if self._sm is None:
-            return
+            return None, None
+        import contextlib
         import struct as pystruct
+        from ctypes.wintypes import DWORD
 
         from SimConnect.Enum import SIMCONNECT_UNUSED
 
-        if not self._control_registered:
-            self._sm.dll.MapClientDataNameToID(
-                self._sm.hSimConnect,
-                PMDG_NG3_CONTROL_NAME.encode("ascii"),
-                PMDG_NG3_CONTROL_ID,
-            )
-            self._sm.dll.AddToClientDataDefinition(
-                self._sm.hSimConnect,
-                PMDG_NG3_CONTROL_DEFINITION,
-                0,
-                8,
-                0,
-                SIMCONNECT_UNUSED,
-            )
-            self._control_registered = True
+        from simconnect_mcp.dispatch import PendingRequest
 
-        data = pystruct.pack("<II", event_id, parameter)
-        self._sm.dll.SetClientData(
-            self._sm.hSimConnect,
-            PMDG_NG3_CONTROL_ID,
-            PMDG_NG3_CONTROL_DEFINITION,
-            0, 0, 8, data,
-        )
+        has_registry = hasattr(self._sm, "registry")
+        pending = PendingRequest(request_id=None) if has_registry else None
+        if pending is not None:
+            self._sm.registry.register(pending)
+
+        def _bind() -> None:
+            if pending is None:
+                return
+            send_id = DWORD(0)
+            self._sm.dll.GetLastSentPacketID(self._sm.hSimConnect, send_id)
+            self._sm.registry.bind_send_id(pending, send_id.value, _locked=True)
+
+        try:
+            lock = self._sm.registry.pending_lock if has_registry else contextlib.nullcontext()
+            with lock:
+                if not self._control_registered:
+                    self._sm.dll.MapClientDataNameToID(
+                        self._sm.hSimConnect,
+                        PMDG_NG3_CONTROL_NAME.encode("ascii"),
+                        PMDG_NG3_CONTROL_ID,
+                    )
+                    _bind()
+                    self._sm.dll.AddToClientDataDefinition(
+                        self._sm.hSimConnect,
+                        PMDG_NG3_CONTROL_DEFINITION,
+                        0,
+                        8,
+                        0,
+                        SIMCONNECT_UNUSED,
+                    )
+                    _bind()
+                    self._control_registered = True
+
+                data = pystruct.pack("<II", event_id, parameter)
+                self._sm.dll.SetClientData(
+                    self._sm.hSimConnect,
+                    PMDG_NG3_CONTROL_ID,
+                    PMDG_NG3_CONTROL_DEFINITION,
+                    0, 0, 8, data,
+                )
+                _bind()
+
+            if pending is None:
+                return None, None
+            if pending.done.wait(0.2) and pending.exception is not None:
+                return False, pending.exception
+            return True, None
+        finally:
+            if pending is not None:
+                self._sm.registry.discard(pending)
 
     def client_data_handler(self, client_data) -> None:
         """Handle incoming client data from SimConnect dispatch."""

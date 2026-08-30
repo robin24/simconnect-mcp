@@ -553,10 +553,39 @@ async def send_pmdg_event(
             return err
 
         def _send_control():
-            pmdg.send_control(dispatch["event_id"], dispatch["parameter"])
+            return pmdg.send_control(dispatch["event_id"], dispatch["parameter"])
 
-        await manager.run_sync(_send_control)
-        message = f"Event '{event_name}' sent successfully"
+        accepted, exception_name = await manager.run_sync(_send_control)
+        if accepted is False:
+            # A real, observed rejection -- not silence. SimConnect itself
+            # (not the aircraft) refused this write; correlated via the
+            # dispatcher's request registry exactly like tools/events.py's
+            # trigger_event correlates MapClientEventToSimEvent/
+            # TransmitClientEvent failures. See PmdgDataManager.send_control
+            # (pmdg.py) for the live evidence that this correlation is real.
+            return ToolError(
+                error="PMDG_CONTROL_REJECTED",
+                message=(
+                    f"SimConnect rejected the control-area write for "
+                    f"'{event_name}': {exception_name}."
+                ),
+                suggestion=(
+                    "This is SimConnect refusing the write itself, not the aircraft "
+                    "ignoring the event. Reconnect with msfs_connect and confirm the "
+                    "PMDG aircraft is fully loaded (not just spawned), then retry."
+                ),
+            )
+        # Not "sent successfully": send_control() reports only what
+        # SimConnect's own exception correlation can observe. accepted=True
+        # means SimConnect accepted the packet -- it does not mean PMDG's
+        # own code acted on it, so this stops short of "successfully".
+        # accepted=None means no request registry was available (plain
+        # SimConnect fallback) and nothing here can say either way.
+        message = (
+            f"Event '{event_name}' sent; SimConnect accepted the packet"
+            if accepted
+            else f"Event '{event_name}' sent; delivery is not confirmed"
+        )
     else:
         # Standard cockpit events — use ROTOR_BRAKE via MobiFlight RPN
         if not manager.mobiflight_available:

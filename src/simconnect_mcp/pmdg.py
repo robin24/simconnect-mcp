@@ -745,41 +745,100 @@ class PmdgDataManager:
             0, 0, 0, 0,
         )
 
-    def send_control(self, event_id: int, parameter: int) -> None:
+    def send_control(self, event_id: int, parameter: int) -> tuple[bool | None, str | None]:
         """Write an event to the PMDG_777X_Control data area.
 
         Used for direct-set events (e.g., EVT_MCP_ALT_SET) that need
         both an event ID and a value parameter.
+
+        Returns ``(accepted, exception_name)``:
+
+        - ``(True, None)`` -- the dispatcher's request registry correlated
+          this call's send ID(s) (via ``GetLastSentPacketID``, the same
+          mechanism ``tools/events.py``'s ``trigger_event`` uses for
+          ``MapClientEventToSimEvent``/``TransmitClientEvent``) and
+          SimConnect raised no exception for them within the wait window.
+          This means SimConnect *accepted the packet*; it says nothing
+          about whether the aircraft's own code acted on it.
+        - ``(False, name)`` -- correlated, and SimConnect raised ``name``
+          (e.g. ``"SIMCONNECT_EXCEPTION_UNRECOGNIZED_ID"``) against one of
+          this call's send IDs. The packet was rejected.
+        - ``(None, None)`` -- no request registry available (plain
+          SimConnect fallback, no dispatcher), so nothing here can tell
+          accepted from rejected.
+
+        Verified live (not assumed) that ``SetClientData``-family calls do
+        produce correlatable exceptions when something is wrong: a client
+        data area nobody ever created raised
+        ``SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS``, correlated by send ID via
+        this exact mechanism, while a well-formed write to the real,
+        already-registered PMDG control area produced none.
         """
         if self._sm is None:
-            return
+            return None, None
+        import contextlib
         import struct as pystruct
+        from ctypes.wintypes import DWORD
 
         from SimConnect.Enum import SIMCONNECT_UNUSED
 
-        if not self._control_registered:
-            self._sm.dll.MapClientDataNameToID(
-                self._sm.hSimConnect,
-                PMDG_777X_CONTROL_NAME.encode("ascii"),
-                PMDG_777X_CONTROL_ID,
-            )
-            self._sm.dll.AddToClientDataDefinition(
-                self._sm.hSimConnect,
-                PMDG_777X_CONTROL_DEFINITION,
-                0,
-                8,  # sizeof(PMDG_777X_Control) = 2 * uint32
-                0,
-                SIMCONNECT_UNUSED,
-            )
-            self._control_registered = True
+        from simconnect_mcp.dispatch import PendingRequest
 
-        data = pystruct.pack("<II", event_id, parameter)
-        self._sm.dll.SetClientData(
-            self._sm.hSimConnect,
-            PMDG_777X_CONTROL_ID,
-            PMDG_777X_CONTROL_DEFINITION,
-            0, 0, 8, data,
-        )
+        has_registry = hasattr(self._sm, "registry")
+        pending = PendingRequest(request_id=None) if has_registry else None
+        if pending is not None:
+            self._sm.registry.register(pending)
+
+        def _bind() -> None:
+            if pending is None:
+                return
+            send_id = DWORD(0)
+            self._sm.dll.GetLastSentPacketID(self._sm.hSimConnect, send_id)
+            self._sm.registry.bind_send_id(pending, send_id.value, _locked=True)
+
+        try:
+            # Hold the lock across every DLL call this method makes: any of
+            # them can independently raise an exception correlated to its
+            # own send ID, so all must be bound before the dispatch thread
+            # can deliver an exception for any of them (same reasoning as
+            # tools/events.py's trigger_event).
+            lock = self._sm.registry.pending_lock if has_registry else contextlib.nullcontext()
+            with lock:
+                if not self._control_registered:
+                    self._sm.dll.MapClientDataNameToID(
+                        self._sm.hSimConnect,
+                        PMDG_777X_CONTROL_NAME.encode("ascii"),
+                        PMDG_777X_CONTROL_ID,
+                    )
+                    _bind()
+                    self._sm.dll.AddToClientDataDefinition(
+                        self._sm.hSimConnect,
+                        PMDG_777X_CONTROL_DEFINITION,
+                        0,
+                        8,  # sizeof(PMDG_777X_Control) = 2 * uint32
+                        0,
+                        SIMCONNECT_UNUSED,
+                    )
+                    _bind()
+                    self._control_registered = True
+
+                data = pystruct.pack("<II", event_id, parameter)
+                self._sm.dll.SetClientData(
+                    self._sm.hSimConnect,
+                    PMDG_777X_CONTROL_ID,
+                    PMDG_777X_CONTROL_DEFINITION,
+                    0, 0, 8, data,
+                )
+                _bind()
+
+            if pending is None:
+                return None, None
+            if pending.done.wait(0.2) and pending.exception is not None:
+                return False, pending.exception
+            return True, None
+        finally:
+            if pending is not None:
+                self._sm.registry.discard(pending)
 
     def client_data_handler(self, client_data) -> None:
         """Handle incoming client data from SimConnect dispatch."""

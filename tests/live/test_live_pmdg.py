@@ -75,3 +75,39 @@ async def test_get_pmdg_var_end_to_end_with_auto_detection(live_manager):
     assert isinstance(result, PmdgVarResult)
     assert result.catalog == "pmdg_737"
     assert result.variant_source == "probed"
+
+
+async def test_control_data_event_is_accepted_by_the_real_dispatcher(live_manager):
+    """Review follow-up (Phase 2 Task 3): send_pmdg_event's control_data
+    branch (PmdgNG3DataManager.send_control) now correlates its send IDs
+    through the real dispatcher's request registry instead of assuming
+    success from a DLL call that didn't raise. This is the live counterpart
+    of the mocked MockRegistry tests in test_pmdg.py/test_pmdg_ng3.py --
+    those prove the branching logic; this proves the real
+    GetLastSentPacketID/SIMCONNECT_RECV_ID_EXCEPTION correlation actually
+    resolves 'accepted' against the real dispatch thread, not a scripted
+    mock resolving it.
+
+    Reads MCP_Altitude first and writes the same value back (true no-op --
+    the aircraft's displayed value cannot change), mirroring this project's
+    established live-test restore discipline. EVT_MCP_ALT_SET is a
+    control_data (direct-set) event, not rotor_brake, per
+    resolve_pmdg_event's offset>=14500 rule.
+    """
+    from simconnect_mcp.tools.models import PmdgEventResult, PmdgVarResult
+    from simconnect_mcp.tools.pmdg import get_pmdg_var, send_pmdg_event
+
+    current = await get_pmdg_var("MCP_Altitude", variant="pmdg_737")
+    assert isinstance(current, PmdgVarResult)
+    print(f"\ncurrent MCP_Altitude: {current.value!r}")
+
+    result = await send_pmdg_event(
+        "EVT_MCP_ALT_SET", parameter=int(current.value or 0), variant="pmdg_737"
+    )
+    print(f"send_pmdg_event('EVT_MCP_ALT_SET', parameter={int(current.value or 0)}) -> {result!r}")
+
+    assert isinstance(result, PmdgEventResult)
+    assert "successfully" not in result.message.lower()
+    # A real dispatcher connection always has a request registry, so this
+    # must land on "accepted", not the no-registry "not confirmed" wording.
+    assert "accepted" in result.message.lower()

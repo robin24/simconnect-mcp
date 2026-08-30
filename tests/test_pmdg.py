@@ -772,21 +772,111 @@ class TestSendPmdgEventTool:
         assert "successfully" not in result.message.lower()
         assert "sent" in result.message.lower()
 
-    async def test_control_data_event_message_still_claims_success(self, mock_simconnect):
-        """Contrast case for the fix above: EVT_MCP_ALT_SET resolves to the
+    async def test_control_data_event_message_says_accepted_not_successfully(
+        self, mock_simconnect
+    ):
+        """Review follow-up on the fix above: EVT_MCP_ALT_SET resolves to the
         control_data method, which writes straight to the PMDG SDK's own
-        Control data area via send_control() -- a different mechanism from
-        the unread-by-design MobiFlight response channel that made the
-        rotor_brake wording dishonest. This must be unaffected by that fix;
-        pins the branch so the two methods cannot silently end up sharing
-        one message again."""
+        Control data area via send_control(). That write is a bare
+        SetClientData with no return-code check of its own -- the same
+        unearned "successfully" the rotor_brake fix above corrected, just on
+        a different channel (pmdg.py's PmdgDataManager.send_control /
+        pmdg_ng3.py's PmdgNG3DataManager.send_control, both live-verified
+        against a never-created client data area: SetClientData-family
+        calls DO raise a correlatable SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS via
+        the same GetLastSentPacketID mechanism tools/events.py already uses
+        -- see pmdg_control_correlation_probe.py).
+
+        send_control() now correlates its send IDs through the dispatcher's
+        request registry exactly like tools/events.py's trigger_event. This
+        pins the case where correlation is available and SimConnect raises
+        no exception for it: the message may say the packet was accepted,
+        never "successfully" -- accepting the packet is not the same as the
+        aircraft having acted on it, which nothing here observes."""
+        import threading
+
         from simconnect_mcp.tools.models import PmdgEventResult
         from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        class MockRegistry:
+            def __init__(self):
+                self.pending_lock = threading.Lock()
+
+            def register(self, req):
+                pass
+
+            def bind_send_id(self, req, send_id, _locked=False):
+                req.done.set()  # no exception -- SimConnect accepted it
+
+            def discard(self, req):
+                pass
+
+        mock_simconnect["sm"].registry = MockRegistry()
 
         result = await send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000, variant="pmdg_777")
 
         assert isinstance(result, PmdgEventResult)
-        assert "successfully" in result.message.lower()
+        assert "successfully" not in result.message.lower()
+        assert "accepted" in result.message.lower()
+
+    async def test_control_data_event_rejected_by_simconnect_is_an_error(
+        self, mock_simconnect
+    ):
+        """The other half of correlation landing: SimConnect itself can
+        reject the control-area write (live-confirmed possible -- see the
+        docstring above), and that is a real, observed failure, not a softer
+        success message. Mirrors tools/events.py's
+        test_unknown_mapped_event_is_reported_not_faked, which treats a
+        correlated exception as an actual error rather than degraded-but-ok
+        text."""
+        import threading
+
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        class MockRegistry:
+            def __init__(self):
+                self.pending_lock = threading.Lock()
+
+            def register(self, req):
+                pass
+
+            def bind_send_id(self, req, send_id, _locked=False):
+                req.exception = "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS"
+                req.done.set()
+
+            def discard(self, req):
+                pass
+
+        mock_simconnect["sm"].registry = MockRegistry()
+
+        result = await send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000, variant="pmdg_777")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "PMDG_CONTROL_REJECTED"
+        assert "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS" in result.message
+        assert result.suggestion
+
+    async def test_control_data_event_without_a_registry_is_not_confirmed(
+        self, mock_simconnect
+    ):
+        """Plain SimConnect fallback (no dispatcher, no request registry):
+        nothing here can tell accepted from rejected, so the message must
+        say delivery is not confirmed -- not "successfully", and not
+        "accepted" either, since that would claim a correlation that never
+        ran. Mirrors tools/events.py's
+        test_missing_registry_falls_back_without_crashing."""
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        if hasattr(mock_simconnect["sm"], "registry"):
+            delattr(mock_simconnect["sm"], "registry")
+
+        result = await send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000, variant="pmdg_777")
+
+        assert isinstance(result, PmdgEventResult)
+        assert "successfully" not in result.message.lower()
+        assert "not confirmed" in result.message.lower()
 
 
 class TestUnassuredVariantWarning:
