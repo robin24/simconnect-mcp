@@ -186,8 +186,14 @@ def _ensure_pmdg_manager(
     sm_mgr = SimConnectManager()
 
     if not hasattr(sm_mgr.sm, "register_client_data_handler"):
+        # MOBIFLIGHT_NOT_AVAILABLE, not a separate MOBIFLIGHT_REQUIRED code --
+        # this and the MobiFlightVariableRequests-based check in
+        # tools/lvars.py/_require_mobiflight and tools/events.py both mean
+        # the same thing to a caller: the MobiFlight WASM bridge is not
+        # there. An agent that learned to branch on one code must not
+        # silently miss the other.
         return None, ToolError(
-            error="MOBIFLIGHT_REQUIRED",
+            error="MOBIFLIGHT_NOT_AVAILABLE",
             message="PMDG SDK tools require SimConnectMobiFlight.",
             suggestion="Ensure the MobiFlight WASM module is installed.",
         )
