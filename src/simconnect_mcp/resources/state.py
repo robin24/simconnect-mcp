@@ -11,13 +11,21 @@ from simconnect_mcp.simvar_access import DEFAULT_TIMEOUT
 def register_state_resources(mcp: FastMCP) -> None:
     """Register live state resources on the MCP server."""
 
-    @mcp.resource("simconnect://state/connection")
+    @mcp.resource(
+        "simconnect://state/connection",
+        mime_type="application/json",
+        title="Connection Status",
+    )
     async def state_connection() -> dict:
         """Current SimConnect connection status, sim running/paused."""
         manager = SimConnectManager()
         return await manager.get_status()
 
-    @mcp.resource("simconnect://state/aircraft")
+    @mcp.resource(
+        "simconnect://state/aircraft",
+        mime_type="application/json",
+        title="Aircraft State",
+    )
     async def state_aircraft() -> dict:
         """Current aircraft title, type, and position."""
         manager = SimConnectManager()
