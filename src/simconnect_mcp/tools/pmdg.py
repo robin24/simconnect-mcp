@@ -175,6 +175,41 @@ async def _resolve_pmdg_catalog(
     return "pmdg_777", "fallback"
 
 
+# variant_source values that carry no real confirmation the resolved catalog
+# actually matches the loaded aircraft -- see _unassured_variant_warning.
+_UNCONFIRMED_VARIANT_SOURCES = frozenset({"fallback", "name_match"})
+
+
+def _unassured_variant_warning(catalog_key: str | None, source: str | None) -> str | None:
+    """Warning for send_pmdg_event when the catalog was assumed, not detected.
+
+    get_pmdg_var/get_pmdg_cdu self-correct on a wrong guess: the client data
+    area for a catalog nothing is loaded for simply never responds, so a bad
+    guess surfaces as NO_DATA and the caller learns. send_pmdg_event has no
+    such feedback loop -- it writes to whichever SDK's control area
+    (control_data) or fires whichever RPN code (rotor_brake) the guessed
+    catalog names, and that can reach a real, wrong aircraft system with no
+    error of any kind. "explicit", "detected", and "probed" all have a real
+    signal behind them (a caller's own say-so, the loaded aircraft's own
+    TITLE/ATC_MODEL, or its client data area actually answering) and need no
+    warning; "fallback" (no signal at all) and "name_match" (the event name
+    merely happened to exist in one catalog, with nothing confirming that
+    aircraft is the one loaded) do.
+    """
+    if source not in _UNCONFIRMED_VARIANT_SOURCES:
+        return None
+    detail = (
+        "the event name matched neither catalog"
+        if source == "fallback"
+        else "the event name matched only that catalog"
+    )
+    return (
+        f"No PMDG aircraft was detected, so '{catalog_key}' was assumed ({detail}) "
+        "with nothing confirming it is the aircraft actually loaded. If this is "
+        "wrong, pass variant='pmdg_737' or variant='pmdg_777' explicitly."
+    )
+
+
 def _ensure_pmdg_manager(
     variant: str = "pmdg_777",
 ) -> tuple[PmdgDataManager | PmdgNG3DataManager | None, ToolError | None]:
@@ -543,4 +578,5 @@ async def send_pmdg_event(
         catalog=catalog_key,
         variant_source=source,
         message=f"Event '{event_name}' sent successfully",
+        warning=_unassured_variant_warning(catalog_key, source),
     )

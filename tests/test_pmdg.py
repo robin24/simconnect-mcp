@@ -715,3 +715,62 @@ class TestSendPmdgEventTool:
         assert result.parameter == 5000
         assert result.catalog == "pmdg_777"
         assert result.variant_source == "explicit"
+        # B8: an explicit variant is a real signal (the caller's own say-so)
+        # and needs no warning.
+        assert result.warning is None
+
+    async def test_warns_when_the_catalog_was_only_name_matched(self, mock_simconnect):
+        """B8: get_pmdg_var/get_pmdg_cdu self-correct on a wrong catalog
+        guess -- the client data area for the wrong SDK just never
+        responds, so a bad guess surfaces as NO_DATA. send_pmdg_event has
+        no such feedback loop: it actually writes to whichever SDK's
+        control area the guessed catalog names, and that write can reach a
+        real, wrong aircraft system with no error at all. Reproduces the
+        live-realistic path: TITLE/ATC_MODEL carry no PMDG branding (the
+        fixture's default "Boeing 747-8i") and the client-data probe also
+        finds nothing responding, so resolution falls through to matching
+        the event name against the catalogs -- asyncio.sleep is patched so
+        this doesn't pay the probe's ~0.3s wait."""
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        with patch("simconnect_mcp.tools.pmdg.asyncio.sleep", new=AsyncMock()):
+            result = await send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000)
+
+        assert isinstance(result, PmdgEventResult)
+        assert result.catalog == "pmdg_777"
+        assert result.variant_source == "name_match"
+        assert result.warning is not None
+        assert "pmdg_777" in result.warning
+
+
+class TestUnassuredVariantWarning:
+    """Direct coverage of _unassured_variant_warning's own branches --
+    send_pmdg_event's real code paths can only exercise "name_match" (a
+    "fallback" catalog, by construction, means the event name matched
+    nothing in either catalog, which resolve_pmdg_event would ALSO fail to
+    find first) -- but the helper is written to cover "fallback" too,
+    defensively, so it is checked here independent of any specific caller.
+    """
+
+    def test_fallback_gets_a_warning_naming_the_assumed_catalog(self):
+        from simconnect_mcp.tools.pmdg import _unassured_variant_warning
+
+        warning = _unassured_variant_warning("pmdg_777", "fallback")
+
+        assert warning is not None
+        assert "pmdg_777" in warning
+
+    def test_name_match_gets_a_warning_naming_the_assumed_catalog(self):
+        from simconnect_mcp.tools.pmdg import _unassured_variant_warning
+
+        warning = _unassured_variant_warning("pmdg_737", "name_match")
+
+        assert warning is not None
+        assert "pmdg_737" in warning
+
+    @pytest.mark.parametrize("source", ["explicit", "detected", "probed", None])
+    def test_confirmed_sources_get_no_warning(self, source):
+        from simconnect_mcp.tools.pmdg import _unassured_variant_warning
+
+        assert _unassured_variant_warning("pmdg_777", source) is None

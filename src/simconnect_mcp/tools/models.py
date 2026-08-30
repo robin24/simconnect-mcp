@@ -334,6 +334,14 @@ class PmdgEventResult(OkModel):
         None, description="How the PMDG variant was resolved -- see PmdgVarResult"
     )
     message: str
+    warning: str | None = Field(
+        None,
+        description="Set when variant_source is 'fallback' or 'name_match' -- the "
+        "catalog used to send this event was assumed, not detected. Unlike the read "
+        "tools (a guessed catalog there just yields NO_DATA), this actually writes "
+        "to the assumed SDK's control area or fires its RPN code, so a wrong guess "
+        "here can reach a real, wrong aircraft system with no error at all",
+    )
 
 
 class ConnectionStatus(OkModel):
