@@ -45,6 +45,7 @@ from SimConnect.Enum import (
     SIMCONNECT_RECV_SIMOBJECT_DATA,
 )
 
+from simconnect_mcp.facilities import FacilityCollector, parse_facility_message
 from simconnect_mcp.vendor.simconnect_mobiflight import SimConnectMobiFlight
 
 log = logging.getLogger(__name__)
@@ -289,6 +290,7 @@ class SimConnectDispatcher(SimConnectMobiFlight):
     def __init__(self, auto_connect: bool = True, library_path: str | None = None) -> None:
         # Must exist before super().__init__ starts the dispatch thread.
         self.registry = RequestRegistry()
+        self.facilities = FacilityCollector()
         self.facility_handlers: list = []
         if library_path:
             super().__init__(auto_connect, library_path)
@@ -330,10 +332,23 @@ class SimConnectDispatcher(SimConnectMobiFlight):
             return
 
         if dwID in FACILITY_RECV_IDS:
-            # The library's branch calls dump(), which print()s.  Phase 2
-            # installs real handlers here.
+            # The library's branch calls dump(), which print()s -- never let
+            # that run. Parse into the collector ourselves; a parse failure
+            # is swallowed (logged at debug) rather than raised, since this
+            # runs on SimConnect's own callback thread, not the event loop.
+            try:
+                kind, header, entries = parse_facility_message(pData)
+                self.facilities.handle(kind, header, entries)
+            except Exception:
+                log.debug("Could not parse facility message", exc_info=True)
+            # Each registered handler gets its own try/except: one raising
+            # callback must not stop the others from running, nor propagate
+            # out of this native callback.
             for handler in self.facility_handlers:
-                handler(pData)
+                try:
+                    handler(pData)
+                except Exception:
+                    log.warning("Facility handler raised an exception", exc_info=True)
             return
 
         super().my_dispatch_proc(pData, cbData, pContext)

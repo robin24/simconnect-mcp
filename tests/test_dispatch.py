@@ -1,7 +1,10 @@
 import ctypes
 import logging
+import struct
 import threading
 from ctypes.wintypes import DWORD
+
+from SimConnect.Enum import SIMCONNECT_RECV_FACILITIES_LIST, SIMCONNECT_RECV_ID
 
 from simconnect_mcp.dispatch import (
     STRING256_SIZE,
@@ -11,6 +14,7 @@ from simconnect_mcp.dispatch import (
     SimConnectDispatcher,
     _MobiFlightCrossTalkFilter,
 )
+from simconnect_mcp.facilities import FacilityCollector, FacilityKind
 
 
 def test_resolve_data_sets_value_and_signals_waiter():
@@ -341,6 +345,8 @@ def _bare_dispatcher() -> SimConnectDispatcher:
     """
     dispatcher = object.__new__(SimConnectDispatcher)
     dispatcher.registry = RequestRegistry()
+    dispatcher.facilities = FacilityCollector()
+    dispatcher.facility_handlers = []
     return dispatcher
 
 
@@ -404,6 +410,102 @@ def test_numeric_decode_is_unaffected_by_the_string_decode_change():
     dispatcher._on_simobject_data(data)
 
     assert pending.value == 35000.0
+
+
+# ---------------------------------------------------------------------------
+# my_dispatch_proc -- facility list routing (FACILITY_RECV_IDS branch)
+#
+# Phase 0 made this branch a no-op loop specifically so the library's own
+# handler (which print()s via dump()) could never run. Phase 2 Task 1 fills
+# it in: parse into self.facilities, then run any registered
+# facility_handlers. See dispatch.py's inline comment on this branch for why
+# each handler gets its own try/except.
+# ---------------------------------------------------------------------------
+
+
+def _facility_message(array_size: int, entry_number: int, out_of: int, body: bytes = b""):
+    """Build a raw byte buffer shaped like a real AIRPORT_LIST message: the
+    28-byte SIMCONNECT_RECV_FACILITIES_LIST header (dwSize, dwVersion, dwID,
+    dwRequestID, dwArraySize, dwEntryNumber, dwOutOf) followed by `body`."""
+    header = struct.pack(
+        "<IIIIIII",
+        0,  # dwSize -- unused by the code under test
+        0,  # dwVersion
+        SIMCONNECT_RECV_ID.SIMCONNECT_RECV_ID_AIRPORT_LIST,
+        0,  # dwRequestID
+        array_size,
+        entry_number,
+        out_of,
+    )
+    raw = header + body
+    buf = ctypes.create_string_buffer(raw, len(raw))
+    ptr = ctypes.cast(ctypes.addressof(buf), ctypes.POINTER(SIMCONNECT_RECV_FACILITIES_LIST))
+    return buf, ptr  # caller must keep `buf` alive as long as `ptr` is used
+
+
+def _airport_record(ident: bytes, region: bytes, lat: float, lon: float, alt: float) -> bytes:
+    return ident.ljust(6, b"\0") + region.ljust(3, b"\0") + struct.pack("<ddd", lat, lon, alt)
+
+
+def test_my_dispatch_proc_routes_facility_messages_into_the_collector():
+    """The actual integration point of this task: a real *_LIST message
+    reaching my_dispatch_proc ends up parsed in self.facilities, not
+    dropped on the floor and not handed to the library's dump()."""
+    dispatcher = _bare_dispatcher()
+    record = _airport_record(b"KATL", b"K6", 33.6367, -84.4281, 313.0)
+    buf, ptr = _facility_message(array_size=1, entry_number=0, out_of=1, body=record)
+
+    dispatcher.my_dispatch_proc(ptr, len(buf.raw), None)
+
+    assert dispatcher.facilities.is_complete(FacilityKind.AIRPORT) is True
+    results = dispatcher.facilities.results(FacilityKind.AIRPORT)
+    assert [r["icao"] for r in results] == ["KATL"]
+
+
+def test_a_raising_facility_handler_does_not_stop_the_others_or_propagate():
+    """Finding from an earlier review: facility_handlers was invoked with no
+    try/except, deferred on the grounds that the list was empty until this
+    task. It is no longer empty-by-construction (callers may register
+    handlers), so one handler raising must not prevent the rest from
+    running, and must not escape my_dispatch_proc -- this runs on
+    SimConnect's own callback thread, not the event loop."""
+    dispatcher = _bare_dispatcher()
+    calls: list[str] = []
+
+    def bad_handler(pData):
+        calls.append("bad")
+        raise RuntimeError("boom")
+
+    def good_handler(pData):
+        calls.append("good")
+
+    dispatcher.facility_handlers = [bad_handler, good_handler]
+    record = _airport_record(b"KATL", b"K6", 33.6367, -84.4281, 313.0)
+    buf, ptr = _facility_message(array_size=1, entry_number=0, out_of=1, body=record)
+
+    dispatcher.my_dispatch_proc(ptr, len(buf.raw), None)  # must not raise
+
+    assert calls == ["bad", "good"]
+
+
+def test_facility_chunk_accumulation_survives_through_my_dispatch_proc():
+    """dwOutOf > 1 chunks arriving as separate dispatch calls must still
+    accumulate into one result, exercised through the real dispatch entry
+    point rather than by calling FacilityCollector.handle() directly."""
+    dispatcher = _bare_dispatcher()
+    first = _airport_record(b"KATL", b"K6", 33.6367, -84.4281, 313.0)
+    second = _airport_record(b"KPDK", b"K6", 33.8756, -84.3020, 316.0)
+
+    buf1, ptr1 = _facility_message(array_size=1, entry_number=0, out_of=2, body=first)
+    dispatcher.my_dispatch_proc(ptr1, len(buf1.raw), None)
+    assert dispatcher.facilities.is_complete(FacilityKind.AIRPORT) is False
+
+    buf2, ptr2 = _facility_message(array_size=1, entry_number=1, out_of=2, body=second)
+    dispatcher.my_dispatch_proc(ptr2, len(buf2.raw), None)
+
+    assert dispatcher.facilities.is_complete(FacilityKind.AIRPORT) is True
+    results = dispatcher.facilities.results(FacilityKind.AIRPORT)
+    assert [r["icao"] for r in results] == ["KATL", "KPDK"]
 
 
 # ---------------------------------------------------------------------------
