@@ -23,15 +23,15 @@ def register_prompts(mcp: FastMCP) -> None:
 
 Follow this debugging procedure:
 
-1. **Verify the variable exists:** Use `search_simvars("{simvar_name}")` to confirm the name and check its properties (units, settable, category).
+1. **Verify the variable exists:** Use `msfs_search_simvars("{simvar_name}")` to confirm the name and check its properties (units, settable, category).
 
-2. **Read the current value:** Use `get_simvar("{simvar_name}")` to see what the sim is returning right now.
+2. **Read the current value:** Use `msfs_get_simvar("{simvar_name}")` to see what the sim is returning right now.
 
 3. **Check units:** SimVars can return different values depending on the unit requested. Try reading with different units if the value seems wrong.
 
 4. **Check if it's indexed:** Some SimVars (like engine vars) require an index parameter. Check if `:index` appears in the variable name.
 
-5. **Monitor over time:** Use `watch_simvar("{simvar_name}")` to see if the value changes as expected.
+5. **Monitor over time:** Use `msfs_watch_simvar("{simvar_name}")` to see if the value changes as expected.
 
 6. **For settable vars:** Verify the variable is marked as settable. Not all SimVars accept writes.
 
@@ -51,16 +51,17 @@ Follow this debugging procedure:
 
 Follow this procedure:
 
-1. **Check MobiFlight availability:** Use `get_connection_status()` to verify MobiFlight is loaded.
+1. **Check MobiFlight availability:** Use `msfs_get_connection_status()` to verify
+   MobiFlight is loaded.
 
-2. **List all L-vars:** Use `list_lvars()` to get every L-var registered by this aircraft.
+2. **List all L-vars:** Use `msfs_list_lvars()` to get every L-var registered by this aircraft.
 
 3. **Categorize the variables** by examining their naming patterns:
    - Group by prefix (e.g., `A32NX_`, `WT_CJ4_`, `AS1000_`)
    - Identify systems: EFIS, FCU, autopilot, engines, electrical, hydraulics, etc.
    - Note which appear to be boolean (switches) vs continuous values
 
-4. **Sample key values:** Read a representative variable from each category with `get_lvar()`.
+4. **Sample key values:** Read a representative variable from each category with `msfs_get_lvar()`.
 
 5. **Present a summary** organized by system, noting:
    - Total L-var count
@@ -126,7 +127,7 @@ Write RPN calculator code that accomplishes this task. Follow these guidelines:
 
 2. **Explain each step** of the RPN code.
 
-3. **Test the code** by running `execute_calculator_code()` with the generated code.
+3. **Test the code** by running `msfs_execute_calculator_code()` with the generated code.
 
 4. **Verify the result** by reading the affected variables after execution.
 """

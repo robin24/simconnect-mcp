@@ -16,17 +16,17 @@ L-vars are NOT accessible through the standard SimConnect API. They require the 
 
 ### Reading
 ```python
-get_lvar("A32NX_EFIS_L_OPTION")  # Returns numeric value
+msfs_get_lvar("A32NX_EFIS_L_OPTION")  # Returns numeric value
 ```
 
 ### Writing
 ```python
-set_lvar("A32NX_EFIS_L_OPTION", 1)  # Set to 1
+msfs_set_lvar("A32NX_EFIS_L_OPTION", 1)  # Set to 1
 ```
 
 ### Discovering
 ```python
-list_lvars()  # Returns ALL active L-var names on current aircraft
+msfs_list_lvars()  # Returns ALL active L-var names on current aircraft
 ```
 
 ## Naming Conventions
@@ -72,7 +72,7 @@ L-vars can also be read/written via RPN calculator code:
 
 ## Tips
 
-1. **Use `list_lvars()` first** — discover what variables are available before trying to read specific ones
+1. **Use `msfs_list_lvars()` first** — discover what variables are available before trying to read specific ones
 2. **L-var names are case-sensitive** — match the exact casing
 3. **Values are always numeric** (float) — booleans are 0/1, enums are integers
 4. **L-vars only exist while the aircraft is loaded** — they disappear when changing aircraft

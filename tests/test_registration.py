@@ -1,4 +1,26 @@
+import re
+from pathlib import Path
+
+import simconnect_mcp
 from simconnect_mcp.server import mcp
+
+# Anything shaped like a tool name in the embedded docs/prompts -- i.e.
+# msfs_-prefixed -- is a claim that an agent can call that tool. This
+# pattern is deliberately narrow: it must not match bare pre-rename names
+# like "get_simvar" that may legitimately remain in prose describing
+# internals (a Python function name, a docstring), since those aren't
+# claims about the MCP surface.
+_TOOL_NAME_PATTERN = re.compile(r"\bmsfs_[a-z][a-z0-9_]*\b")
+
+
+def _doc_and_prompt_files() -> list[Path]:
+    """The embedded docs served as MCP resources, plus the prompt templates
+    module -- the two places prose can name a tool for an agent to call."""
+    pkg_dir = Path(simconnect_mcp.__file__).parent
+    files = sorted((pkg_dir / "docs").glob("*.md"))
+    files.append(pkg_dir / "prompts" / "templates.py")
+    return files
+
 
 WRITE_TOOLS = {
     "msfs_set_simvar",
@@ -64,3 +86,18 @@ async def test_no_tool_hides_its_arguments_behind_a_params_object():
     """A single Pydantic model parameter collapses the schema to {'params': ...}."""
     for name, tool in (await _tools()).items():
         assert list(tool.inputSchema.get("properties", {})) != ["params"], name
+
+
+async def test_docs_and_prompts_only_reference_real_tool_names():
+    """The embedded docs and prompt templates tell an agent which tools to
+    call by name. A stale reference -- a rename that missed a file, or a
+    tool consolidated away later -- would ship documentation instructing
+    the agent to call something that no longer exists. Scanning every
+    doc/prompt file for msfs_-shaped names and checking each is actually
+    registered turns the one-time rename sweep into a standing guarantee.
+    """
+    names = await _tools()
+    for path in _doc_and_prompt_files():
+        text = path.read_text(encoding="utf-8")
+        for match in _TOOL_NAME_PATTERN.findall(text):
+            assert match in names, f"{path.name} references unknown tool {match!r}"

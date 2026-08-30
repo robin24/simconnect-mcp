@@ -1,15 +1,15 @@
 # SimConnect Events (Key Events)
 
-Events trigger actions in the simulator. Use `trigger_event(name, parameter)` to fire them.
+Events trigger actions in the simulator. Use `msfs_trigger_event(name, parameter)` to fire them.
 
 ## How Events Work
 
 Events are like pressing buttons or toggling switches. Some events are simple toggles (no parameter needed), while others require an integer parameter specifying the target value.
 
 ```
-trigger_event("PARKING_BRAKES")           → Toggle parking brakes
-trigger_event("THROTTLE_SET", 8192)       → Set throttle to ~50%
-trigger_event("HEADING_BUG_SET", 270)     → Set heading bug to 270°
+msfs_trigger_event("PARKING_BRAKES")           → Toggle parking brakes
+msfs_trigger_event("THROTTLE_SET", 8192)       → Set throttle to ~50%
+msfs_trigger_event("HEADING_BUG_SET", 270)     → Set heading bug to 270°
 ```
 
 ## Parameter Ranges
@@ -111,9 +111,9 @@ Radio frequencies must be BCD16 encoded. For example, frequency 124.850:
 
 ## Custom Events (MobiFlight)
 
-Custom aircraft events can be triggered via `trigger_custom_event()` when MobiFlight WASM is installed. These follow the naming convention of the aircraft developer:
+Custom aircraft events can be triggered via `msfs_trigger_custom_event()` when MobiFlight WASM is installed. These follow the naming convention of the aircraft developer:
 
 ```
-trigger_custom_event("MobiFlight.AS1000_PFD_SOFTKEYS_1")
-trigger_custom_event("MobiFlight.A32NX_FCU_HDG_INC")
+msfs_trigger_custom_event("MobiFlight.AS1000_PFD_SOFTKEYS_1")
+msfs_trigger_custom_event("MobiFlight.A32NX_FCU_HDG_INC")
 ```

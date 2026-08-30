@@ -61,7 +61,7 @@ The NG3 CDU character set adds up/down arrows the 777 does not have:
 
 ## Auto-Detection
 
-`get_pmdg_var`, `get_pmdg_cdu`, and `send_pmdg_event` auto-detect the loaded
+`msfs_get_pmdg_var`, `msfs_get_pmdg_cdu`, and `msfs_send_pmdg_event` auto-detect the loaded
 aircraft from the `TITLE` and `ATC_MODEL` SimVars (some liveries carry PMDG
 branding in `ATC_MODEL` while `TITLE` is terse, e.g. a freighter's `TITLE` is
 just "777F"). Pass `variant="pmdg_737"` to force the NG3 SDK, or
