@@ -220,13 +220,78 @@ class TextResult(OkModel):
 
 
 class PositionResult(OkModel):
+    """Position/attitude after a reposition, as actually read back from the sim.
+
+    latitude/longitude/altitude/heading/on_ground report what a post-move
+    read confirmed, never the request -- a field the read-back could not
+    confirm is null here (and named in `unverified`), not silently replaced
+    by the requested value. `requested` carries the original request so a
+    caller can compare the two, e.g. to notice the sim snapped an on-ground
+    placement to terrain instead of the requested altitude.
+    """
+
     message: str
-    latitude: float
-    longitude: float
+    latitude: float | None = None
+    longitude: float | None = None
     altitude: float | None = None
     heading: float | None = None
-    on_ground: bool
+    on_ground: bool | None = None
     airspeed: int
+    requested: dict[str, Any] = Field(
+        ..., description="The position/attitude actually requested, for comparison"
+    )
+    unverified: list[str] | None = Field(
+        None, description="Fields that could not be read back after the move; those "
+        "fields are null above rather than echoing the request"
+    )
+    warning: str | None = Field(
+        None, description="Set when a field was unverified, or the sim placed the "
+        "aircraft somewhere other than requested (e.g. terrain-snapped altitude)"
+    )
+
+
+class PmdgVarResult(OkModel):
+    """One PMDG SDK data field, from either the 777 or 737 NG3 catalog."""
+
+    name: str
+    value: float | int | str | None = None
+    display_name: str
+    category: str
+    catalog: str
+    variant_source: str | None = Field(
+        None, description="How the PMDG variant was resolved: 'explicit', "
+        "'detected' (TITLE/ATC_MODEL), 'probed' (client data area response), "
+        "'name_match', or 'fallback' (a guess -- not a detection)"
+    )
+    value_description: str | None = None
+    warning: str | None = None
+
+
+class PmdgCduResult(OkModel):
+    """A PMDG CDU screen, as text rows and/or a structured per-cell grid."""
+
+    cdu: int
+    cdu_name: str | None = None
+    powered: bool
+    rows: list[str] | None = None
+    grid: list[list[dict]] | None = None
+    catalog: str
+    variant_source: str | None = Field(
+        None, description="How the PMDG variant was resolved -- see PmdgVarResult"
+    )
+    warning: str | None = None
+
+
+class PmdgEventResult(OkModel):
+    """Confirmation that a PMDG cockpit event was sent."""
+
+    event: str
+    parameter: int | None = None
+    catalog: str
+    variant_source: str | None = Field(
+        None, description="How the PMDG variant was resolved -- see PmdgVarResult"
+    )
+    message: str
 
 
 class ConnectionStatus(BaseModel):

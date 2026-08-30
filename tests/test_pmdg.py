@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -560,3 +561,127 @@ class TestEventResolution:
         from simconnect_mcp.pmdg import resolve_pmdg_event
         with pytest.raises(ValueError, match="not found in PMDG 777 catalog"):
             resolve_pmdg_event("EVT_NONEXISTENT")
+
+
+# ---------------------------------------------------------------------------
+# tools.pmdg tool-layer functions (get_pmdg_var / get_pmdg_cdu / send_pmdg_event)
+#
+# Phase 1 Task 7 converts these from dict returns to Pydantic models. Before
+# this task, none of the tool functions themselves had direct test coverage
+# (only the underlying structs/manager/event-resolution above did) -- these
+# fill that gap and lock in the model-return contract.
+# ---------------------------------------------------------------------------
+
+class TestGetPmdgVarTool:
+    async def test_returns_a_model_with_explicit_variant(self, mock_simconnect):
+        """Fails against a dict-returning implementation: isinstance(dict,
+        PmdgVarResult) is False."""
+        from simconnect_mcp.pmdg import PMDG_777X_DataStruct, PmdgDataManager
+        from simconnect_mcp.tools.models import PmdgVarResult
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgDataManager(sm=manager.sm)
+        pmdg.data_subscribed = True
+        pmdg._data_struct = PMDG_777X_DataStruct()
+        pmdg._data_struct.ELEC_Battery_Sw_ON = True
+        pmdg._data_timestamp = time.time()
+        manager.pmdg = pmdg
+
+        result = await get_pmdg_var("ELEC_Battery_Sw_ON", variant="pmdg_777")
+
+        assert isinstance(result, PmdgVarResult)
+        assert result.name == "ELEC_Battery_Sw_ON"
+        assert result.value == 1.0  # True, coerced by the value: float|int|str union
+        assert result.display_name == "ELEC Battery Sw ON"
+        assert result.catalog == "pmdg_777"
+        assert result.variant_source == "explicit"
+
+    async def test_unknown_field_returns_field_not_found(self, mock_simconnect):
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        result = await get_pmdg_var("NOT_A_REAL_VARIABLE", variant="pmdg_777")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "FIELD_NOT_FOUND"
+
+    async def test_reports_no_data_when_area_never_responds(self, mock_simconnect):
+        """Fails against an implementation that returns a value (e.g. None)
+        instead of the explicit NO_DATA error when the client data area never
+        answers. asyncio.sleep is patched to a no-op so this exercises the
+        real 20-iteration wait loop without taking two real seconds."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        with patch("simconnect_mcp.tools.pmdg.asyncio.sleep", new=AsyncMock()):
+            result = await get_pmdg_var("ELEC_Battery_Sw_ON", variant="pmdg_777")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "NO_DATA"
+
+
+class TestGetPmdgCduTool:
+    async def test_returns_a_model_when_powered(self, mock_simconnect):
+        from simconnect_mcp.pmdg import PMDG_777X_CDU_Screen, PmdgDataManager
+        from simconnect_mcp.tools.models import PmdgCduResult
+        from simconnect_mcp.tools.pmdg import get_pmdg_cdu
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgDataManager(sm=manager.sm)
+        screen = PMDG_777X_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = ord("A")
+        pmdg.cdu_subscribed[0] = True
+        pmdg._cdu_screens[0] = screen
+        pmdg._cdu_timestamps[0] = time.time()
+        manager.pmdg = pmdg
+
+        result = await get_pmdg_cdu(cdu=0, variant="pmdg_777")
+
+        assert isinstance(result, PmdgCduResult)
+        assert result.powered is True
+        assert result.cdu_name == "Left (Captain)"
+        assert result.rows is not None and result.rows[0][0] == "A"
+        assert result.grid is not None
+        assert result.catalog == "pmdg_777"
+        assert result.variant_source == "explicit"
+
+    async def test_rejects_invalid_cdu_index_for_777(self, mock_simconnect):
+        """A direct call bypasses the schema-level 0-2 Field bound (see the
+        comment in pmdg.py); the runtime check must still reject an index
+        the 777's three CDUs don't have."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import get_pmdg_cdu
+
+        result = await get_pmdg_cdu(cdu=5, variant="pmdg_777")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "INVALID_CDU"
+
+
+class TestSendPmdgEventTool:
+    async def test_wraps_unknown_event_as_pmdg_event_not_found(self, mock_simconnect):
+        """Preserved Phase 0 behaviour: resolve_pmdg_event's ValueError must
+        surface as PMDG_EVENT_NOT_FOUND, not the generic UNEXPECTED a bare
+        exception would get from handle_simconnect_errors. Fails against an
+        implementation that lets the ValueError propagate unwrapped."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event("EVT_TOTALLY_MADE_UP", variant="pmdg_777")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "PMDG_EVENT_NOT_FOUND"
+
+    async def test_returns_a_model_on_success(self, mock_simconnect):
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000, variant="pmdg_777")
+
+        assert isinstance(result, PmdgEventResult)
+        assert result.event == "EVT_MCP_ALT_SET"
+        assert result.parameter == 5000
+        assert result.catalog == "pmdg_777"
+        assert result.variant_source == "explicit"

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import time
+from typing import Annotated, Literal
+
+from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
+from simconnect_mcp.tools.models import PositionResult, TextResult, ToolError
 
 # SIMCONNECT_TEXT_TYPE members for the PRINT_* colour variants.
-_TEXT_COLORS = {
+_TEXT_COLORS: dict[str, str] = {
     "white": "SIMCONNECT_TEXT_TYPE_PRINT_WHITE",
     "red": "SIMCONNECT_TEXT_TYPE_PRINT_RED",
     "green": "SIMCONNECT_TEXT_TYPE_PRINT_GREEN",
@@ -19,28 +23,38 @@ _TEXT_COLORS = {
     "black": "SIMCONNECT_TEXT_TYPE_PRINT_BLACK",
 }
 
+_TextColor = Literal["white", "red", "green", "blue", "yellow", "magenta", "cyan", "black"]
+
 
 @handle_simconnect_errors
 @require_connection
-async def send_sim_text(text: str, duration_s: float = 5.0, color: str = "white") -> dict:
-    """Display a text overlay message in the simulator (debug feedback).
-
-    Args:
-        text: Text message to display in the sim
-        duration_s: How long to display it, in seconds
-        color: One of white, red, green, blue, yellow, magenta, cyan, black
-
-    Returns:
-        Confirmation dict.
-    """
+async def send_sim_text(
+    text: Annotated[
+        str,
+        Field(description="Text message to display in the sim", min_length=1, max_length=200),
+    ],
+    duration_s: Annotated[
+        float, Field(description="How long to display it, in seconds", ge=0.1, le=60)
+    ] = 5.0,
+    color: Annotated[
+        _TextColor,
+        Field(description="One of white, red, green, blue, yellow, magenta, cyan, black"),
+    ] = "white",
+) -> TextResult | ToolError:
+    """Display a text overlay message in the simulator (debug feedback)."""
+    # The Literal above rejects an invalid colour at the schema boundary for
+    # real MCP callers before this body ever runs -- but a direct Python
+    # call (as tests do, and as get_simvar_bulk's MAX_BULK_VARIABLES check
+    # in simvars.py notes for the same reason) bypasses that entirely, so
+    # this stays as the actual enforcement for that path, and as a
+    # case/whitespace-forgiving check either way.
     color_key = color.strip().lower()
     if color_key not in _TEXT_COLORS:
-        return {
-            "status": "error",
-            "error": "INVALID_COLOR",
-            "message": f"Unknown text colour '{color}'.",
-            "suggestion": f"Use one of: {', '.join(sorted(_TEXT_COLORS))}.",
-        }
+        return ToolError(
+            error="INVALID_COLOR",
+            message=f"Unknown text colour '{color}'.",
+            suggestion=f"Use one of: {', '.join(sorted(_TEXT_COLORS))}.",
+        )
 
     manager = SimConnectManager()
 
@@ -52,58 +66,60 @@ async def send_sim_text(text: str, duration_s: float = 5.0, color: str = "white"
         manager.sm.sendText(text, duration_s, text_type)
 
     await manager.run_sync(_send)
-    return {
-        "status": "ok",
-        "message": f"Text displayed in sim: '{text}'",
-        "duration_s": duration_s,
-        "color": color_key,
-    }
+    return TextResult(
+        message=f"Text displayed in sim: '{text}'",
+        duration_s=duration_s,
+        color=color_key,
+    )
 
 
 @handle_simconnect_errors
 @require_connection
 async def set_aircraft_position(
-    latitude: float,
-    longitude: float,
-    altitude: float | None = None,
-    heading: float | None = None,
-    on_ground: bool = False,
-    airspeed: int = 0,
-    pitch: float = 0.0,
-    bank: float = 0.0,
-) -> dict:
+    latitude: Annotated[
+        float, Field(description="Target latitude, degrees", ge=-90, le=90)
+    ],
+    longitude: Annotated[
+        float, Field(description="Target longitude, degrees", ge=-180, le=180)
+    ],
+    altitude: Annotated[
+        float | None,
+        Field(
+            description="Target altitude in feet. Omit to keep the current altitude.",
+            ge=-2000, le=275000,
+        ),
+    ] = None,
+    heading: Annotated[
+        float | None,
+        Field(
+            description="Target heading in degrees true. Omit to keep the current heading.",
+            ge=0, lt=360,
+        ),
+    ] = None,
+    on_ground: Annotated[
+        bool, Field(description="Place the aircraft on the ground at the position")
+    ] = False,
+    airspeed: Annotated[
+        int, Field(description="Target airspeed in knots (0 for a stationary placement)",
+                   ge=0, le=2000)
+    ] = 0,
+    pitch: Annotated[float, Field(description="Pitch in degrees", ge=-180, le=180)] = 0.0,
+    bank: Annotated[float, Field(description="Bank in degrees", ge=-180, le=180)] = 0.0,
+) -> PositionResult | ToolError:
     """Reposition the aircraft (test scenario setup).
 
     Uses SimConnect's SIMCONNECT_DATA_INITPOSITION, which repositions the
     aircraft atomically. Writing PLANE_LATITUDE/LONGITUDE individually, as
     this used to, is unreliable and cannot set the on-ground state.
 
-    Args:
-        latitude: Target latitude, -90 to 90 degrees
-        longitude: Target longitude, -180 to 180 degrees
-        altitude: Target altitude in feet. Omit to keep the current altitude.
-        heading: Target heading in degrees true. Omit to keep the current heading.
-        on_ground: Place the aircraft on the ground at the position
-        airspeed: Target airspeed in knots (0 for a stationary placement)
-        pitch: Pitch in degrees
-        bank: Bank in degrees
-
-    Returns:
-        Confirmation dict with the position read back from the sim after the
-        move. A field the read-back could not confirm is reported as null,
-        never as the requested value, and a "warning" explains which
-        field(s) that affected -- status still reports "ok" since the
-        reposition command itself may well have succeeded even if the
-        confirming read did not.
+    The response reports the position read back from the sim after the
+    move, in `latitude`/`longitude`/etc -- never the request, which is
+    echoed separately under `requested` for comparison. A field the
+    read-back could not confirm is null (and listed in `unverified`), not
+    silently replaced by what was asked for. `status` still reports "ok"
+    since the reposition command itself may well have succeeded even if the
+    confirming read did not; check `unverified`/`warning` for that.
     """
-    if not -90.0 <= latitude <= 90.0 or not -180.0 <= longitude <= 180.0:
-        return {
-            "status": "error",
-            "error": "INVALID_POSITION",
-            "message": f"Latitude {latitude} / longitude {longitude} is out of range.",
-            "suggestion": "Latitude must be -90..90 and longitude -180..180.",
-        }
-
     manager = SimConnectManager()
 
     def _current(
@@ -175,20 +191,6 @@ async def set_aircraft_position(
                   ("latitude", "longitude", "altitude", "heading", "on_ground")
                   if actual[field] is None]
 
-    result = {
-        "status": "ok",
-        "message": "Aircraft repositioned",
-        **actual,
-        "requested": {
-            "latitude": latitude,
-            "longitude": longitude,
-            "altitude": altitude,
-            "heading": heading,
-            "on_ground": on_ground,
-            "airspeed": airspeed,
-        },
-    }
-
     warnings = []
     if unverified:
         warnings.append(
@@ -206,6 +208,23 @@ async def set_aircraft_position(
             f"{actual['altitude']:.0f} ft. With on_ground set, the sim snaps "
             "the aircraft to terrain and ignores the requested altitude."
         )
-    if warnings:
-        result["warning"] = " ".join(warnings)
-    return result
+
+    return PositionResult(
+        message="Aircraft repositioned",
+        latitude=actual["latitude"],
+        longitude=actual["longitude"],
+        altitude=actual["altitude"],
+        heading=actual["heading"],
+        on_ground=actual["on_ground"],
+        airspeed=airspeed,
+        requested={
+            "latitude": latitude,
+            "longitude": longitude,
+            "altitude": altitude,
+            "heading": heading,
+            "on_ground": on_ground,
+            "airspeed": airspeed,
+        },
+        unverified=unverified or None,
+        warning=" ".join(warnings) if warnings else None,
+    )

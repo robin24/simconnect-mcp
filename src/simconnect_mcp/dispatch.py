@@ -232,6 +232,57 @@ class RequestRegistry:
                 self._by_send.pop(send_id, None)
 
 
+class _MobiFlightCrossTalkFilter(logging.Filter):
+    """Silences one confirmed-benign warning from the vendored
+    MobiFlightVariableRequests.client_data_callback_handler.
+
+    vendor/simconnect_mobiflight.py's dispatch loop calls *every* registered
+    client-data handler for *every* incoming CLIENT_DATA message, with no
+    per-definition-ID routing (see SimConnectMobiFlight.my_dispatch_proc).
+    tools/pmdg.py's data managers register their own handlers on this same
+    loop for the PMDG_777X_Data / PMDG_NG3_Data client data areas -- so
+    whenever a PMDG message arrives, MobiFlightVariableRequests's handler
+    also receives it, does not recognise the definition ID (it only tracks
+    the dynamically-assigned IDs of L-vars it was asked to watch), and logs
+    a warning. That is a no-op for that handler, correctly handled by
+    PMDG's own -- live-verified: probing a PMDG 737-600's data area logs
+    "client_data_callback_handler DefinitionID 1313289010 not found!"
+    (1313289010 == PMDG_NG3_DATA_DEFINITION) even though the probe and the
+    subsequent read both succeed.
+
+    Deliberately narrow, and does not touch vendor/: matches only this
+    exact message shape, logged via the bare `logging.warning(...)` module
+    function in vendor/mobiflight_variable_requests.py (which uses no named
+    logger of its own, so the record's logger name is the root logger's,
+    "root"). Every other message on the root logger passes through
+    unaffected.
+    """
+
+    _PREFIX = "client_data_callback_handler DefinitionID"
+    _SUFFIX = "not found!"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "root":
+            return True
+        message = record.getMessage()
+        return not (message.startswith(self._PREFIX) and message.endswith(self._SUFFIX))
+
+
+def _suppress_mobiflight_cross_talk_warning() -> None:
+    """Install _MobiFlightCrossTalkFilter on the root logger, once.
+
+    Idempotent so importing this module more than once (or constructing more
+    than one SimConnectDispatcher) never stacks duplicate filters.
+    """
+    root_logger = logging.getLogger()
+    if any(isinstance(f, _MobiFlightCrossTalkFilter) for f in root_logger.filters):
+        return
+    root_logger.addFilter(_MobiFlightCrossTalkFilter())
+
+
+_suppress_mobiflight_cross_talk_warning()
+
+
 class SimConnectDispatcher(SimConnectMobiFlight):
     """SimConnectMobiFlight that owns the whole dispatch loop."""
 

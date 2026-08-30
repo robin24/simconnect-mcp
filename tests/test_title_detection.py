@@ -1,6 +1,6 @@
 """Tests for shared, locked aircraft-title/model detection.
 
-Covers two defects:
+Covers three defects:
 
 1. Thread-safety: `search_lvars`, `browse_lvar_catalog` (formerly
    `list_lvar_panels`), `_detect_pmdg_variant` and the
@@ -11,11 +11,21 @@ Covers two defects:
    neither matches any bundled catalog's title_pattern, so catalog-scoped
    tools used to silently search everything or silently guess "pmdg_777"
    with no way for a caller to tell a guess from a detection.
+3. A second live-verified detection failure, on a real PMDG 737-600: TITLE
+   is "737-600 PAX TC" and ATC_MODEL is "ATCCOM.AC_MODEL B736.0.text" --
+   again no PMDG branding anywhere, but this time on a 737, so the old
+   "guess pmdg_777" fallback silently selected the *wrong* SDK entirely
+   rather than merely an undetected one. `_resolve_pmdg_catalog` now probes
+   each SDK's client data area (PMDG_777X_Data / PMDG_NG3_Data) when
+   title/model matching fails -- only the loaded variant's area ever
+   responds, which is authoritative where a title substring is not. See
+   the "_resolve_pmdg_catalog probing" section below.
 """
 
 from __future__ import annotations
 
 import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -333,9 +343,180 @@ async def test_get_pmdg_cdu_unpowered_response_includes_variant_source(mock_simc
 
     result = await get_pmdg_cdu(cdu=0)
 
-    assert result["status"] == "ok"
-    assert result["powered"] is False
-    assert "variant_source" in result
+    assert result.status == "ok"
+    assert result.powered is False
+    assert result.variant_source is not None
+
+
+# ---------------------------------------------------------------------------
+# tools.pmdg._probe_pmdg_variant / _resolve_pmdg_catalog probing
+#
+# Live-verified defect: a PMDG 737-600 reports TITLE='737-600 PAX TC' and
+# ATC_MODEL='ATCCOM.AC_MODEL B736.0.text' -- neither carries PMDG branding,
+# so _detect_pmdg_variant's title/model check fails, and the old code fell
+# back to guessing "pmdg_777": the wrong SDK for a 737. Both PMDG SDKs
+# expose a dedicated SimConnect client data area that only the actually
+# loaded variant answers (PMDG_777X_Data / PMDG_NG3_Data); probing which
+# one responds is authoritative where title matching is not.
+# ---------------------------------------------------------------------------
+
+
+async def test_probe_returns_none_when_neither_data_area_responds(mock_simconnect):
+    """No PMDG aircraft loaded (or EnableDataBroadcast unset in both):
+    neither manager's data_age ever becomes finite. Fails against an
+    implementation that guesses a variant anyway instead of honestly
+    reporting "could not determine". asyncio.sleep is patched so this
+    exercises the real wait loop without taking the full ~0.3s budget."""
+    from simconnect_mcp.tools.pmdg import _probe_pmdg_variant
+
+    with patch("simconnect_mcp.tools.pmdg.asyncio.sleep", new=AsyncMock()):
+        result = await _probe_pmdg_variant()
+
+    assert result is None
+    assert mock_simconnect["manager"].get_cached_pmdg_variant() is None
+
+
+async def test_probe_finds_the_737_ng3_data_area(mock_simconnect):
+    """Live-verified signal from a real PMDG 737-600: PMDG_NG3_Data responds
+    (data_age finite), PMDG_777X_Data does not. Fails against an
+    implementation that ignores data_age, always prefers the 777, or checks
+    only one of the two managers."""
+    from simconnect_mcp.pmdg import PmdgDataManager
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.pmdg import _probe_pmdg_variant
+
+    manager = mock_simconnect["manager"]
+    manager.pmdg = PmdgDataManager(sm=manager.sm)  # never responds
+
+    responded = PmdgNG3DataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg_ng3 = responded
+
+    result = await _probe_pmdg_variant()
+
+    assert result == "pmdg_737"
+
+
+async def test_probe_finds_the_777_data_area(mock_simconnect):
+    """Symmetric case: PMDG_777X_Data responds, PMDG_NG3_Data does not."""
+    from simconnect_mcp.pmdg import PmdgDataManager
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.pmdg import _probe_pmdg_variant
+
+    manager = mock_simconnect["manager"]
+    responded = PmdgDataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg = responded
+    manager.pmdg_ng3 = PmdgNG3DataManager(sm=manager.sm)  # never responds
+
+    result = await _probe_pmdg_variant()
+
+    assert result == "pmdg_777"
+
+
+async def test_successful_probe_is_cached_for_the_connection(mock_simconnect):
+    """The probe is a real SimConnect round trip against two client data
+    areas; once a connection establishes which variant responds, it must
+    not repeat that round trip on every subsequent call. Fails against an
+    implementation with no cache: the second call's forced run_sync failure
+    would propagate instead of being skipped."""
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.pmdg import _probe_pmdg_variant
+
+    manager = mock_simconnect["manager"]
+    responded = PmdgNG3DataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg_ng3 = responded
+
+    first = await _probe_pmdg_variant()
+    assert first == "pmdg_737"
+    assert manager.get_cached_pmdg_variant() == "pmdg_737"
+
+    with patch.object(
+        manager, "run_sync", new=AsyncMock(side_effect=AssertionError("must not re-probe"))
+    ):
+        second = await _probe_pmdg_variant()
+
+    assert second == "pmdg_737"
+
+
+def test_pmdg_variant_cache_is_cleared_on_disconnect(mock_simconnect):
+    """Cache invalidation: the loaded aircraft can change on a reconnect, so
+    a stale probe result must not survive disconnect()."""
+    manager = mock_simconnect["manager"]
+    manager.set_cached_pmdg_variant("pmdg_737")
+    assert manager.get_cached_pmdg_variant() == "pmdg_737"
+
+    manager.disconnect()
+
+    assert manager.get_cached_pmdg_variant() is None
+
+
+async def test_resolve_pmdg_catalog_reports_probed_for_the_737_600_defect(mock_simconnect):
+    """The exact live-verified scenario: TITLE/ATC_MODEL carry no PMDG
+    branding, but the NG3 data area responds. Fails against the pre-fix
+    code, which returns ("pmdg_777", "fallback") here -- the wrong SDK,
+    reported as an unlabelled guess."""
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.pmdg import _resolve_pmdg_catalog
+
+    mock_simconnect["simvar_values"]["TITLE"] = b"737-600 PAX TC"
+    mock_simconnect["simvar_values"]["ATC_MODEL"] = b"ATCCOM.AC_MODEL B736.0.text"
+    manager = mock_simconnect["manager"]
+    manager._title_cache = None
+
+    responded = PmdgNG3DataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg_ng3 = responded
+
+    catalog_key, source = await _resolve_pmdg_catalog(None, None)
+
+    assert catalog_key == "pmdg_737"
+    assert source == "probed"
+
+
+async def test_resolve_pmdg_catalog_skips_the_probe_once_title_matches(mock_simconnect):
+    """Cheap-probe requirement: title/model detection succeeding must skip
+    the client-data round trip entirely. Fails loudly (AssertionError, not a
+    silent slowdown) if the probe runs anyway."""
+    from simconnect_mcp.tools import pmdg as pmdg_tools
+
+    mock_simconnect["simvar_values"]["TITLE"] = b"PMDG 777-300ER"
+    manager = mock_simconnect["manager"]
+    manager._title_cache = None
+
+    async def _must_not_run():
+        raise AssertionError("must not probe when title/model already matched")
+
+    with patch.object(pmdg_tools, "_probe_pmdg_variant", new=_must_not_run):
+        catalog_key, source = await pmdg_tools._resolve_pmdg_catalog(None, None)
+
+    assert catalog_key == "pmdg_777"
+    assert source == "detected"
+
+
+async def test_resolve_pmdg_catalog_still_falls_back_when_probe_also_fails(mock_simconnect):
+    """When title/model detection AND the probe both come up empty (no name
+    given either), resolution must still fall back to pmdg_777 labelled
+    "fallback" -- probing must not turn a genuine "cannot determine" into a
+    hang or an unlabelled guess. asyncio.sleep is patched to skip the ~0.3s
+    probe wait."""
+    from simconnect_mcp.tools.pmdg import _resolve_pmdg_catalog
+
+    mock_simconnect["simvar_values"]["TITLE"] = b"777F"
+    mock_simconnect["simvar_values"]["ATC_MODEL"] = b"ATCCOM.AC_MODEL B77L.0.text"
+    manager = mock_simconnect["manager"]
+    manager._title_cache = None
+
+    with patch("simconnect_mcp.tools.pmdg.asyncio.sleep", new=AsyncMock()):
+        catalog_key, source = await _resolve_pmdg_catalog(None, None)
+
+    assert catalog_key == "pmdg_777"
+    assert source == "fallback"
 
 
 # ---------------------------------------------------------------------------

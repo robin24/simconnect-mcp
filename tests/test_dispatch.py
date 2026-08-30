@@ -1,4 +1,5 @@
 import ctypes
+import logging
 import threading
 from ctypes.wintypes import DWORD
 
@@ -8,6 +9,7 @@ from simconnect_mcp.dispatch import (
     RecvException,
     RequestRegistry,
     SimConnectDispatcher,
+    _MobiFlightCrossTalkFilter,
 )
 
 
@@ -402,3 +404,72 @@ def test_numeric_decode_is_unaffected_by_the_string_decode_change():
     dispatcher._on_simobject_data(data)
 
     assert pending.value == 35000.0
+
+
+# ---------------------------------------------------------------------------
+# _MobiFlightCrossTalkFilter
+#
+# Task 7's PMDG variant probe (tools/pmdg.py) subscribes to both PMDG data
+# areas, which triggers a confirmed-benign WARNING from the vendored
+# MobiFlightVariableRequests.client_data_callback_handler for every PMDG
+# client-data message (it does not recognise PMDG's definition IDs -- see
+# the filter's own docstring in dispatch.py). Live-verified message:
+# "client_data_callback_handler DefinitionID 1313289010 not found!".
+# ---------------------------------------------------------------------------
+
+
+def _make_record(name: str, msg: str) -> logging.LogRecord:
+    return logging.LogRecord(
+        name=name, level=logging.WARNING, pathname=__file__, lineno=1,
+        msg=msg, args=(), exc_info=None,
+    )
+
+
+def test_crosstalk_filter_drops_the_exact_mobiflight_warning():
+    """Fails against a filter that doesn't match the real message shape --
+    this is the literal live-verified text (module name and DefinitionID
+    value observed against a real PMDG 737-600 in this session)."""
+    record = _make_record(
+        "root", "client_data_callback_handler DefinitionID 1313289010 not found!"
+    )
+    assert _MobiFlightCrossTalkFilter().filter(record) is False
+
+
+def test_crosstalk_filter_keeps_other_root_warnings():
+    """Must not become a blanket root-logger suppressor -- only this one
+    message shape is silenced."""
+    record = _make_record("root", "something else entirely went wrong")
+    assert _MobiFlightCrossTalkFilter().filter(record) is True
+
+
+def test_crosstalk_filter_keeps_warnings_from_named_loggers():
+    """The noisy call is bare `logging.warning(...)` (root logger, name
+    "root"); a similarly-worded message from a real named logger (e.g. this
+    project's own modules) must not be caught by the same filter."""
+    record = _make_record(
+        "simconnect_mcp.tools.pmdg",
+        "client_data_callback_handler DefinitionID 123 not found!",
+    )
+    assert _MobiFlightCrossTalkFilter().filter(record) is True
+
+
+def test_crosstalk_filter_is_installed_on_the_root_logger_exactly_once():
+    """dispatch.py installs this at import time; re-importing (or
+    constructing more than one dispatcher) must not stack duplicates --
+    each additional filter instance is one more no-op scan per log record
+    forever."""
+    import importlib
+
+    import simconnect_mcp.dispatch as dispatch_module
+
+    before = sum(
+        isinstance(f, _MobiFlightCrossTalkFilter) for f in logging.getLogger().filters
+    )
+    assert before >= 1, "expected the filter installed by dispatch.py's own import"
+
+    importlib.reload(dispatch_module)
+
+    after = sum(
+        isinstance(f, _MobiFlightCrossTalkFilter) for f in logging.getLogger().filters
+    )
+    assert after == before

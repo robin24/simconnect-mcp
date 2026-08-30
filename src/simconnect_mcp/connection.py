@@ -67,6 +67,13 @@ class SimConnectManager:
         self.pmdg_ng3 = None  # PmdgNG3DataManager (737), lazy-initialized
         # (timestamp, title, model); see detect_aircraft_identity().
         self._title_cache: tuple[float, str | None, str | None] | None = None
+        # Result of tools.pmdg's client-data-area probe, e.g. "pmdg_737".
+        # That probe is a real SimConnect round trip against two data areas
+        # (expensive relative to a SimVar read), and the loaded aircraft
+        # cannot change without a reconnect, so this is cached for the
+        # connection's lifetime rather than on the short title-cache TTL --
+        # see get_cached_pmdg_variant/set_cached_pmdg_variant below.
+        self._pmdg_variant_cache: str | None = None
 
     @property
     def state(self) -> ConnectionState:
@@ -199,6 +206,7 @@ class SimConnectManager:
             self.accessor = None
             self._mobiflight_available = False
             self._title_cache = None
+            self._pmdg_variant_cache = None
             self._state = ConnectionState.DISCONNECTED
         return {"status": "ok", "message": "Disconnected"}
 
@@ -276,6 +284,18 @@ class SimConnectManager:
         """
         title, _ = await self.detect_aircraft_identity()
         return title
+
+    def get_cached_pmdg_variant(self) -> str | None:
+        """Return the PMDG variant found by tools.pmdg's data-area probe.
+
+        None if no probe has run yet this connection, or none responded.
+        Cleared on disconnect() -- see the attribute's own comment.
+        """
+        return self._pmdg_variant_cache
+
+    def set_cached_pmdg_variant(self, variant: str) -> None:
+        """Record a successful probe result for the rest of this connection."""
+        self._pmdg_variant_cache = variant
 
     async def get_status(self) -> dict[str, Any]:
         """Return current connection status.
