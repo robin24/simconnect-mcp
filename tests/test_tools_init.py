@@ -23,8 +23,8 @@ import pytest
 
 from simconnect_mcp.tools import require_connection
 from simconnect_mcp.tools.aircraft import get_aircraft_snapshot
-from simconnect_mcp.tools.events import trigger_event
-from simconnect_mcp.tools.lvars import get_lvar
+from simconnect_mcp.tools.events import trigger_custom_event, trigger_event
+from simconnect_mcp.tools.lvars import execute_calculator_code, get_lvar
 from simconnect_mcp.tools.models import ToolError
 from simconnect_mcp.tools.simvars import get_simvar, get_simvar_bulk, set_simvar, watch_simvar
 from simconnect_mcp.tools.utilities import set_aircraft_position
@@ -164,5 +164,44 @@ async def test_mobiflight_lvar_tools_are_unaffected_by_a_missing_accessor(mock_s
     mock_simconnect["manager"].mobiflight.get.return_value = 1.0
 
     result = await get_lvar("A32NX_TEST")
+
+    assert result.status == "ok"
+
+
+# ---------------------------------------------------------------------------
+# final-fix-D / D1: pin _accessor_unavailable()'s suggestion text to reality.
+#
+# It names four tools as using "a different path" that is "unaffected" by a
+# missing accessor: msfs_trigger_event, msfs_trigger_custom_event,
+# msfs_get_lvar, msfs_execute_calculator_code (msfs_set_lvar was a fifth
+# name here until D1 -- it reaches manager.accessor directly and is covered
+# instead by test_set_lvar_without_an_accessor_says_so in test_lvars.py).
+# trigger_event and get_lvar already had the two tests above; these two
+# cover the remaining pair the same way, so the prose claim can no longer
+# silently drift from what the code does -- a future accessor dependency in
+# any of the four fails one of these instead of quietly shipping bad advice.
+# ---------------------------------------------------------------------------
+
+
+async def test_trigger_custom_event_is_unaffected_by_a_missing_accessor(mock_simconnect):
+    """Custom events are delivered through the MobiFlight RPN bridge
+    (manager.mobiflight.set), never through manager.accessor."""
+    mock_simconnect["manager"].accessor = None
+    mock_simconnect["manager"]._mobiflight_available = True
+    mock_simconnect["manager"].mobiflight = MagicMock(spec=MobiFlightVariableRequests)
+
+    result = await trigger_custom_event("PARKING_BRAKES")
+
+    assert result.status == "ok"
+
+
+async def test_execute_calculator_code_is_unaffected_by_a_missing_accessor(mock_simconnect):
+    """RPN calculator code runs through the MobiFlight bridge
+    (manager.mobiflight.set/get), never through manager.accessor."""
+    mock_simconnect["manager"].accessor = None
+    mock_simconnect["manager"]._mobiflight_available = True
+    mock_simconnect["manager"].mobiflight = MagicMock(spec=MobiFlightVariableRequests)
+
+    result = await execute_calculator_code("1 (>K:PARKING_BRAKES)", mode="execute")
 
     assert result.status == "ok"

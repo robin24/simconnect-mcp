@@ -59,8 +59,9 @@ def _accessor_unavailable() -> ToolError:
             "the dispatcher this layer needs can fail to build if something else "
             "already holds the SimConnect connection. Event tools "
             "(msfs_trigger_event, msfs_trigger_custom_event) and MobiFlight-based "
-            "L-var tools (msfs_get_lvar, msfs_set_lvar, msfs_execute_calculator_code) "
-            "use a different path and are unaffected."
+            "L-var tools (msfs_get_lvar, msfs_execute_calculator_code) "
+            "use a different path and are unaffected. msfs_set_lvar writes through "
+            "this same data-definition layer and needs it too."
         ),
     )
 
