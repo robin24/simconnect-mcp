@@ -167,3 +167,61 @@ async def test_total_read_back_failure_reports_all_nulls_without_crashing(mock_s
     assert result.heading is None
     assert result.on_ground is None
     assert result.warning is not None
+
+
+async def test_ignored_reposition_is_flagged_even_when_altitude_matches(mock_simconnect):
+    """B7: PositionResult.warning promised to fire "when the sim placed the
+    aircraft somewhere other than requested", but the code only ever
+    compared altitude. A reposition the sim ignores outright leaves the
+    aircraft at its old latitude/longitude -- which, unlike altitude, used
+    to come back as status "ok" with no warning at all whenever that old
+    altitude happened to already match the request."""
+
+    def read_named(name, unit=None, **k):
+        return {
+            "PLANE_LATITUDE": 10.0,  # nowhere near the 47.6 requested below
+            "PLANE_LONGITUDE": 10.0,  # nowhere near the -122.3 requested below
+            "PLANE_ALTITUDE": 5000.0,  # matches the request exactly
+            "PLANE_HEADING_DEGREES_TRUE": 270.0,
+            "SIM_ON_GROUND": 0.0,
+        }[name]
+
+    mock_simconnect["accessor"].read.side_effect = read_named
+
+    result = await set_aircraft_position(
+        latitude=47.6, longitude=-122.3, altitude=5000.0, heading=270.0
+    )
+
+    assert result.status == "ok"
+    assert result.latitude == 10.0
+    assert result.longitude == 10.0
+    assert result.warning is not None, (
+        "altitude matched the request, but latitude/longitude are thousands "
+        "of km off -- this must still warn"
+    )
+
+
+async def test_a_small_position_snap_does_not_falsely_warn(mock_simconnect):
+    """The sim snaps a reposition to terrain and to a nearby parking spot,
+    so an exact lat/lon match is the wrong test -- only a real divergence
+    (the sim ignoring the request) should warn."""
+
+    def read_named(name, unit=None, **k):
+        return {
+            # ~5.6m north of the requested latitude: a plausible snap, not
+            # a sign the reposition was ignored.
+            "PLANE_LATITUDE": 47.60005,
+            "PLANE_LONGITUDE": -122.3,
+            "PLANE_ALTITUDE": 100.0,
+            "PLANE_HEADING_DEGREES_TRUE": 90.0,
+            "SIM_ON_GROUND": 1.0,
+        }[name]
+
+    mock_simconnect["accessor"].read.side_effect = read_named
+
+    result = await set_aircraft_position(
+        latitude=47.6, longitude=-122.3, altitude=100.0, heading=90.0, on_ground=True
+    )
+
+    assert result.status == "ok"
+    assert result.warning is None

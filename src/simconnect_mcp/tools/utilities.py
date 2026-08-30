@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Annotated, Literal
 
@@ -10,6 +11,30 @@ from pydantic import Field
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 from simconnect_mcp.tools.models import PositionResult, TextResult, ToolError
+
+_EARTH_RADIUS_M = 6_371_000.0
+
+# How far the read-back position may drift from the requested one before
+# set_aircraft_position warns about it. The sim snaps a reposition to
+# terrain and to a nearby parking spot, so an exact match is the wrong
+# test -- but a reposition the sim ignored outright leaves the aircraft at
+# its OLD position, which for any real use of this tool (a different gate,
+# a different airport) is very much farther than a parking-spot snap ever
+# moves it. 100m gives that snap comfortable headroom while still catching
+# "the sim never moved the aircraft at all".
+_POSITION_TOLERANCE_M = 100.0
+
+
+def _horizontal_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two lat/lon points, in meters (haversine)."""
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    # Clamp against floating-point overshoot fractionally above 1.0 for
+    # near-identical points, which would otherwise make sqrt() raise.
+    a = max(0.0, min(1.0, a))
+    return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 # SIMCONNECT_TEXT_TYPE members for the PRINT_* colour variants.
 _TEXT_COLORS: dict[str, str] = {
@@ -208,6 +233,17 @@ async def set_aircraft_position(
             f"{actual['altitude']:.0f} ft. With on_ground set, the sim snaps "
             "the aircraft to terrain and ignores the requested altitude."
         )
+    if actual["latitude"] is not None and actual["longitude"] is not None:
+        distance_m = _horizontal_distance_m(
+            latitude, longitude, actual["latitude"], actual["longitude"]
+        )
+        if distance_m > _POSITION_TOLERANCE_M:
+            warnings.append(
+                f"Requested position ({latitude:.5f}, {longitude:.5f}) but aircraft "
+                f"is at ({actual['latitude']:.5f}, {actual['longitude']:.5f}), "
+                f"{distance_m:.0f}m away. The sim may have ignored the reposition "
+                "rather than merely snapping to a nearby parking spot or terrain."
+            )
 
     return PositionResult(
         message="Aircraft repositioned",
