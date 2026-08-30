@@ -53,10 +53,9 @@ from simconnect_mcp.tools.facilities import (  # noqa: E402
     get_nearby_airports,
 )
 from simconnect_mcp.tools.lvars import (  # noqa: E402
+    browse_lvar_catalog,
     execute_calculator_code,
     get_lvar,
-    list_lvar_catalogs,
-    list_lvar_panels,
     list_lvars,
     search_lvars,
     set_lvar,
@@ -120,7 +119,7 @@ for tool_fn in [
     list_simvar_categories, watch_simvar,
     trigger_event, search_events, trigger_custom_event,
     get_lvar, set_lvar, list_lvars, execute_calculator_code,
-    search_lvars, list_lvar_panels, list_lvar_catalogs,
+    search_lvars, browse_lvar_catalog,
     get_aircraft_state, get_aircraft_position, get_aircraft_systems,
     get_nearby_airports, get_facility_info,
     send_sim_text, set_aircraft_position,

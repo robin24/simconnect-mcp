@@ -146,6 +146,11 @@ class SearchResult(OkModel):
     )
     query: str | None = None
     filters: dict[str, Any] | None = None
+    message: str | None = Field(
+        None,
+        description="Caveat about the results, e.g. when a catalog-scoped search could "
+        "not auto-detect the aircraft and fell back to searching everything",
+    )
 
 
 class CategoryList(OkModel):
@@ -196,6 +201,11 @@ class CatalogBrowse(OkModel):
     panel: str | None = None
     variables: list[dict[str, Any]] | None = None
     markdown: str | None = None
+    message: str | None = Field(
+        None,
+        description="Caveat about the results, e.g. when the aircraft catalog could not "
+        "be auto-detected",
+    )
 
 
 class AircraftSnapshot(OkModel):

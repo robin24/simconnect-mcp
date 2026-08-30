@@ -122,7 +122,7 @@ async def test_failed_lvar_detection_is_disclosed_not_guessed(live_manager):
     assert detect_catalog(title, model) is None
 
     result = await search_lvars("engine")
-    assert result["status"] == "ok"
-    assert result["catalog"] == "all"
-    assert "message" in result
-    assert "auto-detected" in result["message"].lower()
+    assert result.status == "ok"
+    assert result.filters["catalog"] == "all"
+    assert result.message is not None
+    assert "auto-detected" in result.message.lower()

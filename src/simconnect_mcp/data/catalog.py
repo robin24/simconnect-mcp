@@ -109,6 +109,7 @@ def search_catalog(
 
     Returns:
         List of matching variable dicts, each with an added 'catalog' field.
+        Uncapped -- callers paginate.
     """
     _load_all_catalogs()
     results = []
@@ -171,9 +172,6 @@ def search_catalog(
             if matched:
                 result = {**var, "catalog": cat_key}
                 results.append(result)
-
-            if len(results) >= 50:
-                return results
 
     return results
 
