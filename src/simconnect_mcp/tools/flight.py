@@ -244,8 +244,8 @@ async def create_ai_object(
     Useful for building traffic or collision-avoidance test scenarios. The
     title must match an installed aircraft exactly -- MSFS ignores the
     request silently for an unmatched title, with no error at all, so a
-    successful call here confirms the request was sent, never that anything
-    actually appeared in the sim.
+    successful call here confirms only that SimConnect *accepted* the
+    request, never that anything actually appeared in the sim.
     """
     # ge=/le= above is enforced by FastMCP's schema validation for real MCP
     # calls, but a direct Python call (as tests do) bypasses that entirely --
@@ -266,21 +266,55 @@ async def create_ai_object(
 
     manager = SimConnectManager()
 
-    def _create() -> None:
-        manager.sm.createSimulatedObject(
-            title,
-            latitude,
-            longitude,
-            manager.sm.new_request_id(),
-            hdg=heading,
-            gnd=1 if on_ground else 0,
-            alt=altitude_ft,
-            speed=airspeed,
-        )
+    def _create() -> bool:
+        from SimConnect.Enum import SIMCONNECT_DATA_INITPOSITION
 
-    await manager.run_sync(_create)
+        # Not manager.sm.createSimulatedObject(): that wrapper (SimConnect.py
+        # in the installed library) builds this exact DLL call but discards
+        # the HRESULT SimConnect_AICreateSimulatedObject returns -- so a call
+        # MSFS rejected outright (stale handle, E_INVALIDARG, a connection
+        # dropped between ensure_connected and here) looked identical to one
+        # it accepted, and this tool reported success for a request that
+        # never left. SimConnect_AICreateSimulatedObject's restype is HRESULT
+        # (Attributes.py in the same package) and IsHR is the library's own
+        # helper for reading one. Same wrapper defect, same fix, as
+        # tools/utilities.py's send_sim_text -- see the extended comment
+        # there for the general rule.
+        init_pos = SIMCONNECT_DATA_INITPOSITION()
+        init_pos.Altitude = altitude_ft
+        init_pos.Latitude = latitude
+        init_pos.Longitude = longitude
+        init_pos.Pitch = 0
+        init_pos.Bank = 0
+        init_pos.Heading = heading
+        init_pos.OnGround = 1 if on_ground else 0
+        init_pos.Airspeed = airspeed
+        hr = manager.sm.dll.AICreateSimulatedObject(
+            manager.sm.hSimConnect,
+            title.encode(),
+            init_pos,
+            # Reserved once per connection rather than allocated per call:
+            # new_request_id() rebuilds an Enum from every prior member on
+            # every call and never reclaims one. Nothing here correlates on
+            # this ID -- the ASSIGNED_OBJECT_ID reply is not consumed by
+            # this server -- so one stable ID is enough, unlike the rotating
+            # set tools/facilities.py needs. See connection.py's
+            # reserved_request_id.
+            manager.reserved_request_id("ai_object"),
+        )
+        return bool(manager.sm.IsHR(hr, 0))
+
+    if not await manager.run_sync(_create):
+        return ToolError(
+            error="AI_OBJECT_FAILED",
+            message=f"MSFS rejected the request to create AI object '{title}'.",
+            suggestion="Check the sim is running and not mid-load, then "
+                       "reconnect with msfs_connect and try again.",
+        )
     return AiObjectResult(
         title=title, latitude=latitude, longitude=longitude,
-        message=f"Requested AI object '{title}'. MSFS ignores the request "
-                "silently if the title does not match an installed aircraft.",
+        message=f"Requested AI object '{title}'. SimConnect accepted the "
+                "request, but MSFS ignores it silently if the title does "
+                "not match an installed aircraft, so this is not "
+                "confirmation the object exists.",
     )

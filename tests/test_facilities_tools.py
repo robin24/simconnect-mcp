@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -205,7 +207,7 @@ async def test_missing_position_without_an_accessor_reports_a_clean_error(mock_s
     mock_simconnect["manager"].accessor = None
 
     result = await get_nearby_airports(response_format=ResponseFormat.JSON)
-    assert result.error == "POSITION_UNAVAILABLE"
+    assert result.error == "POSITION_NOT_AVAILABLE"
     assert "latitude and longitude" in result.suggestion.lower()
 
 
@@ -454,3 +456,155 @@ async def test_concurrent_calls_do_not_race_the_collector_reset(facility_sim, ki
 
     assert result1.facility["icao"] == "TEST1"
     assert result2.facility["icao"] == "TEST1"
+# ---------------------------------------------------------------------------
+# Request-ID allocation (IMPORTANT from the whole-phase review). _subscribe
+# used to call manager.sm.new_request_id() per collection. That library
+# function rebuilds an Enum from every prior member on every call and never
+# reclaims one -- the exact unbounded cost curve
+# RequestRegistry.acquire_request_id was built to bound in Phase 0 (measured
+# there at ~4.5ms per call after 600 allocations, ~31ms after 2000) and
+# pinned by tests/test_simvar_access.py. This module's own cache policy made
+# that a hot path rather than a one-off: WAYPOINT/NDB/VOR are deliberately
+# re-collected on EVERY call, and the Enum is shared with SimVarAccessor, so
+# the growth also slowed every later SimVar allocation that missed the
+# free-list.
+#
+# The fix cannot collapse to one stable ID per kind: FacilityCollector.handle
+# correlates chunks on dwRequestID specifically so a late chunk from an
+# abandoned subscription cannot complete a LATER collection of the same kind
+# on stale data. Hence a rotation -- bounded allocation AND a different ID
+# from the collection before it. Both halves are asserted below.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("kind", [FacilityKind.WAYPOINT, FacilityKind.NDB, FacilityKind.VOR])
+async def test_repeated_collections_reuse_a_bounded_set_of_request_ids(facility_sim, kind):
+    """Fails against the pre-fix _subscribe: six uncached collections called
+    new_request_id() six times. Uses an uncached kind precisely because
+    those are the ones this module re-collects on every call."""
+    from simconnect_mcp.tools.facilities import _REQUEST_ID_RING, get_facility_info
+
+    collector = facility_sim["sm"].facilities
+    entry = {
+        "icao": "TEST1", "kind": kind.value, "latitude": 33.7, "longitude": -84.1,
+        "altitude_ft": 0.0,
+    }
+
+    def _fake_subscribe(_hsim, _list_type, _request_id):
+        collector.handle(kind, _Header(), [entry])
+        return 0
+
+    facility_sim["sm"].dll.SubscribeToFacilities.side_effect = _fake_subscribe
+
+    allocated = iter(range(500, 600))
+    facility_sim["sm"].new_request_id.side_effect = lambda: SimpleNamespace(
+        value=next(allocated)
+    )
+    facility_sim["sm"].registry.acquire_request_id.side_effect = (
+        lambda allocate: allocate()
+    )
+
+    collections = 6
+    for _ in range(collections):
+        result = await get_facility_info("TEST1", facility_type=kind.value)
+        assert result.facility["icao"] == "TEST1"
+
+    assert facility_sim["sm"].dll.SubscribeToFacilities.call_count == collections
+    assert facility_sim["sm"].new_request_id.call_count == _REQUEST_ID_RING, (
+        f"{collections} collections allocated "
+        f"{facility_sim['sm'].new_request_id.call_count} request IDs; the "
+        f"reserved ring of {_REQUEST_ID_RING} should be the whole budget"
+    )
+
+    used = [
+        call.args[2]
+        for call in facility_sim["sm"].dll.SubscribeToFacilities.call_args_list
+    ]
+    assert len(set(used)) == _REQUEST_ID_RING
+    assert all(a != b for a, b in zip(used, used[1:], strict=False)), (
+        "consecutive collections of one kind reused the same request ID, "
+        f"which defeats FacilityCollector.handle's correlation: {used}"
+    )
+
+
+async def test_each_kind_gets_its_own_reserved_request_ids(facility_sim):
+    """Two kinds sharing an ID would let one kind's stale chunk correlate
+    against the other's live subscription."""
+    from simconnect_mcp.tools.facilities import get_facility_info
+
+    collector = facility_sim["sm"].facilities
+    seen: dict[str, list] = {}
+
+    allocated = iter(range(500, 600))
+    facility_sim["sm"].new_request_id.side_effect = lambda: SimpleNamespace(
+        value=next(allocated)
+    )
+    facility_sim["sm"].registry.acquire_request_id.side_effect = (
+        lambda allocate: allocate()
+    )
+
+    for kind in (FacilityKind.WAYPOINT, FacilityKind.NDB, FacilityKind.VOR):
+        entry = {
+            "icao": "TEST1", "kind": kind.value, "latitude": 33.7,
+            "longitude": -84.1, "altitude_ft": 0.0,
+        }
+
+        def _fake_subscribe(_hsim, _list_type, request_id, _kind=kind, _entry=entry):
+            seen.setdefault(_kind.value, []).append(request_id)
+            collector.handle(_kind, _Header(), [_entry])
+            return 0
+
+        facility_sim["sm"].dll.SubscribeToFacilities.side_effect = _fake_subscribe
+        await get_facility_info("TEST1", facility_type=kind.value)
+
+    flat = [rid for ids in seen.values() for rid in ids]
+    assert len(seen) == 3
+    assert len(set(flat)) == len(flat), f"kinds shared a request ID: {seen}"
+
+
+# ---------------------------------------------------------------------------
+# SubscribeToFacilities' HRESULT (IMPORTANT from the whole-phase review, the
+# lower-stakes half of F1). SimConnect_SubscribeToFacilities' restype is
+# HRESULT and _subscribe threw it away. A failed subscribe does not fabricate
+# success -- the poll simply times out -- but it then reported
+# FACILITY_COLLECTION_TIMEOUT and blamed a paused or still-loading sim, a
+# diagnosis the code had the evidence to contradict.
+# ---------------------------------------------------------------------------
+
+
+async def test_a_rejected_subscription_is_not_reported_as_a_busy_sim(
+    mock_simconnect, monkeypatch
+):
+    """Fails against the pre-fix _subscribe, which discarded the HRESULT and
+    let this surface as FACILITY_COLLECTION_TIMEOUT after the full wait."""
+    from simconnect_mcp.facilities import FacilityCollector
+    from simconnect_mcp.tools import facilities as facilities_module
+    from simconnect_mcp.tools.facilities import get_nearby_airports
+
+    monkeypatch.setattr(facilities_module, "_COLLECT_TIMEOUT", 3.0)
+    monkeypatch.setattr(facilities_module, "_POLL_INTERVAL", 0.05)
+
+    mock_simconnect["sm"].facilities = FacilityCollector()
+    mock_simconnect["sm"].dll.SubscribeToFacilities.return_value = 0x80004005
+    mock_simconnect["sm"].IsHR.return_value = False
+
+    started = time.monotonic()
+    result = await get_nearby_airports(
+        latitude=47.45, longitude=-122.31, radius_nm=200,
+        response_format=ResponseFormat.JSON,
+    )
+    elapsed = time.monotonic() - started
+
+    assert result.status == "error"
+    assert result.error == "FACILITY_SUBSCRIBE_FAILED"
+    assert result.suggestion
+    assert "paused" not in (result.message + result.suggestion).lower(), (
+        "a rejected subscribe must not be blamed on a paused or busy sim"
+    )
+    assert elapsed < 1.0, (
+        f"waited {elapsed:.2f}s polling for data a rejected subscription was "
+        "never going to deliver"
+    )
+    # The teardown still runs, even though the subscribe was refused.
+    assert mock_simconnect["sm"].dll.UnsubscribeToFacilities.call_count == 1
+    assert mock_simconnect["manager"].get_cached_facilities("airport") is None

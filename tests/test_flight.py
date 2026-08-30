@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 
 from simconnect_mcp.tools.flight import (
     create_ai_object,
@@ -239,7 +240,7 @@ async def test_create_ai_object_does_not_call_the_library_when_coordinates_are_i
     mock_simconnect,
 ):
     await create_ai_object(title="Boeing 747-8i", latitude=200.0, longitude=0.0)
-    assert not mock_simconnect["sm"].createSimulatedObject.called
+    assert not mock_simconnect["sm"].dll.AICreateSimulatedObject.called
 
 
 async def test_create_ai_object_returns_a_model_on_success(mock_simconnect):
@@ -250,7 +251,18 @@ async def test_create_ai_object_returns_a_model_on_success(mock_simconnect):
     assert "silently" in result.message.lower()
 
 
-async def test_create_ai_object_calls_the_library_with_expected_arguments(mock_simconnect):
+async def test_create_ai_object_calls_the_dll_directly_not_the_wrapper(mock_simconnect):
+    """Regression: createSimulatedObject() (SimConnect.py in the installed
+    library) builds this exact DLL call but discards the HRESULT
+    SimConnect_AICreateSimulatedObject returns, so a request MSFS rejected
+    outright was indistinguishable from one it accepted -- this tool
+    reported success either way. The tool must call
+    self.dll.AICreateSimulatedObject(...) directly so the return code
+    survives to be checked with IsHR, exactly as send_sim_text does for
+    SimConnect_Text."""
+    mock_simconnect["sm"].dll.AICreateSimulatedObject.return_value = 0
+    mock_simconnect["sm"].IsHR.return_value = True
+
     await create_ai_object(
         title="Boeing 747-8i",
         latitude=47.6,
@@ -260,19 +272,65 @@ async def test_create_ai_object_calls_the_library_with_expected_arguments(mock_s
         on_ground=False,
         airspeed=120,
     )
-    mock_simconnect["sm"].createSimulatedObject.assert_called_once()
-    args = mock_simconnect["sm"].createSimulatedObject.call_args.args
-    kwargs = mock_simconnect["sm"].createSimulatedObject.call_args.kwargs
-    assert args[0] == "Boeing 747-8i"
-    assert args[1] == 47.6
-    assert args[2] == -122.3
-    assert kwargs["hdg"] == 270.0
-    assert kwargs["gnd"] == 0
-    assert kwargs["alt"] == 1500.0
-    assert kwargs["speed"] == 120
+
+    assert not mock_simconnect["sm"].createSimulatedObject.called
+    mock_simconnect["sm"].dll.AICreateSimulatedObject.assert_called_once()
+    args = mock_simconnect["sm"].dll.AICreateSimulatedObject.call_args.args
+    assert args[1] == b"Boeing 747-8i"
+    init_pos = args[2]
+    assert init_pos.Latitude == 47.6
+    assert init_pos.Longitude == -122.3
+    assert init_pos.Altitude == 1500.0
+    assert init_pos.Heading == 270.0
+    assert init_pos.OnGround == 0
+    assert init_pos.Airspeed == 120
+    mock_simconnect["sm"].IsHR.assert_called_once_with(0, 0)
+
+
+async def test_create_ai_object_reports_failure_when_the_hresult_is_not_ok(mock_simconnect):
+    """If SimConnect_AICreateSimulatedObject's HRESULT says the call failed
+    -- a stale handle, E_INVALIDARG, a connection dropped after
+    ensure_connected -- this must return a ToolError rather than the
+    reassuring 'requested' envelope. The tenth instance of this project's
+    signature defect: a success envelope that was assumed, not earned."""
+    mock_simconnect["sm"].dll.AICreateSimulatedObject.return_value = 0x8000FFFF
+    mock_simconnect["sm"].IsHR.return_value = False
+
+    result = await create_ai_object(
+        title="Boeing 747-8i", latitude=47.6, longitude=-122.3
+    )
+
+    assert isinstance(result, ToolError)
+    assert result.error == "AI_OBJECT_FAILED"
+    assert result.suggestion
 
 
 async def test_create_ai_object_on_ground_defaults_to_true(mock_simconnect):
     await create_ai_object(title="Boeing 747-8i", latitude=47.6, longitude=-122.3)
-    kwargs = mock_simconnect["sm"].createSimulatedObject.call_args.kwargs
-    assert kwargs["gnd"] == 1
+    init_pos = mock_simconnect["sm"].dll.AICreateSimulatedObject.call_args.args[2]
+    assert init_pos.OnGround == 1
+
+
+async def test_create_ai_object_reuses_one_reserved_request_id(mock_simconnect):
+    """Regression for the Phase 0 allocation pool: new_request_id() rebuilds
+    an Enum from every prior member on every call and never reclaims one, so
+    calling it per spawn makes cost grow without bound across a session.
+    Nothing correlates on this request ID, so one reserved ID serves the
+    whole connection -- three spawns must allocate exactly once."""
+    ids = iter(range(100, 200))
+    mock_simconnect["sm"].new_request_id.side_effect = lambda: SimpleNamespace(
+        value=next(ids)
+    )
+    mock_simconnect["sm"].registry.acquire_request_id.side_effect = (
+        lambda allocate: allocate()
+    )
+
+    for _ in range(3):
+        await create_ai_object(title="Boeing 747-8i", latitude=47.6, longitude=-122.3)
+
+    assert mock_simconnect["sm"].new_request_id.call_count == 1
+    used = [
+        call.args[3]
+        for call in mock_simconnect["sm"].dll.AICreateSimulatedObject.call_args_list
+    ]
+    assert used == [100, 100, 100]

@@ -87,7 +87,14 @@ If the collector never reaches is_complete() within the timeout, this
 reports a ToolError rather than returning the partial list sitting in the
 collector: serving a partial world as though it were the complete one is
 exactly the fabricated-success pattern the rest of this project has spent
-two phases removing.
+two phases removing. SubscribeToFacilities' own HRESULT is checked first,
+so a subscription SimConnect rejected outright is reported as
+FACILITY_SUBSCRIBE_FAILED instead of being left to surface five seconds
+later as a timeout blamed on a busy sim.
+
+Request IDs are reserved per kind and rotated, not allocated per
+collection -- see _REQUEST_ID_RING and connection.py's
+reserved_request_id.
 """
 from __future__ import annotations
 
@@ -133,6 +140,17 @@ AIRPORT_COLUMNS = [
 _COLLECT_TIMEOUT = 5.0
 _POLL_INTERVAL = 0.1
 
+# How many request IDs each kind reserves once and then rotates through, in
+# place of allocating a fresh one per collection. Two is the minimum that
+# still keeps FacilityCollector.handle's dwRequestID correlation meaningful
+# (consecutive collections of one kind never share an ID); four is chosen
+# instead because the whole cost of the larger ring is eight extra Enum
+# members reserved at connect time, and it means a stale chunk would have to
+# outlive three complete collections of its own kind -- rather than one --
+# before it could be mistaken for a current one. See connection.py's
+# reserved_request_id.
+_REQUEST_ID_RING = 4
+
 # Only AIRPORT is safe to cache -- see module docstring for the live
 # measurement. WAYPOINT/NDB/VOR are a position-scoped "reality bubble" that
 # would go silently stale after a reposition if cached here.
@@ -146,7 +164,7 @@ def _position_unavailable() -> ToolError:
     rather than sharing one mutable model instance across both call sites.
     """
     return ToolError(
-        error="POSITION_UNAVAILABLE",
+        error="POSITION_NOT_AVAILABLE",
         message="Could not read the aircraft position for the search centre.",
         suggestion="Pass latitude and longitude explicitly.",
     )
@@ -188,14 +206,39 @@ async def _collect(kind: FacilityKind) -> list[dict[str, Any]] | ToolError:
 
         list_type = _LIST_TYPES[kind]
 
-        def _subscribe() -> int:
-            request_id = manager.sm.new_request_id().value
+        def _subscribe() -> bool:
+            # Not new_request_id(): that rebuilds an Enum from every prior
+            # member on every call and never reclaims one, and WAYPOINT/NDB/
+            # VOR are re-collected on *every* call by design (see module
+            # docstring), so this is a hot path whose per-call cost would
+            # otherwise grow without bound across a session -- exactly what
+            # RequestRegistry.acquire_request_id was built to stop.
+            # reserved_request_id rotates over a small fixed set instead of
+            # reusing one stable ID, because a stable ID would defeat the
+            # dwRequestID correlation in FacilityCollector.handle: a late
+            # chunk from an abandoned subscription for this same kind would
+            # match the next collection and silently complete it on stale
+            # data. See connection.py's reserved_request_id for the full
+            # reasoning and for why _REQUEST_ID_RING is enough.
+            request_id = manager.reserved_request_id(
+                f"facility:{kind.value}", ring=_REQUEST_ID_RING
+            )
             # Told to the collector *before* the DLL call, so a chunk that
             # somehow arrives before this function returns (unlikely, but
             # not this code's place to assume) is still correlated correctly.
             collector.reset(kind, request_id)
-            manager.sm.dll.SubscribeToFacilities(manager.sm.hSimConnect, list_type, request_id)
-            return request_id
+            # SimConnect_SubscribeToFacilities' restype is HRESULT
+            # (Attributes.py in the installed package) and the previous
+            # version of this line threw it away. A failed subscribe does
+            # not fabricate success here -- the poll below simply times out
+            # -- but it did make this report FACILITY_COLLECTION_TIMEOUT and
+            # blame a paused or still-loading sim, a diagnosis this code had
+            # the evidence to contradict. Same wrapper-swallowed-HRESULT
+            # class as tools/utilities.py's send_sim_text, lower stakes.
+            hr = manager.sm.dll.SubscribeToFacilities(
+                manager.sm.hSimConnect, list_type, request_id
+            )
+            return bool(manager.sm.IsHR(hr, 0))
 
         def _unsubscribe() -> None:
             # Best-effort: a failure here must not turn an otherwise
@@ -224,28 +267,49 @@ async def _collect(kind: FacilityKind) -> list[dict[str, Any]] | ToolError:
         # covers the DLL subscription itself, which has no such automatic
         # cleanup.
         try:
-            await manager.run_sync(_subscribe)
+            subscribed = await manager.run_sync(_subscribe)
 
+            # Skip the poll entirely if the subscription was rejected --
+            # nothing is coming, so waiting the full _COLLECT_TIMEOUT would
+            # only delay a failure we already know about.
             waited = 0.0
-            while waited < _COLLECT_TIMEOUT and not collector.is_complete(kind):
+            while (
+                subscribed
+                and waited < _COLLECT_TIMEOUT
+                and not collector.is_complete(kind)
+            ):
                 await asyncio.sleep(_POLL_INTERVAL)
                 waited += _POLL_INTERVAL
 
             complete = collector.is_complete(kind)
             results = collector.results(kind)
         finally:
+            # Unconditional, including after a rejected subscribe: the
+            # unsubscribe is best-effort and swallows its own failures, and
+            # a subscription that partly took effect must still be torn down.
             await manager.run_sync(_unsubscribe)
+
+        if not subscribed:
+            return ToolError(
+                error="FACILITY_SUBSCRIBE_FAILED",
+                message=f"SimConnect rejected the {kind.value} facility subscription.",
+                suggestion="The connection may be stale. Reconnect with "
+                           "msfs_connect and try again.",
+            )
 
         if not complete:
             return ToolError(
                 error="FACILITY_COLLECTION_TIMEOUT",
                 message=(
                     f"The {kind.value} list did not finish loading within "
-                    f"{_COLLECT_TIMEOUT:.0f}s ({len(results)} facilities collected "
-                    "so far). Reporting that partial set as the full list would be "
-                    "misleading, so nothing is returned."
+                    f"{_COLLECT_TIMEOUT:.0f}s ({len(results)} facilities "
+                    "collected so far)."
                 ),
-                suggestion="The sim may be paused, still loading, or busy. Try again shortly.",
+                suggestion=(
+                    "Reporting that partial set as the full list would be "
+                    "misleading, so nothing is returned. The sim may be "
+                    "paused, still loading, or busy -- try again shortly."
+                ),
             )
 
         if cacheable:

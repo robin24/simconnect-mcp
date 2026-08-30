@@ -21,7 +21,22 @@ from simconnect_mcp.simvar_access import (
 
 
 class ToolError(BaseModel):
-    """Failure envelope. Field names match the pre-Phase-1 error dicts."""
+    """Failure envelope. Field names match the pre-Phase-1 error dicts.
+
+    Two conventions this surface holds to, both worth knowing before adding
+    a code:
+
+    * "X is not there to use" codes are spelled ``<SUBJECT>_NOT_AVAILABLE``
+      (MOBIFLIGHT_NOT_AVAILABLE, FACILITIES_NOT_AVAILABLE,
+      POSITION_NOT_AVAILABLE, HUBHOP_NOT_AVAILABLE). ACCESSOR_UNAVAILABLE is
+      the one exception and stays as it is deliberately: it predates the
+      convention and agents branch on it, and a stable machine-readable code
+      is worth more than a tidy one. Do not rename it, and do not copy its
+      shape for anything new.
+    * ``message`` is one clause of *what went wrong*, and nothing else.
+      Rationale, mitigation, and "why you are not getting a partial result"
+      belong in ``suggestion``.
+    """
 
     status: Literal["error"] = "error"
     error: str = Field(..., description="Stable machine-readable error code")
@@ -413,11 +428,13 @@ class FlightResult(OkModel):
 
 
 class AiObjectResult(OkModel):
-    """Confirmation that an AI object spawn request was sent to MSFS.
+    """Confirmation that MSFS accepted an AI object spawn request.
 
-    MSFS accepts a title that matches no installed aircraft without any
-    error -- the object is simply never created -- so this only confirms
-    the request was sent, never that anything actually appeared in the sim.
+    SimConnect_AICreateSimulatedObject's HRESULT is checked, so a rejected
+    packet returns a ToolError rather than this model. But MSFS accepts a
+    title that matches no installed aircraft without any error -- the
+    object is simply never created -- so this confirms the request was
+    accepted, never that anything actually appeared in the sim.
     """
 
     title: str

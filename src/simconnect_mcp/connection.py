@@ -115,6 +115,17 @@ class SimConnectManager:
         # Not cleared on disconnect for the same reason _facility_locks
         # isn't -- see the comment above.
         self._list_lvars_lock = asyncio.Lock()
+        # Small per-key rings of SimConnect request IDs reserved once and
+        # reused for the whole connection, for the call sites that need a
+        # request ID but never register a PendingRequest with the
+        # dispatcher's RequestRegistry (facility subscriptions, AI object
+        # creation). See reserved_request_id() below for the why. MUST be
+        # cleared on disconnect alongside _facility_cache: a reconnect
+        # builds a fresh SimConnectDispatcher whose DATA_REQUEST_ID Enum
+        # restarts from scratch, so IDs carried over from the previous
+        # connection would collide with ones SimVarAccessor is about to
+        # allocate.
+        self._reserved_request_ids: dict[str, list[int]] = {}
 
     @property
     def state(self) -> ConnectionState:
@@ -249,6 +260,10 @@ class SimConnectManager:
             self._title_cache = None
             self._pmdg_variant_cache = None
             self._facility_cache = {}
+            # Connection-scoped: the next connect() builds a new dispatcher
+            # with a fresh DATA_REQUEST_ID Enum, so these numbers stop being
+            # reserved for anything. See reserved_request_id().
+            self._reserved_request_ids = {}
             self._state = ConnectionState.DISCONNECTED
         return {"status": "ok", "message": "Disconnected"}
 
@@ -392,6 +407,65 @@ class SimConnectManager:
             lock = asyncio.Lock()
             self._facility_locks[kind] = lock
         return lock
+
+    def reserved_request_id(self, key: str, ring: int = 1) -> int:
+        """Return the next of a small set of request IDs reserved for `key`.
+
+        SimConnect.new_request_id() rebuilds an Enum from every prior member
+        on *every* call and never reclaims one, so calling it per operation
+        makes cost grow with the cumulative number of operations ever
+        issued -- measured on real hardware at ~4.5ms per call after 600
+        allocations, ~31ms after 2000, unbounded over a long-running server.
+        That is precisely what RequestRegistry.acquire_request_id
+        (dispatch.py) was built to bound, and the two call sites that
+        reserve IDs here (tools/facilities.py's per-kind subscriptions,
+        tools/flight.py's AI object creation) cannot use it on their own
+        because neither registers a PendingRequest -- there is nothing to
+        discard() and so nothing that would ever return an ID to the
+        free-list.
+
+        The `ring` IDs for a key are allocated once, on first use, and then
+        rotated through: call N gets ids[N % ring]. `ring` is therefore the
+        allocation budget for that key for the whole connection, and the
+        rotation is what a caller that correlates on dwRequestID needs. A
+        facility subscription must NOT reuse the same ID it used last time:
+        UnsubscribeToFacilities does not retroactively cancel chunks
+        SimConnect already queued, so a late chunk from an abandoned
+        subscription would otherwise match the very next collection for the
+        same kind and silently complete it on a mix of old and new data
+        (see FacilityCollector.handle's request-id check, and
+        tools/facilities.py's module docstring). Rotating over `ring`
+        distinct IDs means a stale chunk has to outlive `ring - 1` whole
+        collections of its own kind before it can be mistaken for a current
+        one -- the dispatch thread drains SimConnect's queue every 2ms and
+        the shortest collection cycle is a 100ms poll interval, so even
+        ring=2 puts that far outside the plausible window; the default of 1
+        is for callers like AI object creation that correlate on nothing.
+
+        Allocation goes through the registry's acquire_request_id so it
+        happens under `pending_lock` -- new_request_id() mutates an Enum
+        shared with SimVarAccessor -- and so a reserved ID can come off the
+        free-list instead of growing that Enum at all. An ID taken here is
+        never released back: it stays reserved for this key until
+        disconnect() drops the whole dict, so SimVarAccessor can never be
+        handed one that a facility subscription is still using.
+        """
+        ids = self._reserved_request_ids.get(key)
+        if ids is None:
+            registry = getattr(self.sm, "registry", None)
+            if registry is not None:
+                ids = [
+                    registry.acquire_request_id(lambda: self.sm.new_request_id().value)
+                    for _ in range(ring)
+                ]
+            else:
+                # Plain SimConnect fallback, no dispatcher and so no
+                # registry. Nothing to pool against; allocate directly.
+                ids = [self.sm.new_request_id().value for _ in range(ring)]
+            self._reserved_request_ids[key] = ids
+        request_id = ids.pop(0)
+        ids.append(request_id)
+        return request_id
 
     def list_lvars_lock(self) -> asyncio.Lock:
         """Lock serializing tools/lvars.py's list_lvars end to end.
