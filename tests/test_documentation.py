@@ -12,8 +12,11 @@ Covers two defects:
 
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
+import simconnect_mcp
 from simconnect_mcp.resources.documentation import _DOC_FILES, _read_doc, extract_section
 
 SAMPLE = """# Doc
@@ -137,3 +140,90 @@ async def test_pmdg_unknown_variant_reports_available_variants_not_a_crash():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ---------------------------------------------------------------------------
+# Served docs and prompts must not tell an agent to call a tool that always
+# fails.
+#
+# Task 5 made msfs_list_lvars honest -- its old canned success was an
+# instance of the fabricated-success pattern this phase exists to remove --
+# and Task 8's rename sweep then edited these same four lines and left the
+# false claim standing, so the lie moved out of the return value and into
+# the documentation the same phase was rewriting:
+#
+#   docs/lvars.md           "Returns ALL active L-var names on current aircraft"
+#   docs/lvars.md           "Use msfs_list_lvars() first"
+#   docs/best_practices.md  "Use msfs_list_lvars() to see what's available"
+#   prompts/templates.py    "Use msfs_list_lvars() to get every L-var registered"
+#
+# The analyze_aircraft_vars prompt was a five-step procedure whose steps
+# 3-5 all depended on step 2, which could not succeed.
+# ---------------------------------------------------------------------------
+
+_UNAVAILABLE_MARKERS = ("not available", "not implemented", "NOT_IMPLEMENTED")
+
+# Words that would overclaim even once Phase 2 lands: the MobiFlight WASM
+# module caps its response at 1000 names while still sending its
+# end-of-list sentinel, so "every"/"all" will still be wrong afterwards.
+_COMPLETENESS_CLAIMS = ("all ", "every ", "ALL ")
+
+
+def _agent_facing_doc_files() -> list[pathlib.Path]:
+    pkg_dir = pathlib.Path(simconnect_mcp.__file__).parent
+    files = sorted((pkg_dir / "docs").glob("*.md"))
+    assert len(files) >= 8, f"only {len(files)} docs found -- did docs/ move?"
+    files.append(pkg_dir / "prompts" / "templates.py")
+    return files
+
+
+def test_list_lvars_still_returns_not_implemented():
+    """Pins the fact the docs now assert.
+
+    Deliberately self-invalidating: when Phase 2 makes live enumeration
+    real, this test fails and the four doc sites have to be revisited
+    rather than quietly keeping a caveat that has become wrong in the
+    other direction.
+    """
+    source = pathlib.Path(
+        pathlib.Path(simconnect_mcp.__file__).parent / "tools" / "lvars.py"
+    ).read_text(encoding="utf-8")
+    assert 'error="NOT_IMPLEMENTED"' in source, (
+        "msfs_list_lvars no longer returns NOT_IMPLEMENTED -- re-check every "
+        "doc and prompt that currently says live enumeration is unavailable"
+    )
+
+
+def test_no_doc_instructs_calling_list_lvars_without_saying_it_fails():
+    """Every mention must sit next to a disclaimer.
+
+    A doc that names the tool as the discovery step sends an agent into a
+    guaranteed NOT_IMPLEMENTED, and in the prompt's case into a procedure
+    whose remaining steps have nothing to work from.
+    """
+    offenders = []
+    for path in _agent_facing_doc_files():
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "list_lvars" not in line:
+                continue
+            if not any(marker in line for marker in _UNAVAILABLE_MARKERS):
+                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "these name msfs_list_lvars without saying it is unavailable:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_no_doc_claims_list_lvars_returns_everything():
+    """"every" and "all" stay wrong even after Phase 2 -- the MobiFlight
+    WASM module caps its reply at 1000 names and still sends its
+    end-of-list sentinel, so a complete listing is not on offer."""
+    offenders = []
+    for path in _agent_facing_doc_files():
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "list_lvars" not in line:
+                continue
+            for claim in _COMPLETENESS_CLAIMS:
+                if claim in line:
+                    offenders.append(f"{path.name}:{lineno} claims {claim!r}: {line.strip()}")
+    assert not offenders, "overclaimed completeness:\n" + "\n".join(offenders)

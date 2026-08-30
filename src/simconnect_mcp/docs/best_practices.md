@@ -81,7 +81,13 @@ Read the current state with SimVars, change it with events:
 ## L-Var Best Practices
 
 ### Discover before assuming
-Use `msfs_list_lvars()` to see what's available. Don't guess L-var names.
+Use `msfs_search_lvars()` or `msfs_browse_lvar_catalog()` to look names up in
+the bundled catalogs. Don't guess L-var names.
+
+Live enumeration is not available yet (`msfs_list_lvars()` returns
+`NOT_IMPLEMENTED`), so treat a catalog as a starting point rather than a
+complete inventory: a name it does not list may still exist on the
+aircraft.
 
 ### Rate-limit L-var reads
 Each MobiFlight L-var read goes through WASM — slower than native SimVars.

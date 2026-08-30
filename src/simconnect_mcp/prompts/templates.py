@@ -46,25 +46,35 @@ Follow this debugging procedure:
 
     @mcp.prompt()
     def analyze_aircraft_vars() -> str:
-        """Enumerate and categorize all L-vars on the current aircraft."""
-        return """You are analyzing the L-vars available on the currently loaded aircraft.
+        """Categorize the catalogued L-vars for the current aircraft."""
+        return """You are analyzing the L-vars catalogued for the currently loaded aircraft.
+
+Live enumeration of an aircraft's registered L-vars is not available on \
+this server yet, so this procedure works from the bundled catalogs. Whatever \
+you report covers what the catalog holds, which is not necessarily every \
+variable the aircraft registers — say so in your summary rather than \
+presenting the set as complete.
 
 Follow this procedure:
 
 1. **Check MobiFlight availability:** Use `msfs_get_connection_status()` to verify \
 MobiFlight is loaded.
 
-2. **List all L-vars:** Use `msfs_list_lvars()` to get every L-var registered by this aircraft.
+2. **Gather candidate names:** Use `msfs_browse_lvar_catalog()` to find the \
+catalog for this aircraft and list its panels, then `msfs_search_lvars()` to \
+pull variables by keyword or panel. Both auto-detect the loaded aircraft.
 
 3. **Categorize the variables** by examining their naming patterns:
    - Group by prefix (e.g., `A32NX_`, `WT_CJ4_`, `AS1000_`)
    - Identify systems: EFIS, FCU, autopilot, engines, electrical, hydraulics, etc.
    - Note which appear to be boolean (switches) vs continuous values
 
-4. **Sample key values:** Read a representative variable from each category with `msfs_get_lvar()`.
+4. **Sample key values:** Read a representative variable from each category with \
+`msfs_get_lvar()`. `msfs_get_lvar` accepts any name, catalogued or not, so a \
+name you suspect exists can be probed directly.
 
 5. **Present a summary** organized by system, noting:
-   - Total L-var count
+   - How many variables you examined, and that they came from the catalog
    - Major systems exposed
    - Which variables appear writable/controllable
    - Any naming conventions the aircraft uses
