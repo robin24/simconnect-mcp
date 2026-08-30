@@ -47,6 +47,19 @@ async def test_lvars_list_responses_reach_a_registered_handler(
     if not live_manager.mobiflight_available:
         pytest.skip("MobiFlight WASM extension not available")
 
+    # Phase 2 Task 4 discovered (task-4-report.md) that the WASM module
+    # silently drops MF.LVars.List when it is byte-identical to the
+    # immediately preceding command on this channel -- not time-based (a
+    # 20s wait alone never clears it), only a different command in between
+    # does. live_manager is session-scoped, so another test's own
+    # MF.LVars.List (e.g. test_live_lvars.py's, which collects
+    # alphabetically first) can leave this channel "stuck" before this
+    # test ever runs. clear_sim_variables sends a different command
+    # (MF.SimVars.Clear) first, which is unconditionally safe here --
+    # connection.py already calls it once on every connect for the same
+    # reason MobiFlight's own docs give: stale registrations return 0.
+    live_manager.mobiflight.clear_sim_variables()
+
     seen: list[str] = []
     live_manager.mobiflight.add_response_handler(seen.append)
     remove_handlers_after.append(seen.append)

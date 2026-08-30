@@ -127,3 +127,83 @@ async def test_set_lvar_tool_returns_a_verified_envelope(live_manager, zero_prob
     assert result.verified is True, f"unverified write: {result}"
     assert result.warning is None
     assert result.value_set == 55.0
+
+
+async def test_list_lvars_enumerates_the_loaded_aircraft(live_manager):
+    """Requires the MobiFlight WASM module in the Community folder.
+
+    Not asserting an exact count or that any particular aircraft prefix
+    shows up -- task-3-4-addendum.md measured this exact live setup (GSX at
+    KATL) returning exactly 1000 FSDT_GSX_* names with the aircraft's own
+    L-vars crowded out entirely, so what a fresh run sees here depends on
+    whatever add-ons happen to be installed. What's pinned instead is the
+    honesty contract: whenever the cap is actually hit, 'truncated' must
+    say so, and never the opposite.
+    """
+    from simconnect_mcp.tools.lvars import list_lvars
+
+    if not live_manager.mobiflight_available:
+        pytest.skip("MobiFlight WASM module not installed")
+
+    # See test_repeated_identical_list_request_gets_no_response below: the
+    # WASM module drops MF.LVars.List when it repeats the immediately
+    # preceding command on this channel, and live_manager is
+    # session-scoped, so a prior test elsewhere could leave this "stuck"
+    # before this one even runs. Reset first so this test's own result
+    # reflects the aircraft, not test ordering.
+    live_manager.mobiflight.clear_sim_variables()
+
+    result = await list_lvars()
+    if getattr(result, "error", None) == "MOBIFLIGHT_NOT_AVAILABLE":
+        pytest.skip("MobiFlight WASM module not installed")
+
+    assert result.page.total > 0
+    assert all(isinstance(name, str) and name for name in result.lvars)
+
+    if result.page.total >= 1000:
+        assert result.truncated is True, (
+            "a response of 1000+ names must be flagged as presumptively "
+            "truncated -- the WASM module sends .End for a capped list too"
+        )
+        assert result.message is not None
+    else:
+        assert result.truncated is False
+        assert result.message is None
+
+
+async def test_repeated_identical_list_request_gets_no_response(live_manager, monkeypatch):
+    """Pins a real WASM module quirk discovered while building this tool
+    (see task-4-report.md): MF.LVars.List gets no response at all when it
+    is byte-identical to the command immediately preceding it on the
+    MobiFlight.Command channel. Confirmed NOT a time-based cooldown --
+    waiting 20s with nothing else sent still produced zero messages; only
+    a different command in between (even one with no response of its own,
+    like MF.SimVars.Clear) restored it. msfs_list_lvars's own
+    NO_LVARS_RETURNED error mentions this so a caller isn't left thinking
+    the aircraft or the WASM module broke.
+
+    Timeout/settle constants are patched down after the first (expected to
+    succeed) call, since confirming the second call gets nothing would
+    otherwise cost the full production wait for no reason.
+    """
+    if not live_manager.mobiflight_available:
+        pytest.skip("MobiFlight WASM module not installed")
+
+    from simconnect_mcp.tools import lvars as lvars_module
+
+    # Guarantees this test's own first call isn't itself a dup of whatever
+    # a previous test last sent on this channel.
+    live_manager.mobiflight.clear_sim_variables()
+
+    first = await lvars_module.list_lvars()
+    assert first.status == "ok", f"prerequisite call itself failed: {first!r}"
+
+    monkeypatch.setattr(lvars_module, "_LIST_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(lvars_module, "_LIST_SETTLE_S", 0.2)
+
+    second = await lvars_module.list_lvars()
+
+    assert getattr(second, "error", None) == "NO_LVARS_RETURNED", (
+        "expected the WASM module's confirmed repeat-suppression to produce "
+        f"NO_LVARS_RETURNED on an immediate identical repeat, got {second!r}"
+    )

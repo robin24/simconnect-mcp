@@ -220,8 +220,12 @@ async def test_set_lvar_without_an_accessor_says_so(mock_simconnect):
 
 
 # ---------------------------------------------------------------------------
-# list_lvars -- Phase 2 Task 4 implements real enumeration. Until then this
-# must return an honest error, never a fabricated success.
+# list_lvars -- Phase 2 Task 4 implements real enumeration by consuming
+# Task 3's add_response_handler. The primary behavioural coverage (real
+# names, pagination, prefix filtering, handler cleanup, the 1000-name
+# truncation cap) lives in tests/test_lvar_listing.py; these two guard the
+# edges that module's fixtures don't reach: no MobiFlight bridge at all, and
+# a bridge that answers nothing.
 # ---------------------------------------------------------------------------
 
 
@@ -231,18 +235,30 @@ async def test_list_lvars_without_mobiflight_returns_error(mock_simconnect):
     assert result.error == "MOBIFLIGHT_NOT_AVAILABLE"
 
 
-async def test_list_lvars_reports_not_implemented_rather_than_fake_success(mock_simconnect):
-    """Current code returns status='ok' with a message claiming a WASM list
-    command was sent -- nothing is ever read back, so that 'ok' is
-    fabricated. Fails against current code: result.error would be missing
-    entirely (status is 'ok', not 'error')."""
+async def test_list_lvars_with_no_response_reports_no_lvars_returned(
+    mock_simconnect, monkeypatch
+):
+    """Replaces this suite's old stub-pinning test now that list_lvars is
+    real: it must actually ask the WASM module (send_command is called),
+    and when nothing comes back it must report that honestly rather than an
+    empty-but-successful list.
+
+    Timeout/settle constants are patched down so a bridge that never fires
+    a response handler doesn't cost this test the full ~11.5s production
+    wait.
+    """
+    from simconnect_mcp.tools import lvars as lvars_module
+
+    monkeypatch.setattr(lvars_module, "_LIST_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(lvars_module, "_LIST_SETTLE_S", 0.01)
+
     mobiflight = _enable_mobiflight(mock_simconnect)
 
     result = await list_lvars()
 
     assert isinstance(result, ToolError)
-    assert result.error == "NOT_IMPLEMENTED"
-    mobiflight.send_command.assert_not_called()
+    assert result.error == "NO_LVARS_RETURNED"
+    mobiflight.send_command.assert_called_once_with("MF.LVars.List")
 
 
 # ---------------------------------------------------------------------------

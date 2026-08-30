@@ -47,22 +47,26 @@ Follow this debugging procedure:
     @mcp.prompt()
     def analyze_aircraft_vars() -> str:
         """Categorize the catalogued L-vars for the current aircraft."""
-        return """You are analyzing the L-vars catalogued for the currently loaded aircraft.
+        return """You are analyzing the L-vars registered by the currently loaded aircraft.
 
-Live enumeration of an aircraft's registered L-vars is not available on \
-this server yet, so this procedure works from the bundled catalogs. Whatever \
-you report covers what the catalog holds, which is not necessarily every \
-variable the aircraft registers — say so in your summary rather than \
-presenting the set as complete.
+Two discovery paths exist and this procedure uses both. `msfs_list_lvars()` \
+asks the MobiFlight WASM module for a live list, but that module caps its \
+reply at 1000 names and still reports the list as complete when it does -- \
+a busy add-on setup (GSX and similar) can crowd an aircraft's own variables \
+out of the response entirely (watch for `truncated: true`). The bundled \
+catalogs cover a curated set for known aircraft, which may include names \
+the live list missed, or vice versa. Whatever you report, say which \
+source(s) it came from rather than presenting the combined set as complete.
 
 Follow this procedure:
 
 1. **Check MobiFlight availability:** Use `msfs_get_connection_status()` to verify \
 MobiFlight is loaded.
 
-2. **Gather candidate names:** Use `msfs_browse_lvar_catalog()` to find the \
-catalog for this aircraft and list its panels, then `msfs_search_lvars()` to \
-pull variables by keyword or panel. Both auto-detect the loaded aircraft.
+2. **Gather candidate names:** Use `msfs_list_lvars()` for a live list (note \
+`truncated` if set), and `msfs_browse_lvar_catalog()` to find the catalog for \
+this aircraft and list its panels, then `msfs_search_lvars()` to pull variables \
+by keyword or panel. The catalog tools auto-detect the loaded aircraft.
 
 3. **Categorize the variables** by examining their naming patterns:
    - Group by prefix (e.g., `A32NX_`, `WT_CJ4_`, `AS1000_`)
@@ -74,7 +78,7 @@ pull variables by keyword or panel. Both auto-detect the loaded aircraft.
 name you suspect exists can be probed directly.
 
 5. **Present a summary** organized by system, noting:
-   - How many variables you examined, and that they came from the catalog
+   - How many variables you examined, and which source(s) they came from
    - Major systems exposed
    - Which variables appear writable/controllable
    - Any naming conventions the aircraft uses

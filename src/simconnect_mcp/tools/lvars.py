@@ -15,6 +15,8 @@ but do respond to native SimConnect writes.
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Annotated, Literal
 
 from pydantic import Field
@@ -43,6 +45,8 @@ from simconnect_mcp.tools.models import (
     ToolError,
     error_from,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _require_mobiflight() -> ToolError | None:
@@ -172,31 +176,136 @@ async def set_lvar(
     )
 
 
+_LIST_TERMINATORS = ("MF.LVars.List.End", "MF.LVars.List.Complete")
+_LIST_SETTLE_S = 1.5
+_LIST_TIMEOUT_S = 10.0
+
+# Measured live against MSFS 2024 + the MobiFlight WASM module
+# (task-3-4-addendum.md): MF.LVars.List returned *exactly* 1000 names and
+# still sent its .End sentinel. Proven, not inferred -- an L-var created to
+# sort after every returned name read back fine (42.0) but was absent from
+# a re-list that still claimed to have ended. A response this large is
+# therefore reported as presumptively truncated rather than trusted as a
+# complete inventory; the module gives no other signal that it cut anything.
+_LIST_CAP = 1000
+_TRUNCATION_MESSAGE = (
+    f"The MobiFlight WASM module caps MF.LVars.List at {_LIST_CAP} names and "
+    "still reports the list as complete, so this is likely not every L-var "
+    "the aircraft has registered -- other add-ons (e.g. GSX) can crowd the "
+    "aircraft's own variables out of the response entirely. msfs_get_lvar "
+    "reads any name by value whether or not it appears in this list."
+)
+
+
 @handle_simconnect_errors
 @require_connection
-async def list_lvars() -> LVarList | ToolError:
-    """Enumerate active L-vars on the current aircraft.
+async def list_lvars(
+    filter_prefix: Annotated[
+        str | None,
+        Field(
+            description="Only return names starting with this prefix, e.g. "
+            "'A32NX', 'WT_CJ4', 'XMLVAR'. Case-insensitive."
+        ),
+    ] = None,
+    limit: Annotated[int, Field(description="Maximum results", ge=1, le=200)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Field(description="Results to skip", ge=0)] = 0,
+) -> LVarList | ToolError:
+    """Enumerate the L-vars registered by the currently loaded aircraft.
 
-    Not yet implemented. The MobiFlight WASM module's list command responds
-    asynchronously on a channel this server does not capture yet, so this
-    honestly reports that instead of claiming a listing was produced.
+    Asks the MobiFlight WASM module for its L-var list and collects the
+    response. The module caps its reply at 1000 names but still reports the
+    list as complete when it does -- see 'truncated' in the result, which is
+    set whenever that cap was hit. A busy add-on setup (e.g. GSX) can crowd
+    an aircraft's own L-vars out of a capped response entirely; msfs_get_lvar
+    reads any name directly regardless of whether it showed up here. Use
+    msfs_search_lvars / msfs_browse_lvar_catalog for aircraft with a bundled
+    catalog.
 
-    Requires the MobiFlight WASM extension.
+    Calling this twice in immediate succession can return NO_LVARS_RETURNED
+    on the second call: the WASM module appears to silently drop a request
+    byte-identical to the one it just answered (confirmed live -- waiting
+    does not clear it, only some other MobiFlight command happening first
+    does). Requires the MobiFlight WASM extension.
     """
     err = _require_mobiflight()
     if err:
         return err
 
-    return ToolError(
-        error="NOT_IMPLEMENTED",
-        message="Enumerating active L-vars is not implemented yet.",
-        suggestion=(
-            "Use msfs_get_lvar to read a specific L-var by name, or msfs_search_lvars "
-            "/ msfs_browse_lvar_catalog to find known variable names for the loaded "
-            "aircraft. "
-            "Common prefixes for popular aircraft: A32NX_ (FBW A320), WT_CJ4_ (Working "
-            "Title CJ4), AS1000_ (G1000), ASCRJ_ (Aerosoft CRJ)."
-        ),
+    manager = SimConnectManager()
+    bridge = manager.mobiflight
+
+    names: list[str] = []
+    finished = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def _on_response(text: str) -> None:
+        """Called from SimConnect's dispatch thread (Phase 2 Task 3's
+        add_response_handler). The vendored fan-out that invokes this only
+        logs a raising handler at DEBUG -- invisible at this server's
+        default WARNING level, and deliberately left that way rather than
+        widening vendor/'s local-change footprint for a diagnostic (see
+        task-3-4-addendum.md). So this handler is responsible for surfacing
+        its own failures visibly rather than trusting that silent catch.
+        """
+        try:
+            if text in _LIST_TERMINATORS:
+                loop.call_soon_threadsafe(finished.set)
+                return
+            if text.startswith("MF."):
+                return  # command echo/sentinel, not an L-var name
+            names.append(text)
+        except Exception:
+            logger.warning(
+                "msfs_list_lvars response handler failed on %r", text, exc_info=True
+            )
+
+    bridge.add_response_handler(_on_response)
+    try:
+        await manager.run_sync(lambda: bridge.send_command("MF.LVars.List"))
+        try:
+            await asyncio.wait_for(finished.wait(), timeout=_LIST_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            # Some WASM builds may send no terminator. Accept what arrived,
+            # as long as something did.
+            pass
+        # Give any trailing names a chance to land before reading `names`.
+        if not finished.is_set():
+            await asyncio.sleep(_LIST_SETTLE_S)
+    finally:
+        bridge.remove_response_handler(_on_response)
+
+    if not names:
+        return ToolError(
+            error="NO_LVARS_RETURNED",
+            message="The MobiFlight WASM module returned no L-var names.",
+            suggestion=(
+                "Ensure an aircraft is fully loaded and that the MobiFlight WASM "
+                "module supports MF.LVars.List. If a msfs_list_lvars call just "
+                "succeeded, this may be the WASM module silently ignoring an "
+                "immediately repeated identical request -- confirmed live that "
+                "waiting does not clear this, only some other MobiFlight command "
+                "happening first does. msfs_get_lvar, msfs_search_lvars, and "
+                "msfs_browse_lvar_catalog are unaffected and work in the meantime."
+            ),
+        )
+
+    # The cap is judged on what the module actually sent, before any local
+    # filtering -- filter_prefix narrowing the view afterward must not hide
+    # the fact that the underlying response was itself incomplete (names
+    # arrive sorted, so a cap can crowd out an entire late-alphabet prefix).
+    truncated = len(names) >= _LIST_CAP
+
+    if filter_prefix:
+        needle = filter_prefix.strip().upper()
+        names = [n for n in names if n.upper().startswith(needle)]
+
+    names = sorted(dict.fromkeys(names))
+    window, page = paginate([{"name": n} for n in names], offset, limit)
+    return LVarList(
+        page=page,
+        lvars=[row["name"] for row in window],
+        truncated=truncated,
+        message=_TRUNCATION_MESSAGE if truncated else None,
     )
 
 

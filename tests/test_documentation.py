@@ -193,30 +193,43 @@ if __name__ == "__main__":
 
 
 # ---------------------------------------------------------------------------
-# Served docs and prompts must not tell an agent to call a tool that always
-# fails.
+# Served docs and prompts must not misrepresent msfs_list_lvars in either
+# direction.
 #
-# Task 5 made msfs_list_lvars honest -- its old canned success was an
-# instance of the fabricated-success pattern this phase exists to remove --
-# and Task 8's rename sweep then edited these same four lines and left the
-# false claim standing, so the lie moved out of the return value and into
-# the documentation the same phase was rewriting:
+# Phase 1 Task 5 made msfs_list_lvars honest -- its old canned success was
+# an instance of the fabricated-success pattern this project exists to
+# remove -- by making it return NOT_IMPLEMENTED, and docs/prompts were
+# updated to say so:
 #
-#   docs/lvars.md           "Returns ALL active L-var names on current aircraft"
-#   docs/lvars.md           "Use msfs_list_lvars() first"
-#   docs/best_practices.md  "Use msfs_list_lvars() to see what's available"
-#   prompts/templates.py    "Use msfs_list_lvars() to get every L-var registered"
+#   docs/lvars.md           "msfs_list_lvars() returns NOT_IMPLEMENTED..."
+#   docs/best_practices.md  "msfs_list_lvars() returns NOT_IMPLEMENTED..."
 #
-# The analyze_aircraft_vars prompt was a five-step procedure whose steps
-# 3-5 all depended on step 2, which could not succeed.
+# Phase 2 Task 4 then made it real (it asks the MobiFlight WASM module for
+# its L-var list and collects the response), which made THOSE claims false
+# in the other direction: a doc still telling an agent the tool always
+# fails is just as dishonest as the fabricated success it replaced. The
+# tests below were themselves deliberately self-invalidating for exactly
+# this moment (see git history for their Phase-1-era wording) -- this is
+# that revisit, not a loosening of the underlying rule.
+#
+# The rule that survives unchanged: the MobiFlight WASM module caps
+# MF.LVars.List at 1000 names and still reports the list as complete (see
+# task-3-4-addendum.md and LVarList.truncated), so a doc that sends an
+# agent to msfs_list_lvars must still disclose that cap, and none may claim
+# it returns "all"/"every" L-var -- that was wrong before Task 4 and stays
+# wrong after it.
 # ---------------------------------------------------------------------------
 
-_UNAVAILABLE_MARKERS = ("not available", "not implemented", "NOT_IMPLEMENTED")
-
-# Words that would overclaim even once Phase 2 lands: the MobiFlight WASM
-# module caps its response at 1000 names while still sending its
-# end-of-list sentinel, so "every"/"all" will still be wrong afterwards.
+# Words that overclaim regardless of implementation status: the MobiFlight
+# WASM module caps its response at 1000 names while still sending its
+# end-of-list sentinel, so "every"/"all" is always wrong here.
 _COMPLETENESS_CLAIMS = ("all ", "every ", "ALL ")
+
+# A doc that sends an agent to msfs_list_lvars must disclose the cap
+# somewhere in the same file -- not necessarily the same line, since prose
+# describing a working tool reasonably spreads the caveat across a
+# sentence or two.
+_CAP_DISCLOSURE_MARKERS = ("1000", "1,000")
 
 
 def _agent_facing_doc_files() -> list[pathlib.Path]:
@@ -227,46 +240,52 @@ def _agent_facing_doc_files() -> list[pathlib.Path]:
     return files
 
 
-def test_list_lvars_still_returns_not_implemented():
-    """Pins the fact the docs now assert.
+def test_list_lvars_no_longer_a_stub():
+    """Pins the fact that Phase 2 Task 4 replaced the canned NOT_IMPLEMENTED
+    response with a real WASM list request.
 
-    Deliberately self-invalidating: when Phase 2 makes live enumeration
-    real, this test fails and the four doc sites have to be revisited
-    rather than quietly keeping a caveat that has become wrong in the
-    other direction.
+    The behavioural coverage lives in tests/test_lvar_listing.py; this just
+    guards against a regression back to the Phase 1 stub slipping in
+    silently (e.g. a bad merge), which would leave every doc/prompt this
+    file checks describing a capability that quietly stopped working again.
     """
     source = pathlib.Path(
         pathlib.Path(simconnect_mcp.__file__).parent / "tools" / "lvars.py"
     ).read_text(encoding="utf-8")
-    assert 'error="NOT_IMPLEMENTED"' in source, (
-        "msfs_list_lvars no longer returns NOT_IMPLEMENTED -- re-check every "
-        "doc and prompt that currently says live enumeration is unavailable"
+    assert 'error="NOT_IMPLEMENTED"' not in source, (
+        "msfs_list_lvars appears to return NOT_IMPLEMENTED again -- if that's "
+        "deliberate, every doc/prompt this file checks needs the opposite "
+        "revisit Phase 2 Task 4 just gave them"
     )
 
 
-def test_no_doc_instructs_calling_list_lvars_without_saying_it_fails():
-    """Every mention must sit next to a disclaimer.
+def test_every_doc_mentioning_list_lvars_discloses_the_cap():
+    """A doc that tells an agent to call msfs_list_lvars must not leave it
+    thinking a capped response is exhaustive.
 
-    A doc that names the tool as the discovery step sends an agent into a
-    guaranteed NOT_IMPLEMENTED, and in the prompt's case into a procedure
-    whose remaining steps have nothing to work from.
+    Replaces this suite's old "must say it fails" check, whose premise
+    (the tool always errors) Task 4 removed. The tool works now, but the
+    MobiFlight WASM module still caps MF.LVars.List at 1000 names while
+    reporting the list as complete -- see LVarList.truncated -- so the
+    remaining honesty obligation is disclosing that cap, not disclosing
+    unavailability.
     """
     offenders = []
     for path in _agent_facing_doc_files():
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if "list_lvars" not in line:
-                continue
-            if not any(marker in line for marker in _UNAVAILABLE_MARKERS):
-                offenders.append(f"{path.name}:{lineno}: {line.strip()}")
+        text = path.read_text(encoding="utf-8")
+        if "list_lvars" not in text:
+            continue
+        if not any(marker in text for marker in _CAP_DISCLOSURE_MARKERS):
+            offenders.append(path.name)
     assert not offenders, (
-        "these name msfs_list_lvars without saying it is unavailable:\n"
+        "these mention msfs_list_lvars but never disclose its ~1000-name cap:\n"
         + "\n".join(offenders)
     )
 
 
 def test_no_doc_claims_list_lvars_returns_everything():
-    """"every" and "all" stay wrong even after Phase 2 -- the MobiFlight
-    WASM module caps its reply at 1000 names and still sends its
+    """"every" and "all" stay wrong even with real enumeration -- the
+    MobiFlight WASM module caps its reply at 1000 names and still sends its
     end-of-list sentinel, so a complete listing is not on offer."""
     offenders = []
     for path in _agent_facing_doc_files():

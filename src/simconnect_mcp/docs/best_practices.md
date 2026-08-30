@@ -82,12 +82,15 @@ Read the current state with SimVars, change it with events:
 
 ### Discover before assuming
 Use `msfs_search_lvars()` or `msfs_browse_lvar_catalog()` to look names up in
-the bundled catalogs. Don't guess L-var names.
+the bundled catalogs, or `msfs_list_lvars()` to ask the MobiFlight WASM
+module directly. Don't guess L-var names.
 
-Live enumeration is not available yet (`msfs_list_lvars()` returns
-`NOT_IMPLEMENTED`), so treat a catalog as a starting point rather than a
-complete inventory: a name it does not list may still exist on the
-aircraft.
+`msfs_list_lvars()` is capped at 1000 names by the WASM module itself,
+which still reports the list as complete when it truncates -- a busy
+add-on setup (GSX and similar) can crowd an aircraft's own variables out of
+the response entirely (watch for `truncated: true`). Treat any one source,
+catalog or live listing, as a starting point rather than a guaranteed
+inventory: a name missing from it may still exist on the aircraft.
 
 ### Rate-limit L-var reads
 Each MobiFlight L-var read goes through WASM — slower than native SimVars.
