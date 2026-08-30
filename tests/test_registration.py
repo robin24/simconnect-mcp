@@ -28,7 +28,11 @@ _TOOL_NAME_PATTERN = re.compile(r"\bmsfs_[a-z][a-z0-9_]*\b")
 # exact current count would red the suite on any ordinary edit that merges two
 # docs or rewords one suggestion= string, and a test that cries wolf on
 # routine churn gets its constant nudged without thought -- including on the
-# day it drops for a real reason.
+# day it drops for a real reason. Measured against this headroom: renaming
+# docs/ drops the scan to (12 files, 11 matches) and renaming tools/ to
+# (9, 58) -- each below a floor. templates.py is appended by an explicit path
+# rather than a glob, so its disappearance raises FileNotFoundError here and
+# needs no floor of its own.
 _MINIMUM_EXPECTED_FILES = 16
 _MINIMUM_EXPECTED_MATCHES = 55
 
