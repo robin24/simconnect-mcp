@@ -8,4 +8,4 @@ async def test_send_text_reaches_the_sim(live_manager):
     from simconnect_mcp.tools.utilities import send_sim_text
 
     result = await send_sim_text("simconnect-mcp live test", duration_s=3.0)
-    assert result["status"] == "ok"
+    assert result.status == "ok"
