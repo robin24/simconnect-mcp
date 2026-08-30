@@ -4,7 +4,7 @@ from pathlib import Path
 import simconnect_mcp
 from simconnect_mcp.server import mcp
 
-# Anything shaped like a tool name in the embedded docs/prompts -- i.e.
+# Anything shaped like a tool name in agent-facing text -- i.e.
 # msfs_-prefixed -- is a claim that an agent can call that tool. This
 # pattern is deliberately narrow: it must not match bare pre-rename names
 # like "get_simvar" that may legitimately remain in prose describing
@@ -12,13 +12,26 @@ from simconnect_mcp.server import mcp
 # claims about the MCP surface.
 _TOOL_NAME_PATTERN = re.compile(r"\bmsfs_[a-z][a-z0-9_]*\b")
 
+# Established by grepping the tree when this test was written: 58 msfs_
+# references across the 8 docs .md files + templates.py, plus 4 more
+# hardcoded into suggestion= strings under tools/ (20 files total). These
+# are lower bounds, not exact counts, so legitimate future growth doesn't
+# break the test -- but Path.glob() on a renamed/missing directory returns
+# [] with no error, so without a floor a shrunk-to-nothing scan would pass
+# just as silently as a healthy one. See test_docs_and_prompts_only_... below.
+_MINIMUM_EXPECTED_FILES = 20
+_MINIMUM_EXPECTED_MATCHES = 62
 
-def _doc_and_prompt_files() -> list[Path]:
-    """The embedded docs served as MCP resources, plus the prompt templates
-    module -- the two places prose can name a tool for an agent to call."""
+
+def _files_that_can_reference_a_tool() -> list[Path]:
+    """Every place agent-facing text can name a tool: the embedded docs
+    served as MCP resources, the prompt templates module, and the tool
+    source itself -- a handful of hardcoded msfs_* names live in
+    suggestion= strings there too (e.g. "reconnect with msfs_connect")."""
     pkg_dir = Path(simconnect_mcp.__file__).parent
     files = sorted((pkg_dir / "docs").glob("*.md"))
     files.append(pkg_dir / "prompts" / "templates.py")
+    files.extend(sorted((pkg_dir / "tools").rglob("*.py")))
     return files
 
 
@@ -89,15 +102,40 @@ async def test_no_tool_hides_its_arguments_behind_a_params_object():
 
 
 async def test_docs_and_prompts_only_reference_real_tool_names():
-    """The embedded docs and prompt templates tell an agent which tools to
-    call by name. A stale reference -- a rename that missed a file, or a
-    tool consolidated away later -- would ship documentation instructing
-    the agent to call something that no longer exists. Scanning every
-    doc/prompt file for msfs_-shaped names and checking each is actually
-    registered turns the one-time rename sweep into a standing guarantee.
+    """Docs, prompt templates, and hardcoded suggestion= strings in tool
+    source all tell an agent (or a human reading an error message) which
+    tool to call by name. A stale reference -- a rename that missed a
+    file, a tool consolidated away later -- would point at something that
+    no longer exists. Scanning every such file for msfs_-shaped names and
+    checking each is actually registered turns the one-time rename sweep
+    into a standing guarantee.
+
+    The two floor assertions below are load-bearing, not decoration: an
+    earlier version of this test asserted nothing about how many files or
+    matches it found, so when the docs directory was renamed out from
+    under it (reproducing that exact failure), `Path.glob()` silently
+    returned `[]`, the loop below ran zero times, and the test passed at
+    0-and-0 even with a fabricated unregistered tool name planted inside.
     """
     names = await _tools()
-    for path in _doc_and_prompt_files():
+    files = _files_that_can_reference_a_tool()
+    assert len(files) >= _MINIMUM_EXPECTED_FILES, (
+        f"expected to scan at least {_MINIMUM_EXPECTED_FILES} files, found "
+        f"only {len(files)} ({[str(f) for f in files]}) -- did a directory "
+        f"get renamed or moved out from under this test?"
+    )
+
+    total_matches = 0
+    for path in files:
         text = path.read_text(encoding="utf-8")
-        for match in _TOOL_NAME_PATTERN.findall(text):
-            assert match in names, f"{path.name} references unknown tool {match!r}"
+        matches = _TOOL_NAME_PATTERN.findall(text)
+        total_matches += len(matches)
+        for match in matches:
+            assert match in names, f"{path} references unknown tool {match!r}"
+
+    assert total_matches >= _MINIMUM_EXPECTED_MATCHES, (
+        f"expected at least {_MINIMUM_EXPECTED_MATCHES} msfs_-shaped tool "
+        f"references across docs/prompts/tool source, found only "
+        f"{total_matches} -- the scan may be silently covering less than "
+        f"it used to"
+    )

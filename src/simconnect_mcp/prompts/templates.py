@@ -51,8 +51,8 @@ Follow this debugging procedure:
 
 Follow this procedure:
 
-1. **Check MobiFlight availability:** Use `msfs_get_connection_status()` to verify
-   MobiFlight is loaded.
+1. **Check MobiFlight availability:** Use `msfs_get_connection_status()` to verify \
+MobiFlight is loaded.
 
 2. **List all L-vars:** Use `msfs_list_lvars()` to get every L-var registered by this aircraft.
 

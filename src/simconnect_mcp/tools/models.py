@@ -298,7 +298,7 @@ class PmdgEventResult(OkModel):
     message: str
 
 
-class ConnectionStatus(BaseModel):
+class ConnectionStatus(OkModel):
     state: str
     connected: bool
     mobiflight_available: bool
