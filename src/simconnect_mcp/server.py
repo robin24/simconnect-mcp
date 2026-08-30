@@ -38,11 +38,7 @@ mcp = FastMCP(
 from simconnect_mcp.prompts.templates import register_prompts  # noqa: E402
 from simconnect_mcp.resources.documentation import register_doc_resources  # noqa: E402
 from simconnect_mcp.resources.state import register_state_resources  # noqa: E402
-from simconnect_mcp.tools.aircraft import (  # noqa: E402
-    get_aircraft_position,
-    get_aircraft_state,
-    get_aircraft_systems,
-)
+from simconnect_mcp.tools.aircraft import get_aircraft_snapshot  # noqa: E402
 from simconnect_mcp.tools.events import (  # noqa: E402
     search_events,
     trigger_custom_event,
@@ -120,7 +116,7 @@ for tool_fn in [
     trigger_event, search_events, trigger_custom_event,
     get_lvar, set_lvar, list_lvars, execute_calculator_code,
     search_lvars, browse_lvar_catalog,
-    get_aircraft_state, get_aircraft_position, get_aircraft_systems,
+    get_aircraft_snapshot,
     get_nearby_airports, get_facility_info,
     send_sim_text, set_aircraft_position,
     get_pmdg_var, get_pmdg_cdu, send_pmdg_event,

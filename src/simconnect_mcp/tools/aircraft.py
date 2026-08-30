@@ -1,111 +1,147 @@
-"""Aircraft state tools — snapshots of position, systems, and overall state."""
+"""Aircraft state snapshots, grouped into selectable sections.
+
+This module used to hold three separate tools (get_aircraft_state,
+get_aircraft_position, get_aircraft_systems) that differed only in which
+SimVars they read -- get_aircraft_state was close to a superset of the
+other two. They are replaced by get_aircraft_snapshot(sections=[...]),
+one capability instead of three near-duplicate tool entries.
+
+This was also the last module reading through manager.aq (the legacy
+SimConnect.AircraftRequests), via a local _read_vars helper. Every other
+tool module was migrated to manager.accessor (SimVarAccessor) in Phase 0,
+because AircraftRequests binds each variable to one fixed unit, cannot
+reach variables outside its 828-entry table, returns bytes for strings,
+and reports failure as a bare None indistinguishable from "the value is
+zero". This module now reads through manager.accessor.read_many too.
+
+SECTIONS below pins an explicit unit per variable for exactly the same
+reason get_simvar lets a caller override the catalog default: reading
+"whatever unit the catalog happens to default to" is not reproducible.
+Two entries are deliberate improvements over the catalog default rather
+than neutral choices -- PLANE_HEADING_DEGREES_TRUE/_MAGNETIC default to
+Radians in the catalog, and GROUND_ALTITUDE defaults to Meters; both are
+pinned to the unit a human actually wants (degrees, feet).
+"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated
+
+from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
+from simconnect_mcp.tools.models import AircraftSnapshot, ToolError
 
+# (name, unit, index) per section. Units are explicit so the snapshot is
+# reproducible regardless of catalog defaults -- see the module docstring.
+SECTIONS: dict[str, list[tuple[str, str | None, int | None]]] = {
+    "identity": [
+        ("TITLE", None, None),
+        ("ATC_TYPE", None, None),
+        ("ATC_ID", None, None),
+    ],
+    "position": [
+        ("PLANE_LATITUDE", "degrees", None),
+        ("PLANE_LONGITUDE", "degrees", None),
+        ("PLANE_ALTITUDE", "feet", None),
+        ("PLANE_HEADING_DEGREES_TRUE", "degrees", None),
+        ("PLANE_HEADING_DEGREES_MAGNETIC", "degrees", None),
+        ("GROUND_ALTITUDE", "feet", None),
+        ("SIM_ON_GROUND", "bool", None),
+        ("AIRSPEED_INDICATED", "knots", None),
+        ("AIRSPEED_TRUE", "knots", None),
+        ("GROUND_VELOCITY", "knots", None),
+        ("VERTICAL_SPEED", "feet per minute", None),
+    ],
+    "engines": [
+        ("GENERAL_ENG_THROTTLE_LEVER_POSITION", "percent", 1),
+        ("GENERAL_ENG_THROTTLE_LEVER_POSITION", "percent", 2),
+        ("ENG_N1_RPM", "percent", 1),
+        ("ENG_N1_RPM", "percent", 2),
+        ("ENG_N2_RPM", "percent", 1),
+        ("ENG_N2_RPM", "percent", 2),
+        ("FUEL_TOTAL_QUANTITY", "gallons", None),
+        ("FUEL_TOTAL_QUANTITY_WEIGHT", "pounds", None),
+    ],
+    "systems": [
+        ("ELECTRICAL_MASTER_BATTERY", "bool", None),
+        ("ELECTRICAL_AVIONICS_BUS_VOLTAGE", "volts", None),
+        ("GENERAL_ENG_GENERATOR_ACTIVE", "bool", 1),
+        ("GENERAL_ENG_GENERATOR_ACTIVE", "bool", 2),
+        ("FLAPS_HANDLE_INDEX", "number", None),
+        ("GEAR_HANDLE_POSITION", "bool", None),
+        ("SPOILERS_HANDLE_POSITION", "percent", None),
+        ("ELEVATOR_POSITION", "position", None),
+        ("AILERON_POSITION", "position", None),
+        ("RUDDER_POSITION", "position", None),
+    ],
+    "autopilot": [
+        ("AUTOPILOT_MASTER", "bool", None),
+        ("AUTOPILOT_HEADING_LOCK_DIR", "degrees", None),
+        ("AUTOPILOT_ALTITUDE_LOCK_VAR", "feet", None),
+        ("AUTOPILOT_VERTICAL_HOLD_VAR", "feet per minute", None),
+        ("AUTOPILOT_AIRSPEED_HOLD_VAR", "knots", None),
+    ],
+    "environment": [
+        ("AMBIENT_TEMPERATURE", "celsius", None),
+        ("AMBIENT_WIND_VELOCITY", "knots", None),
+        ("AMBIENT_WIND_DIRECTION", "degrees", None),
+        ("BAROMETER_PRESSURE", "millibars", None),
+        ("SIMULATION_RATE", "number", None),
+        ("ZULU_TIME", "seconds", None),
+        ("LOCAL_TIME", "seconds", None),
+    ],
+}
 
-def _read_vars(manager: SimConnectManager, var_names: list[str]) -> dict[str, Any]:
-    """Read multiple SimVars, returning a dict of name→value."""
-    result = {}
-    for name in var_names:
-        try:
-            result[name] = manager.aq.get(name)
-        except Exception:
-            result[name] = None
-    return result
-
-
-@handle_simconnect_errors
-@require_connection
-async def get_aircraft_state() -> dict:
-    """Get a comprehensive aircraft state snapshot (~30 key SimVars).
-
-    Returns position, speed, heading, altitude, control surfaces, engine
-    state, fuel, electrical, autopilot, and other key parameters.
-    """
-    manager = SimConnectManager()
-
-    vars_to_read = [
-        # Identity
-        "TITLE", "ATC_TYPE", "ATC_ID",
-        # Position
-        "PLANE_LATITUDE", "PLANE_LONGITUDE", "PLANE_ALTITUDE",
-        "PLANE_HEADING_DEGREES_MAGNETIC", "PLANE_HEADING_DEGREES_TRUE",
-        "GROUND_ALTITUDE", "SIM_ON_GROUND",
-        # Speed
-        "AIRSPEED_INDICATED", "AIRSPEED_TRUE", "GROUND_VELOCITY", "VERTICAL_SPEED",
-        # Controls
-        "FLAPS_HANDLE_INDEX", "GEAR_HANDLE_POSITION", "SPOILERS_HANDLE_POSITION",
-        "ELEVATOR_POSITION", "AILERON_POSITION", "RUDDER_POSITION",
-        # Engine
-        "GENERAL_ENG_THROTTLE_LEVER_POSITION:1",
-        "FUEL_TOTAL_QUANTITY_WEIGHT",
-        # Electrical
-        "ELECTRICAL_MASTER_BATTERY",
-        # Autopilot
-        "AUTOPILOT_MASTER", "AUTOPILOT_HEADING_LOCK_DIR",
-        "AUTOPILOT_ALTITUDE_LOCK_VAR",
-        # Environment
-        "AMBIENT_TEMPERATURE", "BAROMETER_PRESSURE",
-        # Sim
-        "SIMULATION_RATE", "LOCAL_TIME", "ZULU_TIME",
-    ]
-
-    data = await manager.run_sync(_read_vars, manager, vars_to_read)
-    return {"status": "ok", "aircraft_state": data}
-
-
-@handle_simconnect_errors
-@require_connection
-async def get_aircraft_position() -> dict:
-    """Get aircraft position, heading, speed, and ground contact state.
-
-    Returns a focused subset of position-related SimVars.
-    """
-    manager = SimConnectManager()
-
-    vars_to_read = [
-        "PLANE_LATITUDE", "PLANE_LONGITUDE", "PLANE_ALTITUDE",
-        "PLANE_HEADING_DEGREES_TRUE", "PLANE_HEADING_DEGREES_MAGNETIC",
-        "GROUND_ALTITUDE", "SIM_ON_GROUND",
-        "AIRSPEED_INDICATED", "GROUND_VELOCITY", "VERTICAL_SPEED",
-    ]
-
-    data = await manager.run_sync(_read_vars, manager, vars_to_read)
-    return {"status": "ok", "position": data}
+_VALID_SECTIONS = ", ".join(SECTIONS)
 
 
 @handle_simconnect_errors
 @require_connection
-async def get_aircraft_systems() -> dict:
-    """Get aircraft systems state — engines, fuel, electrical, hydraulics.
+async def get_aircraft_snapshot(
+    # Deliberately no min_length/max_length here, mirroring
+    # get_simvar_bulk's identical choice in simvars.py: every entry is
+    # validated against SECTIONS below and rejected with a friendly,
+    # dynamically-generated INVALID_SECTION suggestion naming the valid
+    # options. A schema-level bound would only ever reject something this
+    # runtime check already rejects better -- trading a specific "did you
+    # mean one of: identity, position, ..." for a generic framework
+    # validation error -- so it would make the failure case worse, not
+    # safer, with no corresponding SimConnect-side cost to guard against
+    # (unlike get_simvar_bulk's variables, SECTIONS' variable lists are
+    # fixed by us, not the caller; selecting all six sections still reads a
+    # small, constant, already-known number of variables in one batch).
+    sections: Annotated[
+        list[str] | None,
+        Field(
+            description=f"Sections to include: {_VALID_SECTIONS}. Omit for all of them."
+        ),
+    ] = None,
+) -> AircraftSnapshot | ToolError:
+    """Read a snapshot of the current aircraft state.
 
-    Returns engine parameters (up to 4 engines), fuel quantities,
-    electrical bus states, and other system variables.
+    Narrow with 'sections' to keep the response small -- for example
+    sections=['position'] for a position fix, or ['engines', 'systems']
+    when debugging a systems issue. All variables across the chosen
+    sections are read in a single batched call.
     """
+    if sections is None:
+        chosen = list(SECTIONS)
+    else:
+        chosen = list(dict.fromkeys(sections))  # dedupe, preserve order
+        unknown = [s for s in chosen if s not in SECTIONS]
+        if unknown:
+            return ToolError(
+                error="INVALID_SECTION",
+                message=f"Unknown section(s): {', '.join(unknown)}",
+                suggestion=f"Valid sections are: {_VALID_SECTIONS}.",
+            )
+
+    requests: list[tuple[str, str | None, int | None]] = []
+    for section in chosen:
+        requests.extend(SECTIONS[section])
+
     manager = SimConnectManager()
-
-    vars_to_read = [
-        # Engines (up to 2 for brevity)
-        "GENERAL_ENG_THROTTLE_LEVER_POSITION:1",
-        "GENERAL_ENG_THROTTLE_LEVER_POSITION:2",
-        "ENG_N1_RPM:1", "ENG_N1_RPM:2",
-        "ENG_N2_RPM:1", "ENG_N2_RPM:2",
-        # Fuel
-        "FUEL_TOTAL_QUANTITY", "FUEL_TOTAL_QUANTITY_WEIGHT",
-        # Electrical
-        "ELECTRICAL_MASTER_BATTERY",
-        "ELECTRICAL_AVIONICS_BUS_VOLTAGE",
-        "GENERAL_ENG_GENERATOR_ACTIVE:1",
-        "GENERAL_ENG_GENERATOR_ACTIVE:2",
-        # Controls
-        "FLAPS_HANDLE_INDEX", "GEAR_HANDLE_POSITION",
-        "SPOILERS_HANDLE_POSITION",
-    ]
-
-    data = await manager.run_sync(_read_vars, manager, vars_to_read)
-    return {"status": "ok", "systems": data}
+    data = await manager.run_sync(lambda: manager.accessor.read_many(requests))
+    return AircraftSnapshot(sections=chosen, data=data)
