@@ -124,7 +124,7 @@ def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> ToolE
 
 
 @handle_simconnect_errors
-@require_connection
+@require_connection(needs_accessor=True)
 async def get_simvar(
     name: Annotated[
         str,
@@ -159,7 +159,7 @@ async def get_simvar(
 
 
 @handle_simconnect_errors
-@require_connection
+@require_connection(needs_accessor=True)
 async def set_simvar(
     name: Annotated[str, Field(description="SimVar name; must be settable",
                                min_length=1, max_length=128)],
@@ -274,7 +274,7 @@ def diagnose_bulk_entries(
 
 
 @handle_simconnect_errors
-@require_connection
+@require_connection(needs_accessor=True)
 async def get_simvar_bulk(
     variables: Annotated[
         list[dict],
@@ -392,7 +392,7 @@ async def list_simvar_categories() -> CategoryList | ToolError:
 
 
 @handle_simconnect_errors
-@require_connection
+@require_connection(needs_accessor=True)
 async def watch_simvar(
     name: Annotated[
         str, Field(description="SimVar name to watch", min_length=1, max_length=128)

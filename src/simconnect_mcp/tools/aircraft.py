@@ -99,7 +99,7 @@ _VALID_SECTIONS = ", ".join(SECTIONS)
 
 
 @handle_simconnect_errors
-@require_connection
+@require_connection(needs_accessor=True)
 async def get_aircraft_snapshot(
     # Deliberately no min_length/max_length here, mirroring
     # get_simvar_bulk's identical choice in simvars.py: every entry is
