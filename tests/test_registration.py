@@ -12,15 +12,25 @@ from simconnect_mcp.server import mcp
 # claims about the MCP surface.
 _TOOL_NAME_PATTERN = re.compile(r"\bmsfs_[a-z][a-z0-9_]*\b")
 
-# Established by grepping the tree when this test was written: 58 msfs_
-# references across the 8 docs .md files + templates.py, plus 4 more
-# hardcoded into suggestion= strings under tools/ (20 files total). These
-# are lower bounds, not exact counts, so legitimate future growth doesn't
-# break the test -- but Path.glob() on a renamed/missing directory returns
-# [] with no error, so without a floor a shrunk-to-nothing scan would pass
-# just as silently as a healthy one. See test_docs_and_prompts_only_... below.
-_MINIMUM_EXPECTED_FILES = 20
-_MINIMUM_EXPECTED_MATCHES = 62
+# Measured when this test was written: 62 msfs_ references across 20 files
+# -- the 8 docs .md files, templates.py, and 11 tools/**/*.py modules, four
+# of which hardcode a tool name into a suggestion= string.
+#
+# These floors exist for ONE purpose: catching a wholesale scan failure.
+# Path.glob() on a renamed or moved directory returns [] with no error, so
+# without them a scan that shrank to nothing would pass exactly as silently
+# as a healthy one -- which is precisely how an earlier version of this test
+# passed at 0 files and 0 matches with a fabricated tool name planted in the
+# corpus. Genuine staleness is caught by the per-match assertion below, not
+# by these numbers.
+#
+# So they are deliberately set BELOW the measured values. Pinning them to the
+# exact current count would red the suite on any ordinary edit that merges two
+# docs or rewords one suggestion= string, and a test that cries wolf on
+# routine churn gets its constant nudged without thought -- including on the
+# day it drops for a real reason.
+_MINIMUM_EXPECTED_FILES = 16
+_MINIMUM_EXPECTED_MATCHES = 55
 
 
 def _files_that_can_reference_a_tool() -> list[Path]:
