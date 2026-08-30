@@ -417,7 +417,17 @@ class ConnectionStatus(OkModel):
 
 
 class FlightResult(OkModel):
-    """Confirmation that a flight/flight-plan file operation completed."""
+    """Confirmation that a flight/flight-plan file operation completed.
+
+    Does not arrive until MSFS is answering SimConnect again, not merely
+    once the underlying save/load call itself finished -- see
+    tools/flight.py's _wait_for_sim_responsive. Measured live,
+    msfs_save_flight's FlightSave writes its file in a fraction of a
+    second but then leaves MSFS unable to answer SimConnect at all for
+    ~14s; `duration_s` reports the true cost of that instead of the
+    file-exists moment, and `warning` fires only if MSFS still had not
+    resumed answering once the (much longer) wait bound elapsed.
+    """
 
     action: str = Field(
         ..., description="Which operation ran: msfs_load_flight, msfs_save_flight, or "
@@ -425,6 +435,19 @@ class FlightResult(OkModel):
     )
     path: str = Field(..., description="Absolute path of the file involved")
     message: str
+    duration_s: float = Field(
+        ..., description="Total time this call took, in seconds -- including the wait "
+        "for MSFS to resume answering SimConnect after the underlying save/load. A "
+        "save or load can legitimately take upwards of ten seconds; this lets a "
+        "caller tell a slow-but-successful call apart from a hung one."
+    )
+    warning: str | None = Field(
+        None,
+        description="Set when MSFS had not resumed answering SimConnect requests "
+        "within the wait bound after this operation completed. status is still "
+        "'ok' -- the save/load itself succeeded -- but the sim may still be busy, "
+        "so the very next tool call could be slow or fail.",
+    )
 
 
 class AiObjectResult(OkModel):

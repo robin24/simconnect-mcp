@@ -10,9 +10,12 @@ since writing a flight file to a temp path is not disruptive.
 """
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from types import SimpleNamespace
+
+import pytest
 
 from simconnect_mcp.tools.flight import (
     create_ai_object,
@@ -53,6 +56,12 @@ async def test_load_flight_calls_the_library(mock_simconnect, tmp_path):
     assert isinstance(result, FlightResult)
     assert result.status == "ok"
     mock_simconnect["sm"].load_flight.assert_called_once_with(str(flt))
+    # The mock accessor answers every probe immediately (see conftest.py's
+    # simulated_read_seconds default), so the sim recovery wait resolves on
+    # its first read and must not attach a warning.
+    assert result.warning is None
+    assert isinstance(result.duration_s, float)
+    assert result.duration_s >= 0
 
 
 async def test_load_flight_reports_load_failed_when_the_library_returns_false(
@@ -84,6 +93,11 @@ async def test_save_flight_verifies_the_file_rather_than_the_return_value(
 
     result = await save_flight(str(target), title="T", description="D")
     assert result.status == "ok"
+    # The mock accessor answers every probe immediately, so the sim
+    # recovery wait resolves on its first read and must not warn.
+    assert result.warning is None
+    assert isinstance(result.duration_s, float)
+    assert result.duration_s >= 0
 
 
 async def test_save_flight_reports_a_genuine_failure(mock_simconnect, tmp_path):
@@ -209,6 +223,9 @@ async def test_load_flight_plan_calls_the_library(mock_simconnect, tmp_path):
     assert isinstance(result, FlightResult)
     assert result.status == "ok"
     mock_simconnect["sm"].load_flight_plan.assert_called_once_with(str(pln))
+    assert result.warning is None
+    assert isinstance(result.duration_s, float)
+    assert result.duration_s >= 0
 
 
 async def test_load_flight_plan_reports_load_failed_when_the_library_returns_false(
@@ -221,6 +238,207 @@ async def test_load_flight_plan_reports_load_failed_when_the_library_returns_fal
     result = await load_flight_plan(str(pln))
     assert isinstance(result, ToolError)
     assert result.error == "LOAD_FAILED"
+
+
+# --- sim recovery wait (shared by load_flight/save_flight/load_flight_plan) ---
+#
+# Task 9 live verification: FlightSave writes its file in a fraction of a
+# second but then leaves MSFS unable to answer SimConnect at all for ~14s
+# (measured live -- see tools/flight.py's _SIM_RECOVERY_TIMEOUT_S comment).
+# The old save_flight returned as soon as the file existed, so the agent's
+# NEXT tool call failed against a sim that could not yet respond. These
+# tests cover _wait_for_sim_responsive directly (fast, via monkeypatched
+# constants -- the same technique test_facilities_tools.py's
+# _COLLECT_TIMEOUT/_POLL_INTERVAL tests use) and how the three flight tools
+# wire its result into FlightResult.warning/duration_s.
+
+
+async def test_wait_for_sim_responsive_returns_true_as_soon_as_a_probe_succeeds(
+    mock_simconnect,
+):
+    from simconnect_mcp.tools.flight import _wait_for_sim_responsive
+
+    # conftest.py's mock accessor answers immediately by default
+    # (simulated_read_seconds=0.0), so this must resolve on the first probe.
+    assert await _wait_for_sim_responsive(mock_simconnect["manager"]) is True
+
+
+async def test_wait_for_sim_responsive_does_not_wait_without_an_accessor(mock_simconnect):
+    """The plain-SimConnect fallback (connection.py's connect(), when the
+    dispatcher fails to build) never creates a SimVarAccessor. The flight
+    tools' primary save/load action does not need one either (same rule
+    require_connection's needs_accessor docstring documents), so a missing
+    accessor must degrade to "don't wait" rather than hang or refuse."""
+    from simconnect_mcp.tools.flight import _wait_for_sim_responsive
+
+    manager = mock_simconnect["manager"]
+    manager.accessor = None
+    assert await _wait_for_sim_responsive(manager) is True
+
+
+async def test_wait_for_sim_responsive_gives_up_after_its_bound(mock_simconnect, monkeypatch):
+    """If every probe keeps timing out, this must give up at
+    _SIM_RECOVERY_TIMEOUT_S rather than waiting forever -- shrunk here via
+    monkeypatch so the test runs in milliseconds instead of the production
+    30s."""
+    from simconnect_mcp.tools import flight as flight_module
+
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_PROBE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_POLL_INTERVAL_S", 0.02)
+
+    manager = mock_simconnect["manager"]
+    manager.accessor.simulated_read_seconds = 999.0  # every probe times out
+
+    assert await flight_module._wait_for_sim_responsive(manager) is False
+
+
+async def test_save_flight_attaches_a_warning_when_the_sim_stays_unresponsive(
+    mock_simconnect, tmp_path, monkeypatch
+):
+    """The file existing is not the same as the sim being usable again. If
+    MSFS has not resumed answering within the wait bound, save_flight must
+    still report success -- the file really is on disk -- but flag it, so
+    the caller knows the very next tool call could be slow or fail."""
+    from simconnect_mcp.tools import flight as flight_module
+
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_PROBE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_POLL_INTERVAL_S", 0.02)
+    mock_simconnect["accessor"].simulated_read_seconds = 999.0
+
+    target = tmp_path / "saved.FLT"
+
+    def _fake_save(path, title, description, *a, **k):
+        target.write_text("[Main]")
+        return False
+
+    mock_simconnect["sm"].save_flight.side_effect = _fake_save
+
+    result = await flight_module.save_flight(str(target), title="T", description="D")
+
+    assert result.status == "ok", getattr(result, "message", result)
+    assert target.exists()
+    assert result.warning is not None
+    assert "resumed answering" in result.warning
+    assert "save" in result.warning
+    assert result.duration_s >= 0.2
+
+
+async def test_load_flight_attaches_a_warning_when_the_sim_stays_unresponsive(
+    mock_simconnect, tmp_path, monkeypatch
+):
+    from simconnect_mcp.tools import flight as flight_module
+
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_PROBE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_POLL_INTERVAL_S", 0.02)
+    mock_simconnect["accessor"].simulated_read_seconds = 999.0
+
+    flt = tmp_path / "test.FLT"
+    flt.write_text("[Main]")
+    mock_simconnect["sm"].load_flight.return_value = True
+
+    result = await flight_module.load_flight(str(flt))
+
+    assert result.status == "ok", getattr(result, "message", result)
+    assert result.warning is not None
+    assert "resumed answering" in result.warning
+    assert "load" in result.warning
+
+
+async def test_load_flight_plan_attaches_a_warning_when_the_sim_stays_unresponsive(
+    mock_simconnect, tmp_path, monkeypatch
+):
+    from simconnect_mcp.tools import flight as flight_module
+
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_PROBE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_POLL_INTERVAL_S", 0.02)
+    mock_simconnect["accessor"].simulated_read_seconds = 999.0
+
+    pln = tmp_path / "test.PLN"
+    pln.write_text("<FlightPlan/>")
+    mock_simconnect["sm"].load_flight_plan.return_value = True
+
+    result = await flight_module.load_flight_plan(str(pln))
+
+    assert result.status == "ok", getattr(result, "message", result)
+    assert result.warning is not None
+    assert "resumed answering" in result.warning
+    assert "flight-plan load" in result.warning
+
+
+async def test_a_cancelled_save_flight_leaves_the_lock_free(
+    mock_simconnect, tmp_path, monkeypatch
+):
+    """IMPORTANT (task-9-fix-brief.md): the recovery wait is long enough in
+    production (~14-30s) for the caller's MCP request to be cancelled
+    mid-wait (notifications/cancelled cancels this coroutine's task). Each
+    probe is one complete, independent SimVarAccessor.read() call -- unlike
+    tools/facilities.py's subscription or tools/lvars.py's response
+    handler, nothing here is registered before the poll loop's `await
+    asyncio.sleep()` and torn down after it, so there is no handler to
+    leak -- but SimConnectManager._sim_lock is real, and this proves a
+    cancellation genuinely leaves it free rather than merely arguing it by
+    inspection. Mirrors
+    test_facilities_tools.py's test_a_cancelled_collection_still_unsubscribes
+    and test_lvar_listing.py's test_a_cancelled_call_still_removes_its_handler.
+    """
+    from simconnect_mcp.tools import flight as flight_module
+
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_TIMEOUT_S", 5.0)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_PROBE_TIMEOUT_S", 0.2)
+    monkeypatch.setattr(flight_module, "_SIM_RECOVERY_POLL_INTERVAL_S", 0.05)
+
+    manager = mock_simconnect["manager"]
+    # Never "recovers" -- every probe times out -- so the wait loop is
+    # guaranteed to still be polling (asleep between probes, lock released)
+    # when this test cancels the task.
+    manager.accessor.simulated_read_seconds = 999.0
+
+    target = tmp_path / "cancel_test.FLT"
+
+    def _fake_save(path, title, description, *a, **k):
+        target.write_text("[Main]")
+        return False
+
+    mock_simconnect["sm"].save_flight.side_effect = _fake_save
+
+    task = asyncio.create_task(
+        flight_module.save_flight(str(target), title="T", description="D")
+    )
+
+    # Let the task save the file (fast) and reach the recovery wait's poll
+    # loop, which -- at a 5.0s bound -- is guaranteed to still be running.
+    await asyncio.sleep(0.15)
+    assert not task.done(), "the recovery wait should still be polling"
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=2.0)
+
+    # Nothing left locked: a fresh, non-blocking acquire must succeed.
+    assert manager._sim_lock.acquire(blocking=False), (
+        "a cancelled save_flight left SimConnectManager._sim_lock held"
+    )
+    manager._sim_lock.release()
+
+    # A follow-up call must still work normally -- proves the cancellation
+    # didn't wedge the manager or leave a stale registry entry behind.
+    manager.accessor.simulated_read_seconds = 0.0
+    follow_up_target = tmp_path / "cancel_test_followup.FLT"
+
+    def _fake_save_followup(path, title, description, *a, **k):
+        follow_up_target.write_text("[Main]")
+        return False
+
+    mock_simconnect["sm"].save_flight.side_effect = _fake_save_followup
+
+    follow_up = await flight_module.save_flight(
+        str(follow_up_target), title="T2", description="D2"
+    )
+    assert follow_up.status == "ok", getattr(follow_up, "message", follow_up)
 
 
 # --- create_ai_object ---
