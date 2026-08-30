@@ -26,7 +26,7 @@ from simconnect_mcp.tools.formatting import (
     ResponseFormat,
     build_search_result,
     paginate,
-    render_table,
+    render_paginated_table,
 )
 from simconnect_mcp.tools.models import (
     CalculatorResult,
@@ -406,7 +406,9 @@ async def browse_lvar_catalog(
             page=page,
             variables=None if response_format is ResponseFormat.MARKDOWN else rows,
             markdown=(
-                render_table(rows, LVAR_COLUMNS, title=f"Panel: {found['panel']}")
+                render_paginated_table(
+                    rows, page, LVAR_COLUMNS, title=f"Panel: {found['panel']}"
+                )
                 if response_format is ResponseFormat.MARKDOWN
                 else None
             ),
@@ -429,8 +431,9 @@ async def browse_lvar_catalog(
             page=page,
             panels=None if response_format is ResponseFormat.MARKDOWN else rows,
             markdown=(
-                render_table(
+                render_paginated_table(
                     rows,
+                    page,
                     [("panel", "Panel"), ("variable_count", "Variables")],
                     title=f"Panels in {catalog_key}",
                 )
@@ -445,8 +448,9 @@ async def browse_lvar_catalog(
         page=page,
         catalogs=None if response_format is ResponseFormat.MARKDOWN else rows,
         markdown=(
-            render_table(
+            render_paginated_table(
                 rows,
+                page,
                 [
                     ("key", "Key"),
                     ("aircraft", "Aircraft"),

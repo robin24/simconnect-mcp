@@ -131,3 +131,63 @@ async def test_browse_markdown_format_also_surfaces_the_disclosure(mock_simconne
     assert result.message is not None
     assert result.markdown is not None
     assert result.message in result.markdown
+
+
+# ---------------------------------------------------------------------------
+# browse_lvar_catalog's markdown must never truncate silently.
+#
+# Task 2 built build_search_result, whose markdown footer names the
+# withheld rows and the offset to continue with. Task 5 reimplemented
+# pagination for browse_lvar_catalog with paginate + render_table directly
+# and dropped that footer, so all three of its branches truncated in
+# silence -- in the DEFAULT format, and while search_lvars, in the same
+# module, disclosed the remainder for the same edge.
+#
+# One test per branch, deliberately: the bug WAS that the branches
+# diverged, so a single test over one of them could not have caught it.
+# All three fail against the pre-fix code (verified by reverting each
+# branch to render_table).
+# ---------------------------------------------------------------------------
+
+_MORE_MARKER = "more result(s)"
+
+
+async def test_panel_branch_markdown_names_the_withheld_variables(mock_simconnect):
+    """284 variables against the default limit of 25: 91% withheld.
+
+    A client reading the table sees what looks like a complete listing of
+    the COMMUNICATION panel unless the footer says otherwise.
+    """
+    result = await browse_lvar_catalog(catalog="pmdg_737", panel="COMMUNICATION")
+    assert result.page.has_more and result.page.total > result.page.count
+    assert _MORE_MARKER in result.markdown
+    assert str(result.page.total - result.page.count) in result.markdown
+    assert f"offset={result.page.next_offset}" in result.markdown
+
+
+async def test_panel_list_branch_markdown_names_the_withheld_panels(mock_simconnect):
+    """All three bundled catalogs have 26-28 panels against a default limit
+    of 25, so the plain catalog listing hits this on every ordinary call."""
+    result = await browse_lvar_catalog(catalog="pmdg_777")
+    assert result.page.has_more, "pmdg_777 should have more panels than the default limit"
+    assert _MORE_MARKER in result.markdown
+    assert f"offset={result.page.next_offset}" in result.markdown
+
+
+async def test_catalog_list_branch_markdown_names_the_withheld_catalogs(mock_simconnect):
+    """The no-arguments branch. Only three catalogs ship, so this forces the
+    edge with an explicit limit rather than waiting for a fourth to be
+    added -- the branch's rendering is what is under test, not the fixture
+    data's size."""
+    result = await browse_lvar_catalog(limit=1)
+    assert result.page.has_more
+    assert _MORE_MARKER in result.markdown
+    assert f"offset={result.page.next_offset}" in result.markdown
+
+
+async def test_browse_markdown_has_no_footer_when_nothing_is_withheld(mock_simconnect):
+    """The footer is a disclosure, not decoration: a complete page must not
+    claim there is more to fetch."""
+    result = await browse_lvar_catalog(limit=200)
+    assert not result.page.has_more
+    assert _MORE_MARKER not in result.markdown

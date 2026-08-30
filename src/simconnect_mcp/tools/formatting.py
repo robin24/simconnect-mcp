@@ -63,6 +63,34 @@ def render_table(
     return "\n".join(lines)
 
 
+def render_paginated_table(
+    rows: Sequence[dict[str, Any]],
+    page: Page,
+    columns: Sequence[tuple[str, str]],
+    title: str | None = None,
+) -> str:
+    """Render one page of rows, disclosing anything the page withheld.
+
+    Markdown is the DEFAULT format for every search and browse tool, so a
+    table that just stops at the limit reads as a complete listing: nothing
+    in the rendered output says otherwise, and `has_more` lives only in
+    structuredContent. browse_lvar_catalog reimplemented pagination with
+    paginate + render_table directly and dropped this footer, so a
+    284-variable panel rendered its first 25 rows and ended -- 91% of the
+    result gone with no signal -- while search_lvars, in the same module,
+    named the remainder. Silent truncation is a claim that the listing is
+    complete; this exists so no branch can make it by omission.
+    """
+    markdown = render_table(rows, columns, title=title)
+    if not page.has_more:
+        return markdown
+    remaining = page.total - (page.offset + page.count)
+    return markdown + (
+        f"\n\n_{remaining} more result(s). "
+        f"Call again with offset={page.next_offset} to continue._"
+    )
+
+
 def build_search_result(
     rows: Sequence[dict[str, Any]],
     offset: int,
@@ -81,13 +109,10 @@ def build_search_result(
             page=page, results=window, markdown=None, query=query, filters=filters
         )
 
-    markdown = render_table(window, columns, title=title)
-    if page.has_more:
-        remaining = page.total - (page.offset + page.count)
-        markdown += (
-            f"\n\n_{remaining} more result(s). "
-            f"Call again with offset={page.next_offset} to continue._"
-        )
     return SearchResult(
-        page=page, results=None, markdown=markdown, query=query, filters=filters
+        page=page,
+        results=None,
+        markdown=render_paginated_table(window, page, columns, title=title),
+        query=query,
+        filters=filters,
     )
