@@ -129,8 +129,9 @@ async def list_lvars() -> LVarList | ToolError:
         error="NOT_IMPLEMENTED",
         message="Enumerating active L-vars is not implemented yet.",
         suggestion=(
-            "Use get_lvar to read a specific L-var by name, or search_lvars / "
-            "browse_lvar_catalog to find known variable names for the loaded aircraft. "
+            "Use msfs_get_lvar to read a specific L-var by name, or msfs_search_lvars "
+            "/ msfs_browse_lvar_catalog to find known variable names for the loaded "
+            "aircraft. "
             "Common prefixes for popular aircraft: A32NX_ (FBW A320), WT_CJ4_ (Working "
             "Title CJ4), AS1000_ (G1000), ASCRJ_ (Aerosoft CRJ)."
         ),
@@ -213,7 +214,7 @@ def _no_detection_message(covered: str, valid_keys: set[str]) -> str:
     return (
         f"No aircraft catalog was auto-detected, so {covered}. "
         f"Pass catalog=<key> to scope it (available: {available}), or call "
-        "browse_lvar_catalog() with no arguments for details."
+        "msfs_browse_lvar_catalog() with no arguments for details."
     )
 
 
@@ -228,7 +229,7 @@ def _unknown_catalog_error(catalog: str, valid_keys: set[str]) -> ToolError:
         message=f"Unknown catalog '{catalog}'.",
         suggestion=(
             f"Use one of: {', '.join(sorted(valid_keys))} "
-            "(call browse_lvar_catalog() with no arguments to list them)."
+            "(call msfs_browse_lvar_catalog() with no arguments to list them)."
         ),
     )
 
@@ -397,7 +398,10 @@ async def browse_lvar_catalog(
             return ToolError(
                 error="PANEL_NOT_FOUND",
                 message=f"No panel matching '{panel}' found.",
-                suggestion="Call browse_lvar_catalog without 'panel' to list available panels.",
+                suggestion=(
+                    "Call msfs_browse_lvar_catalog without 'panel' to list "
+                    "available panels."
+                ),
             )
         rows, page = paginate(found["variables"], offset, limit)
         result = CatalogBrowse(

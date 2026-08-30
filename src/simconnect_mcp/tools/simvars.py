@@ -102,7 +102,7 @@ def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> ToolE
         return ToolError(
             error="SIMVAR_NOT_FOUND",
             message=f"SimConnect does not recognise SimVar '{name}'",
-            suggestion="Use search_simvars to find the correct name.",
+            suggestion="Use msfs_search_simvars to find the correct name.",
             suggestions=suggest_names(name) or None,
         )
     if isinstance(e, UnitMismatchError):
@@ -110,7 +110,7 @@ def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> ToolE
             error="UNIT_MISMATCH",
             message=str(e),
             suggestion=(
-                f"Check the units for '{name}' with search_simvars, "
+                f"Check the units for '{name}' with msfs_search_simvars, "
                 "or omit the unit argument to use the catalog default."
             ),
         )
@@ -145,7 +145,7 @@ async def get_simvar(
     """Read a SimVar value by name, in the requested unit.
 
     Returns the value together with the unit it was actually read in.
-    Use search_simvars first if you are unsure of the exact name or units.
+    Use msfs_search_simvars first if you are unsure of the exact name or units.
     """
     manager = SimConnectManager()
     resolved_unit = resolve_unit(name, unit)
@@ -176,7 +176,7 @@ async def set_simvar(
     """Write a value to a settable SimVar.
 
     Fails with a specific error if the sim rejects the write, rather than
-    reporting success. Check the 'settable' flag with search_simvars first.
+    reporting success. Check the 'settable' flag with msfs_search_simvars first.
     """
     manager = SimConnectManager()
     resolved_unit = resolve_unit(name, unit)
@@ -195,7 +195,8 @@ async def set_simvar(
             message=str(e),
             suggestion=(
                 f"'{name}' appears to be read-only. Look for an event that changes it "
-                "with search_events, or an aircraft-specific L-var with search_lvars. "
+                "with msfs_search_events, or an aircraft-specific L-var with "
+                "msfs_search_lvars. "
                 "Note the catalog's 'settable' flag is unreliable, so a variable it "
                 "marks read-only may still accept writes."
             ),
@@ -304,7 +305,7 @@ async def get_simvar_bulk(
         return ToolError(
             error="TOO_MANY_VARIABLES",
             message=(
-                f"Requested {len(variables)} variables; get_simvar_bulk accepts at "
+                f"Requested {len(variables)} variables; msfs_get_simvars_bulk accepts at "
                 f"most {MAX_BULK_VARIABLES} per call."
             ),
             suggestion=f"Split the request into batches of {MAX_BULK_VARIABLES} or fewer.",
@@ -367,7 +368,8 @@ async def search_simvars(
     """Search the SimVar catalog by keyword.
 
     Returns each variable's units and whether it is settable, so you can call
-    get_simvar or set_simvar with the right arguments. Results are paginated.
+    msfs_get_simvar or msfs_set_simvar with the right arguments. Results are
+    paginated.
     """
     rows = search_catalog(keyword, category)
     return build_search_result(
@@ -382,7 +384,7 @@ async def list_simvar_categories() -> CategoryList | ToolError:
     """List every SimVar category with its variable count.
 
     Use this to discover category names for the 'category' filter on
-    search_simvars.
+    msfs_search_simvars.
     """
     catalog = load_catalog()
     categories = {name: len(entries) for name, entries in catalog.items()}

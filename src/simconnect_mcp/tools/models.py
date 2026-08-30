@@ -35,16 +35,16 @@ class ToolError(BaseModel):
 _ERROR_CODES: dict[type[SimVarError], tuple[str, str]] = {
     SimVarNotFoundError: (
         "SIMVAR_NOT_FOUND",
-        "Use search_simvars to find the correct variable name.",
+        "Use msfs_search_simvars to find the correct variable name.",
     ),
     SimVarNotSettableError: (
         "SIMVAR_NOT_SETTABLE",
         "This variable is read-only. Check the 'settable' flag with "
-        "search_simvars, or use trigger_event for an equivalent control.",
+        "msfs_search_simvars, or use msfs_trigger_event for an equivalent control.",
     ),
     UnitMismatchError: (
         "UNIT_MISMATCH",
-        "Check the variable's units with search_simvars, or omit the unit "
+        "Check the variable's units with msfs_search_simvars, or omit the unit "
         "argument to use the catalog default.",
     ),
     SimVarTimeoutError: (

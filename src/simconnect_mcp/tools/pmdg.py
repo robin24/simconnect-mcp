@@ -215,7 +215,7 @@ async def get_pmdg_var(
     name: Annotated[
         str,
         Field(
-            description="Variable name from the PMDG catalog. Use search_lvars() to "
+            description="Variable name from the PMDG catalog. Use msfs_search_lvars() to "
             "discover available variables. Examples: 'ELEC_Battery_Sw_ON', "
             "'MCP_IASMach', 'FUEL_QtyCenter'.",
             min_length=1,
@@ -262,7 +262,7 @@ async def get_pmdg_var(
         return ToolError(
             error="FIELD_NOT_FOUND",
             message=f"Variable '{name}' not found in {catalog_key} catalog.",
-            suggestion="Use search_lvars() to find available variables.",
+            suggestion="Use msfs_search_lvars() to find available variables.",
         )
 
     sdk_field = var_entry.get("sdk_field")
@@ -273,7 +273,7 @@ async def get_pmdg_var(
         return ToolError(
             error="NOT_A_DATA_FIELD",
             message=f"'{name}' is a {sdk_type}, not a readable data field. "
-                    "Use send_pmdg_event for events, or get_lvar for L-vars.",
+                    "Use msfs_send_pmdg_event for events, or msfs_get_lvar for L-vars.",
         )
 
     manager = SimConnectManager()
@@ -469,7 +469,7 @@ async def send_pmdg_event(
     """Send a PMDG control event (777 or 737 NG3).
 
     Triggers cockpit controls (switches, buttons, knobs) using the PMDG SDK
-    event system. Use search_lvars() to find events — look for entries with
+    event system. Use msfs_search_lvars() to find events — look for entries with
     an 'events' field.
     """
     catalog_key, source = await _resolve_pmdg_catalog(event_name, variant)

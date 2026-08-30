@@ -397,8 +397,8 @@ async def trigger_event(
             error="EVENT_NOT_FOUND",
             message=f"SimConnect could not map event '{name}'.",
             suggestion=(
-                "Check the name with search_events. For aircraft-specific "
-                "controls use trigger_custom_event or execute_calculator_code."
+                "Check the name with msfs_search_events. For aircraft-specific "
+                "controls use msfs_trigger_custom_event or msfs_execute_calculator_code."
             ),
         )
 
