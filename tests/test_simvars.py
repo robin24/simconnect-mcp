@@ -521,3 +521,50 @@ async def test_known_var_failing_without_a_caller_unit_is_not_blamed_on_the_unit
     mock_simconnect["accessor"].read.side_effect = SimVarNotFoundError("nope")
     result = await get_simvar("PLANE_ALTITUDE")
     assert result.error == "SIMVAR_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_bulk_read_reports_ok_and_error_counts(mock_simconnect):
+    """The envelope must signal partial failure at the top level.
+
+    Measured live, a 100-variable bulk read came back status="ok",
+    count=100 with 27 of those entries carrying errors -- and nothing above
+    the per-entry dicts said so. WatchResult already carries sample_count
+    and error_count for exactly this reason; SimVarBulkResult now mirrors
+    it. Fails against an envelope that reports only `count`.
+    """
+    result = await get_simvar_bulk([
+        {"name": "PLANE_ALTITUDE"},
+        {"name": "AIRSPEED_INDICATED"},
+    ])
+    assert result.count == 2
+    assert result.ok_count == 2
+    assert result.error_count == 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_budget_exhaustion_is_not_diagnosed_as_a_paused_sim(mock_simconnect):
+    """The fabricated diagnosis, end to end through the tool.
+
+    A batch that ran out of its OWN budget used to tell the agent "The sim
+    may be paused or loading. Try again shortly." -- measured against an
+    idle, responsive sim. Retrying reproduces the identical result forever.
+
+    This test is only possible because tests/conftest.py's accessor mock now
+    honours the batch budget; the previous mock ignored its timeout argument
+    entirely, so no test could reach this path at all and the defect went to
+    a live sim before it went to a test.
+    """
+    mock_simconnect["accessor"].simulated_read_seconds = 1000.0
+
+    result = await get_simvar_bulk([
+        {"name": "PLANE_ALTITUDE"},
+        {"name": "AIRSPEED_INDICATED"},
+    ])
+
+    assert result.ok_count == 0
+    assert result.error_count == 2
+    for key, entry in result.variables.items():
+        assert entry["error_code"] == "BATCH_BUDGET_EXCEEDED", key
+        assert "paused" not in entry["suggestion"].lower(), key
+        assert "fewer variables" in entry["suggestion"], key

@@ -32,6 +32,7 @@ from pydantic import Field
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 from simconnect_mcp.tools.models import AircraftSnapshot, ToolError
+from simconnect_mcp.tools.simvars import diagnose_bulk_entries
 
 # (name, unit, index) per section. Units are explicit so the snapshot is
 # reproducible regardless of catalog defaults -- see the module docstring.
@@ -143,5 +144,21 @@ async def get_aircraft_snapshot(
         requests.extend(SECTIONS[section])
 
     manager = SimConnectManager()
+    # No timeout argument: read_many sizes the batch budget from the number
+    # of requests (see SimVarAccessor.read_many). It used to take a TOTAL
+    # budget defaulting to one variable's worth, so all six sections -- 44
+    # variables -- shared a single read's budget.
     data = await manager.run_sync(lambda: manager.accessor.read_many(requests))
-    return AircraftSnapshot(sections=chosen, data=data)
+
+    # A failed entry used to surface here as a raw exception string with no
+    # error code and no suggestion, while get_simvar_bulk diagnosed the
+    # identical dicts. Same data, same treatment.
+    caller_units = {
+        (name if index is None else f"{name}:{index}"): unit
+        for name, unit, index in requests
+    }
+    ok_count, error_count = diagnose_bulk_entries(data, caller_units)
+
+    return AircraftSnapshot(
+        sections=chosen, ok_count=ok_count, error_count=error_count, data=data
+    )

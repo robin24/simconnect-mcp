@@ -9,6 +9,7 @@ import pytest
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.data.simvar_catalog import is_string_var, resolve_unit
+from simconnect_mcp.simvar_access import SimVarTimeoutError
 
 
 @pytest.fixture(autouse=True)
@@ -87,16 +88,56 @@ def mock_simconnect():
         manager._state = manager._state.__class__("connected")
 
         mock_accessor = MagicMock()
-        mock_accessor.read.side_effect = lambda name, unit=None, index=None, timeout=2.0: (
-            _decode(name, simvar_values.get(name.split(":")[0]))
-        )
-        mock_accessor.read_many.side_effect = lambda reqs, timeout=2.0: {
-            (n if i is None else f"{n}:{i}"): {
-                "value": _decode(n, simvar_values.get(n.split(":")[0])),
-                "unit": resolve_unit(n, u)
+
+        # Notional cost of one read, in seconds. The previous mock ignored
+        # its timeout argument entirely, so no test could produce a
+        # timed-out entry and the whole batch-budget failure path was
+        # unreachable -- which is why a budget bug reached a live sim before
+        # it reached a test. Nothing here actually sleeps: the cost is
+        # bookkeeping against the same budget arithmetic the real
+        # SimVarAccessor.read_many performs. 0.0 leaves every read
+        # succeeding, so existing tests are unaffected; a test that wants
+        # the failure path raises it.
+        mock_accessor.simulated_read_seconds = 0.0
+
+        def _entry(name, unit):
+            return {
+                "value": _decode(name, simvar_values.get(name.split(":")[0])),
+                "unit": resolve_unit(name, unit),
             }
-            for n, u, i in reqs
-        }
+
+        def _read(name, unit=None, index=None, timeout=2.0):
+            if mock_accessor.simulated_read_seconds > timeout:
+                raise SimVarTimeoutError(
+                    f"No response for SimVar '{name}' within {timeout}s."
+                )
+            return _decode(name, simvar_values.get(name.split(":")[0]))
+
+        def _read_many(reqs, per_item_timeout=2.0):
+            budget = len(reqs) * per_item_timeout
+            spent = 0.0
+            out = {}
+            for n, u, i in reqs:
+                key = n if i is None else f"{n}:{i}"
+                remaining = budget - spent
+                cost = mock_accessor.simulated_read_seconds
+                if remaining <= 0 or cost > remaining:
+                    out[key] = {
+                        "error": (
+                            f"The batch read budget of {budget:.1f}s ran out before "
+                            f"reaching '{n}'."
+                        ),
+                        "error_type": "SimVarBatchTimeoutError",
+                        "unit": resolve_unit(n, u),
+                    }
+                    spent = budget
+                    continue
+                spent += cost
+                out[key] = _entry(n, u)
+            return out
+
+        mock_accessor.read.side_effect = _read
+        mock_accessor.read_many.side_effect = _read_many
         manager.accessor = mock_accessor
 
         yield {

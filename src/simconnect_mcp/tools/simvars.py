@@ -17,6 +17,7 @@ from simconnect_mcp.data.simvar_catalog import (
     suggest_names,
 )
 from simconnect_mcp.simvar_access import (
+    SimVarBatchTimeoutError,
     SimVarError,
     SimVarNotFoundError,
     SimVarNotSettableError,
@@ -229,8 +230,46 @@ _ERROR_TYPE_MAP: dict[str, type[SimVarError]] = {
     "SimVarNotFoundError": SimVarNotFoundError,
     "UnitMismatchError": UnitMismatchError,
     "SimVarTimeoutError": SimVarTimeoutError,
+    "SimVarBatchTimeoutError": SimVarBatchTimeoutError,
     "SimVarNotSettableError": SimVarNotSettableError,
 }
+
+
+def diagnose_bulk_entries(
+    results: dict[str, dict], caller_units: dict[str, str | None] | None = None
+) -> tuple[int, int]:
+    """Diagnose every failed entry of a read_many result, in place.
+
+    Returns (ok_count, error_count).
+
+    read_many isolates failures into plain dicts carrying a raw exception
+    message and the exception's class *name*, so without this an entry
+    reaches the agent as an undiagnosed string with no error code and no
+    suggestion. get_simvar_bulk did this inline while get_aircraft_snapshot
+    did not, so the same failure was actionable through one tool and opaque
+    through the other; both call this now.
+
+    `caller_units` maps the same keys read_many produces to the unit the
+    caller actually asked for -- the distinction _disambiguate_not_found
+    needs to tell a bad unit apart from a bad name, which read_many's
+    already-resolved unit cannot supply.
+    """
+    errors = 0
+    for key, entry in results.items():
+        error_type = entry.get("error_type")
+        if error_type is None:
+            continue
+        errors += 1
+        name = key.split(":", 1)[0]
+        exc_cls = _ERROR_TYPE_MAP.get(error_type, SimVarError)
+        unit = caller_units.get(key) if caller_units else None
+        envelope = _simvar_error_envelope(exc_cls(entry["error"]), name, unit)
+        entry["error"] = envelope.message
+        entry["error_code"] = envelope.error
+        entry["suggestion"] = envelope.suggestion
+        if envelope.suggestions:
+            entry["suggestions"] = envelope.suggestions
+    return len(results) - errors, errors
 
 
 @handle_simconnect_errors
@@ -287,22 +326,20 @@ async def get_simvar_bulk(
         caller_units[key] = unit
         requests.append((name, unit, index))
 
+    # No timeout argument: read_many sizes the batch budget from the number
+    # of requests itself (see SimVarAccessor.read_many). It used to take a
+    # TOTAL budget defaulting to one variable's worth, so this call -- for
+    # up to MAX_BULK_VARIABLES variables -- ran on a single read's budget.
     results = await manager.run_sync(lambda: manager.accessor.read_many(requests))
 
-    for key, entry in results.items():
-        error_type = entry.get("error_type")
-        if error_type is None:
-            continue
-        name = key.split(":", 1)[0]
-        exc_cls = _ERROR_TYPE_MAP.get(error_type, SimVarError)
-        envelope = _simvar_error_envelope(exc_cls(entry["error"]), name, caller_units.get(key))
-        entry["error"] = envelope.message
-        entry["error_code"] = envelope.error
-        entry["suggestion"] = envelope.suggestion
-        if envelope.suggestions:
-            entry["suggestions"] = envelope.suggestions
+    ok_count, error_count = diagnose_bulk_entries(results, caller_units)
 
-    return SimVarBulkResult(count=len(results), variables=results)
+    return SimVarBulkResult(
+        count=len(results),
+        ok_count=ok_count,
+        error_count=error_count,
+        variables=results,
+    )
 
 
 SIMVAR_COLUMNS = [

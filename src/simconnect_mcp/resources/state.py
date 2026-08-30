@@ -5,7 +5,6 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from simconnect_mcp.connection import SimConnectManager
-from simconnect_mcp.simvar_access import DEFAULT_TIMEOUT
 
 
 def register_state_resources(mcp: FastMCP) -> None:
@@ -36,16 +35,17 @@ def register_state_resources(mcp: FastMCP) -> None:
             "TITLE", "ATC_TYPE", "ATC_ID",
             "PLANE_LATITUDE", "PLANE_LONGITUDE", "PLANE_ALTITUDE",
         ]
-        # read_many's `timeout` is a TOTAL budget for the whole batch, not
-        # per item (see SimVarAccessor.read_many). The default is sized for
-        # one read; passing it unchanged here would give all 6 reads
-        # together the budget one used to get alone, so a merely sluggish
-        # (not hung) sim could spuriously time out the later names.
+        # read_many's budget argument is PER ITEM and it scales the batch
+        # deadline by len(requests) itself (see SimVarAccessor.read_many),
+        # so this no longer pre-multiplies. It used to be a total budget
+        # defaulting to one read's worth, which this resource had to
+        # compensate for by hand -- a correction the two tool call sites
+        # never made, so they ran 44 and 100 variables on a single read's
+        # budget. Sizing it inside read_many is what makes that
+        # impossible to get wrong at a call site.
         try:
             data = await manager.run_sync(
-                lambda: manager.accessor.read_many(
-                    [(n, None, None) for n in names], timeout=len(names) * DEFAULT_TIMEOUT
-                )
+                lambda: manager.accessor.read_many([(n, None, None) for n in names])
             )
         except Exception as e:
             return {"status": "error", "message": str(e)}

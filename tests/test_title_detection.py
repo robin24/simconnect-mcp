@@ -595,16 +595,20 @@ async def test_state_aircraft_resource_does_not_touch_aq_directly(mock_simconnec
     assert not mock_simconnect["aq"].get.called
 
 
-async def test_state_aircraft_gives_read_many_a_total_budget_sized_for_six_reads(mock_simconnect):
-    """read_many's `timeout` is a TOTAL budget for the whole batch (Finding
-    3), not per item. This resource reads 6 names; passing the default
-    (sized for one read) through unchanged would give all 6 the budget one
-    used to get alone, so a merely sluggish (not hung) sim could spuriously
-    time out the later names. Must pass an explicit, larger total budget."""
+async def test_state_aircraft_lets_read_many_size_its_own_batch_budget(mock_simconnect):
+    """read_many's budget argument is now PER ITEM and it scales the batch
+    deadline by len(requests) itself, so this resource must stop
+    pre-multiplying.
+
+    It used to compute `len(names) * DEFAULT_TIMEOUT` by hand to compensate
+    for a total-budget argument that defaulted to one read's worth. Leaving
+    that correction in place after the change would multiply twice, handing
+    six reads a budget sized for thirty-six -- so this asserts the resource
+    passes no budget override at all and inherits read_many's own sizing.
+    """
     from mcp.server.fastmcp import FastMCP
 
     from simconnect_mcp.resources.state import register_state_resources
-    from simconnect_mcp.simvar_access import DEFAULT_TIMEOUT
 
     mcp = FastMCP("test")
     register_state_resources(mcp)
@@ -612,13 +616,43 @@ async def test_state_aircraft_gives_read_many_a_total_budget_sized_for_six_reads
     await mcp.read_resource("simconnect://state/aircraft")
 
     call = mock_simconnect["accessor"].read_many.call_args
-    names_requested = call.args[0]
-    timeout_used = call.kwargs.get("timeout", call.args[1] if len(call.args) > 1 else None)
-
-    assert timeout_used is not None and timeout_used > DEFAULT_TIMEOUT, (
-        f"expected a total timeout scaled for {len(names_requested)} reads, "
-        f"got {timeout_used!r} (the single-read default is {DEFAULT_TIMEOUT})"
+    assert len(call.args) == 1, (
+        f"expected only the request list, got positional args {call.args!r} "
+        "-- a hand-computed budget is a leftover from the total-budget signature"
     )
+    assert "timeout" not in call.kwargs and "per_item_timeout" not in call.kwargs, (
+        f"expected no budget override, got {call.kwargs!r}"
+    )
+
+
+async def test_state_aircraft_reads_all_six_names_within_the_scaled_budget(mock_simconnect):
+    """The behavioural half: with each read costing just under the per-item
+    default, all six names must come back with values.
+
+    Under the old total-budget default (DEFAULT_TIMEOUT for the whole
+    batch), the later names would fall off the end of the budget -- exactly
+    the failure the resource's hand-multiplication existed to avoid, which
+    read_many's own sizing must now deliver without help.
+    """
+    import json
+
+    from mcp.server.fastmcp import FastMCP
+
+    from simconnect_mcp.resources.state import register_state_resources
+    from simconnect_mcp.simvar_access import DEFAULT_TIMEOUT
+
+    mock_simconnect["accessor"].simulated_read_seconds = DEFAULT_TIMEOUT * 0.9
+
+    mcp = FastMCP("test")
+    register_state_resources(mcp)
+
+    contents = await mcp.read_resource("simconnect://state/aircraft")
+    result = json.loads(contents[0].content)
+
+    assert result["status"] == "ok"
+    assert len(result["aircraft"]) == 6
+    for key, entry in result["aircraft"].items():
+        assert "error" not in entry, f"{key} fell off the batch budget: {entry}"
 
 
 if __name__ == "__main__":

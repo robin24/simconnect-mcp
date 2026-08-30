@@ -103,3 +103,36 @@ async def test_position_section_pins_explicit_units_not_catalog_defaults(mock_si
     assert units_by_name["PLANE_HEADING_DEGREES_TRUE"] == "degrees"
     assert units_by_name["PLANE_HEADING_DEGREES_MAGNETIC"] == "degrees"
     assert units_by_name["GROUND_ALTITUDE"] == "feet"
+
+
+async def test_snapshot_diagnoses_a_failed_entry_instead_of_leaving_a_raw_string(
+    mock_simconnect,
+):
+    """get_simvar_bulk ran read_many's per-entry failures through
+    _simvar_error_envelope; get_aircraft_snapshot did not, so the identical
+    dict surfaced here as an undiagnosed exception string with no error code
+    and no suggestion.
+
+    Fails against an implementation that returns read_many's raw dicts:
+    'error_code' and 'suggestion' would both be absent.
+    """
+    mock_simconnect["accessor"].simulated_read_seconds = 1000.0
+
+    result = await get_aircraft_snapshot(sections=["position"])
+
+    entry = result.data["PLANE_LATITUDE"]
+    assert entry["error_code"] == "BATCH_BUDGET_EXCEEDED"
+    assert entry["suggestion"]
+    assert "paused" not in entry["suggestion"].lower()
+
+
+async def test_snapshot_reports_ok_and_error_counts(mock_simconnect):
+    """Partial failure must be visible above the per-variable dicts."""
+    ok = await get_aircraft_snapshot(sections=["position"])
+    assert ok.error_count == 0
+    assert ok.ok_count == len(SECTIONS["position"])
+
+    mock_simconnect["accessor"].simulated_read_seconds = 1000.0
+    failed = await get_aircraft_snapshot(sections=["position"])
+    assert failed.ok_count == 0
+    assert failed.error_count == len(SECTIONS["position"])

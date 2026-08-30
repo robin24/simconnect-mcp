@@ -55,6 +55,18 @@ class SimVarTimeoutError(SimVarError):
     """No data and no exception arrived before the timeout."""
 
 
+class SimVarBatchTimeoutError(SimVarTimeoutError):
+    """A batch read ran out of its shared time budget on this variable.
+
+    Deliberately distinct from SimVarTimeoutError, which means the sim
+    itself failed to answer within a full per-item budget. Conflating the
+    two produced a fabricated diagnosis: a batch that exhausted its own
+    budget reported "the sim may be paused or loading, try again shortly",
+    sending a caller into a retry loop that reproduces the identical result
+    forever. Budget exhaustion is fixed by a smaller batch, not by waiting.
+    """
+
+
 # SimConnect reports the same exception codes for different underlying
 # causes depending on the operation.  A bad unit on a read and a write to a
 # read-only variable both surface as DATA_ERROR, so the mapping is chosen by
@@ -300,41 +312,91 @@ class SimVarAccessor:
     def read_many(
         self,
         requests: list[tuple[str, str | None, int | None]],
-        timeout: float = DEFAULT_TIMEOUT,
+        per_item_timeout: float = DEFAULT_TIMEOUT,
     ) -> dict[str, dict]:
         """Read several SimVars, isolating failures.
 
         Keys are `NAME` or `NAME:index`, so indexed variables stay distinct.
         A failure on one variable never aborts the batch.
 
-        `timeout` is a TOTAL budget for the whole batch, not a per-item
-        timeout -- each read gets whatever of it remains when its turn
-        comes, down to zero. Previously every item waited up to the full
-        `timeout` independently, so a hung sim (paused, loading) held
-        `_sim_lock` for up to `len(requests) * timeout` seconds; since
-        get_simvar_bulk passes a caller-supplied list straight through,
-        that made the lock-hold time unbounded from the caller's side.
-        Once the deadline has passed, remaining entries are reported as a
-        timeout without even attempting SimConnect.
+        `per_item_timeout` is the budget for ONE variable. The batch's real
+        budget is `len(requests) * per_item_timeout`, turned into a single
+        deadline computed once here; each read then gets whatever of it
+        remains when its turn comes, down to zero. Once the deadline has
+        passed, remaining entries are reported without even attempting
+        SimConnect.
+
+        This parameter is deliberately per-item rather than the total it
+        used to be. As a total it was impossible to get right at the call
+        site: it defaulted to DEFAULT_TIMEOUT (sized for a single read), and
+        two of the three callers passed nothing -- so a 100-variable
+        get_simvar_bulk and a 44-variable snapshot both tried to fit inside
+        one variable's budget. Measured live on an idle sim, a 100-variable
+        bulk read finished 71 variables and reported the other 29 as
+        failures purely because the batch budget had run out.
+
+        The single-deadline shape is what bounds lock-hold time: every read
+        draws on one shrinking budget rather than each waiting the full
+        timeout independently, which is what made `_sim_lock` hold time
+        unbounded from the caller's side before.
+
+        An entry that misses out on time reports SimVarBatchTimeoutError,
+        never the plain SimVarTimeoutError -- a batch running out of its own
+        budget is not the sim stalling, and must not be diagnosed as one.
+        Only a read that had a full `per_item_timeout` to itself and still
+        got no answer is reported as a genuine sim timeout.
         """
         results: dict[str, dict] = {}
-        deadline = time.monotonic() + timeout
-        for name, unit, index in requests:
+        total = len(requests)
+        budget = total * per_item_timeout
+        deadline = time.monotonic() + budget
+        for position, (name, unit, index) in enumerate(requests):
             key = name if index is None else f"{name}:{index}"
             resolved = resolve_unit(name, unit)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 results[key] = {
                     "error": (
-                        f"Timed out waiting for the batch read before reaching '{name}'."
+                        f"The batch read budget of {budget:.1f}s ran out after "
+                        f"{position} of {total} variable(s), before reaching "
+                        f"'{name}'. The batch ran out of time; this says nothing "
+                        f"about whether the sim is responding."
                     ),
-                    "error_type": SimVarTimeoutError.__name__,
+                    "error_type": SimVarBatchTimeoutError.__name__,
                     "unit": resolved,
                 }
                 continue
             try:
                 results[key] = {"value": self.read(name, unit, index, remaining),
                                 "unit": resolved}
+            except SimVarTimeoutError as e:
+                # A read that got less than a full per-item share was
+                # squeezed by the batch, not stalled by the sim. Only a read
+                # that had its whole share and still got nothing is a real
+                # sim timeout.
+                #
+                # `position > 0` is load-bearing, not a special case: the
+                # first item always holds the entire budget, which is
+                # `total * per_item_timeout` -- but the few microseconds
+                # spent computing the deadline mean the bare comparison
+                # reads marginally BELOW per_item_timeout for a
+                # single-element batch, misreporting a genuine sim stall as
+                # budget exhaustion. Only a later item can truly be
+                # squeezed, because only a predecessor can consume budget.
+                if position > 0 and remaining < per_item_timeout:
+                    results[key] = {
+                        "error": (
+                            f"The batch read budget of {budget:.1f}s left only "
+                            f"{remaining:.2f}s for '{name}', which was not enough "
+                            f"for a reply. The batch ran out of time; this says "
+                            f"nothing about whether the sim is responding."
+                        ),
+                        "error_type": SimVarBatchTimeoutError.__name__,
+                        "unit": resolved,
+                    }
+                else:
+                    results[key] = {"error": str(e), "error_type": type(e).__name__,
+                                    "unit": resolved}
             except SimVarError as e:
                 results[key] = {"error": str(e), "error_type": type(e).__name__,
                                 "unit": resolved}

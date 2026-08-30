@@ -11,6 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from simconnect_mcp.simvar_access import (
+    SimVarBatchTimeoutError,
     SimVarError,
     SimVarNotFoundError,
     SimVarNotSettableError,
@@ -49,6 +50,17 @@ _ERROR_CODES: dict[type[SimVarError], tuple[str, str]] = {
     SimVarTimeoutError: (
         "SIM_TIMEOUT",
         "The sim may be paused or loading. Try again shortly.",
+    ),
+    # Looked up by exact type, so this never shadows (nor is shadowed by)
+    # its SimVarTimeoutError base above. It must not inherit that entry's
+    # suggestion: retrying a batch that exhausted its own budget reproduces
+    # the same result forever, and blaming a sim that was answering fine is
+    # a fabricated diagnosis.
+    SimVarBatchTimeoutError: (
+        "BATCH_BUDGET_EXCEEDED",
+        "The batch ran out of its own time budget before this variable's "
+        "turn -- the sim was not necessarily stalled. Retry with fewer "
+        "variables per call.",
     ),
 }
 
@@ -113,6 +125,14 @@ class SimVarWriteResult(OkModel):
 
 class SimVarBulkResult(OkModel):
     count: int
+    ok_count: int = Field(
+        ..., description="Variables that returned a value"
+    )
+    error_count: int = Field(
+        ...,
+        description="Variables that failed. Non-zero means part of the request did not "
+        "succeed even though status is 'ok' -- inspect the individual entries",
+    )
     variables: dict[str, dict[str, Any]] = Field(
         ..., description="Keyed by NAME or NAME:index; each holds a value or an error"
     )
@@ -210,6 +230,12 @@ class CatalogBrowse(OkModel):
 
 class AircraftSnapshot(OkModel):
     sections: list[str] = Field(..., description="Sections included in this snapshot")
+    ok_count: int = Field(0, description="Variables that returned a value")
+    error_count: int = Field(
+        0,
+        description="Variables that failed. Non-zero means part of the snapshot did not "
+        "succeed even though status is 'ok' -- inspect the individual entries",
+    )
     data: dict[str, Any]
 
 

@@ -1,11 +1,11 @@
 import threading
-import time
 from unittest.mock import MagicMock
 
 import pytest
 
 from simconnect_mcp.dispatch import RequestRegistry
 from simconnect_mcp.simvar_access import (
+    DEFAULT_TIMEOUT,
     SimVarAccessor,
     SimVarNotFoundError,
     SimVarNotSettableError,
@@ -13,6 +13,7 @@ from simconnect_mcp.simvar_access import (
     UnitMismatchError,
     simconnect_name,
 )
+from simconnect_mcp.tools.simvars import MAX_BULK_VARIABLES
 
 
 class FakeSM:
@@ -419,9 +420,16 @@ def test_read_many_returns_a_result_per_variable():
 
 
 def test_read_many_isolates_a_failing_variable():
-    """One bad name must not abort the whole batch."""
+    """One bad name must not abort the whole batch.
+
+    A single-element batch is also the case where the first item holds the
+    entire budget: it got a full per-item share, so its failure is a real
+    sim timeout and must NOT be relabelled batch-budget exhaustion.
+    """
     sm = FakeSM(respond=False)
-    results = SimVarAccessor(sm).read_many([("NOT_A_REAL_VAR", None, None)], timeout=0.05)
+    results = SimVarAccessor(sm).read_many(
+        [("NOT_A_REAL_VAR", None, None)], per_item_timeout=0.05
+    )
     assert "error" in results["NOT_A_REAL_VAR"]
     assert results["NOT_A_REAL_VAR"]["error_type"] == "SimVarTimeoutError"
 
@@ -434,39 +442,81 @@ def test_read_many_keys_indexed_vars_distinctly():
     assert set(results) == {"ENG_N1_RPM:1", "ENG_N1_RPM:2"}
 
 
-def test_read_many_timeout_is_a_total_budget_not_a_per_item_timeout():
-    """Finding 3: read_many used to pass the full `timeout` to EVERY item
-    independently, so a hung sim (every item timing out) held _sim_lock for
-    len(requests) * timeout seconds -- and since get_simvar_bulk passes a
-    caller-supplied list straight through, that made the lock-hold time
-    unbounded from the caller's side. `timeout` is now a total budget for
-    the whole batch.
+def _spy_on_read(accessor):
+    """Record the timeout each read is handed. Returns the recording list."""
+    real_read = accessor.read
+    seen: list[float] = []
 
-    Fails against the current code: 5 items at a 0.15s per-item timeout
-    take ~0.75s total; this asserts well under that, using real wall-clock
-    waiting (FakeSM's timeout path genuinely blocks) rather than mocking
-    time.monotonic, so the measurement reflects actual blocking behaviour."""
-    sm = FakeSM(respond=False)
+    def spy_read(name, unit=None, index=None, timeout=2.0):
+        seen.append(timeout)
+        return real_read(name, unit=unit, index=index, timeout=timeout)
+
+    accessor.read = spy_read
+    return seen
+
+
+def test_read_many_draws_every_item_from_one_shared_deadline():
+    """The batch budget is ONE deadline computed once, not a fresh timeout
+    handed to each item.
+
+    That single-deadline shape is what bounds _sim_lock hold time: before
+    it, every item waited up to the full timeout independently, and since
+    get_simvar_bulk passes a caller-supplied list straight through, the
+    lock-hold time was unbounded from the caller's side.
+
+    Fails against a per-item implementation, which would hand every read
+    the same `per_item_timeout` no matter how much of the batch had already
+    elapsed: the recorded timeouts would be flat at 0.05 rather than
+    starting at the whole 0.25s budget and strictly decreasing. FakeSM
+    genuinely blocks for `respond_after`, so the shrinkage is real elapsed
+    time, not a mocked clock.
+    """
+    sm = FakeSM(value=1.0, respond_after=0.02)
+    accessor = SimVarAccessor(sm)
+    seen = _spy_on_read(accessor)
+
     requests = [(f"VAR_{i}", None, None) for i in range(5)]
+    results = accessor.read_many(requests, per_item_timeout=0.05)
 
-    start = time.monotonic()
-    results = SimVarAccessor(sm).read_many(requests, timeout=0.15)
-    elapsed = time.monotonic() - start
-
-    assert elapsed < 0.4, (
-        f"expected the whole batch to respect one ~0.15s budget, took {elapsed:.2f}s "
-        "-- looks like each item is still waiting the full timeout independently"
-    )
     assert len(results) == 5
-    for key in results:
-        assert results[key]["error_type"] == "SimVarTimeoutError"
+    assert len(seen) == 5
+    assert seen[0] == pytest.approx(0.25, rel=0.1), (
+        f"first item should hold the whole 5 * 0.05s budget, got {seen[0]:.3f}s "
+        "-- looks like each item is still handed its own full timeout"
+    )
+    assert seen == sorted(seen, reverse=True) and seen[-1] < seen[0], (
+        f"timeouts {seen} should shrink as one shared budget is consumed"
+    )
+
+
+def test_read_many_budget_is_proportional_to_the_number_of_variables():
+    """A batch at the tool's own advertised maximum must get a budget sized
+    for that many variables, not for one.
+
+    This is the defect measured live: get_simvar_bulk passed no budget at
+    all, so 100 variables shared DEFAULT_TIMEOUT -- one variable's worth --
+    and 29 of them were reported as failures purely because the batch ran
+    out of time on an idle sim.
+
+    Asserting the timeout handed to the FIRST read is the sharp form: it is
+    the whole budget before anything has been spent, so it reads back the
+    batch's sizing directly rather than inferring it from wall clock.
+    """
+    sm = FakeSM(value=1.0, respond_after=0.0)
+    accessor = SimVarAccessor(sm)
+    seen = _spy_on_read(accessor)
+
+    requests = [(f"VAR_{i}", None, None) for i in range(MAX_BULK_VARIABLES)]
+    accessor.read_many(requests, per_item_timeout=DEFAULT_TIMEOUT)
+
+    assert seen[0] == pytest.approx(MAX_BULK_VARIABLES * DEFAULT_TIMEOUT, rel=0.01)
 
 
 def test_read_many_reports_a_timeout_for_entries_past_the_deadline_without_calling_read():
-    """Once the total deadline has passed, remaining entries must be
-    reported as a timeout without even attempting SimConnect -- not just
-    with a very short per-item timeout, which would still send the DLL
-    calls and consume a request id and a definition slot for no benefit."""
+    """Once the batch deadline has passed, remaining entries must be
+    reported without even attempting SimConnect -- not just with a very
+    short per-item timeout, which would still send the DLL calls and
+    consume a request id and a definition slot for no benefit."""
     sm = FakeSM(value=1.0)
     accessor = SimVarAccessor(sm)
     real_read = accessor.read
@@ -479,12 +529,51 @@ def test_read_many_reports_a_timeout_for_entries_past_the_deadline_without_calli
     accessor.read = spy_read
 
     requests = [("PLANE_ALTITUDE", None, None), ("AIRSPEED_INDICATED", None, None)]
-    # A deadline already in the past when the loop reaches the second item.
-    results = accessor.read_many(requests, timeout=-1)
+    # A deadline already in the past when the loop reaches the first item.
+    results = accessor.read_many(requests, per_item_timeout=-1)
 
     assert read_calls == [], "no item should be attempted once the deadline has passed"
-    assert results["PLANE_ALTITUDE"]["error_type"] == "SimVarTimeoutError"
-    assert results["AIRSPEED_INDICATED"]["error_type"] == "SimVarTimeoutError"
+    assert results["PLANE_ALTITUDE"]["error_type"] == "SimVarBatchTimeoutError"
+    assert results["AIRSPEED_INDICATED"]["error_type"] == "SimVarBatchTimeoutError"
+
+
+def test_exhausted_budget_is_not_reported_as_a_sim_stall():
+    """The fabricated-diagnosis half of the defect.
+
+    A batch that ran out of its own budget used to report the plain
+    SimVarTimeoutError, which models.py maps to "The sim may be paused or
+    loading. Try again shortly." -- measured against an idle, responsive
+    sim. That advice sends an agent into a retry loop reproducing the same
+    result forever. The entry must name the budget instead.
+    """
+    sm = FakeSM(value=1.0)
+    results = SimVarAccessor(sm).read_many(
+        [("PLANE_ALTITUDE", None, None)], per_item_timeout=-1
+    )
+    entry = results["PLANE_ALTITUDE"]
+
+    assert entry["error_type"] == "SimVarBatchTimeoutError"
+    assert "budget" in entry["error"], entry["error"]
+    assert "paused" not in entry["error"].lower()
+
+
+def test_a_squeezed_later_item_is_reported_as_budget_exhaustion_not_a_stall():
+    """An item that got LESS than a full per-item share and timed out was
+    squeezed by its predecessors, not stalled by the sim.
+
+    The first item here consumes almost the whole budget and succeeds; the
+    second is left a sliver, times out on it, and must be diagnosed as
+    batch-budget exhaustion. Reporting SimVarTimeoutError here would blame
+    a sim that had just answered the previous read.
+    """
+    sm = FakeSM(value=1.0, respond_after=0.18)
+    accessor = SimVarAccessor(sm)
+
+    requests = [("PLANE_ALTITUDE", None, None), ("AIRSPEED_INDICATED", None, None)]
+    results = accessor.read_many(requests, per_item_timeout=0.1)
+
+    assert results["PLANE_ALTITUDE"]["value"] == 1.0
+    assert results["AIRSPEED_INDICATED"]["error_type"] == "SimVarBatchTimeoutError"
 
 
 def test_simconnect_name_helper_is_index_zero_safe():
