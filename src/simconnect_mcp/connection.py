@@ -77,6 +77,26 @@ class SimConnectManager:
         # whole lifetime. See get_cached_pmdg_variant/set_cached_pmdg_variant
         # below -- a cache hit requires the *current* identity to match.
         self._pmdg_variant_cache: tuple[str | None, str | None, str] | None = None
+        # World facility lists (tools/facilities.py's _collect), keyed by
+        # FacilityKind.value ("airport"/"waypoint"/"ndb"/"vor"). Measured
+        # live, SubscribeToFacilities(AIRPORT) returns the whole world
+        # (85,249 airports) and goes quiet once complete rather than
+        # re-firing, so each kind is collected at most once per connection
+        # and served from here after that -- see get_cached_facilities/
+        # set_cached_facilities. Cleared on disconnect() like the two
+        # caches above.
+        self._facility_cache: dict[str, list[dict[str, Any]]] = {}
+        # Per-kind asyncio.Lock serializing facility collection. Without
+        # this, a second caller's collector.reset(kind) can wipe the buffer
+        # the first caller is still waiting to fill, handing both callers a
+        # torn result -- reset-then-subscribe is not atomic with the wait
+        # that follows it. Built lazily; see facility_lock() below. Not
+        # cleared on disconnect: an asyncio.Lock is not bound to a specific
+        # event loop at construction (Python 3.10+) and is always released
+        # by the code that acquires it, so reusing one across a reconnect
+        # is safe -- unlike _facility_cache, it is not connection-specific
+        # state that could go stale.
+        self._facility_locks: dict[str, asyncio.Lock] = {}
 
     @property
     def state(self) -> ConnectionState:
@@ -210,6 +230,7 @@ class SimConnectManager:
             self._mobiflight_available = False
             self._title_cache = None
             self._pmdg_variant_cache = None
+            self._facility_cache = {}
             self._state = ConnectionState.DISCONNECTED
         return {"status": "ok", "message": "Disconnected"}
 
@@ -312,6 +333,36 @@ class SimConnectManager:
         """Record a successful probe result, keyed to the aircraft identity
         it was found under."""
         self._pmdg_variant_cache = (title, model, variant)
+
+    def get_cached_facilities(self, kind: str) -> list[dict[str, Any]] | None:
+        """Return the cached world list for one facility kind.
+
+        None on a cache miss: never collected yet this connection, or
+        cleared by a disconnect(). `kind` is a FacilityKind.value string
+        ("airport"/"waypoint"/"ndb"/"vor") rather than the enum itself, so
+        this module has no need to import simconnect_mcp.facilities.
+        """
+        return self._facility_cache.get(kind)
+
+    def set_cached_facilities(self, kind: str, entries: list[dict[str, Any]]) -> None:
+        """Record a completed facility collection for one kind."""
+        self._facility_cache[kind] = entries
+
+    def facility_lock(self, kind: str) -> asyncio.Lock:
+        """Per-kind lock serializing tools/facilities.py's collection step.
+
+        Lazily created and memoized per kind -- there are only ever four
+        (airport/waypoint/ndb/vor), so this dict never grows unbounded. The
+        plain get-then-set below needs no guarding lock of its own: this is
+        only ever called from coroutine code on the single asyncio
+        event-loop thread, with no `await` between the check and the set,
+        so two concurrent callers can never interleave inside it.
+        """
+        lock = self._facility_locks.get(kind)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._facility_locks[kind] = lock
+        return lock
 
     async def get_status(self) -> dict[str, Any]:
         """Return current connection status.

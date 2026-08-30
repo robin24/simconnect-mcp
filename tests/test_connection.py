@@ -95,3 +95,34 @@ def test_disconnect_clears_the_accessor(mock_simconnect):
     manager = mock_simconnect["manager"]
     manager.disconnect()
     assert manager.accessor is None
+
+
+def test_disconnect_clears_the_facility_cache(mock_simconnect):
+    """tools/facilities.py caches the (large, expensive-to-rebuild) world
+    facility list per connection; a stale cache must not survive into a
+    fresh connection the way _title_cache/_pmdg_variant_cache already
+    don't."""
+    manager = mock_simconnect["manager"]
+    manager.set_cached_facilities("airport", [{"icao": "KSEA"}])
+    assert manager.get_cached_facilities("airport") is not None
+
+    manager.disconnect()
+
+    assert manager.get_cached_facilities("airport") is None
+
+
+def test_facility_lock_is_stable_per_kind(mock_simconnect):
+    """The lock tools/facilities.py uses to guard concurrent collection must
+    be the same object across calls for one kind (so it actually
+    serializes) and distinct across kinds (so airport/waypoint/ndb/vor
+    collection can proceed independently)."""
+    import asyncio
+
+    manager = mock_simconnect["manager"]
+    airport_lock_1 = manager.facility_lock("airport")
+    airport_lock_2 = manager.facility_lock("airport")
+    waypoint_lock = manager.facility_lock("waypoint")
+
+    assert isinstance(airport_lock_1, asyncio.Lock)
+    assert airport_lock_1 is airport_lock_2
+    assert airport_lock_1 is not waypoint_lock

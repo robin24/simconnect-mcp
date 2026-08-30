@@ -1,49 +1,293 @@
-"""Facilities tools — airport and navaid lookup.
+"""Facilities tools -- nearby airports and facility lookup.
 
-Not implemented yet: the SimConnect library's FacilitiesRequests only prints
-results to stdout (fatal on a stdio MCP server -- see dispatch.py's module
-docstring) and returns nothing usable to a caller. Phase 2 replaces it with
-this server's own facilities handler, routed through SimConnectDispatcher
-the same way SimVar reads are. Until then, both tools below report
-NOT_IMPLEMENTED honestly rather than a fabricated empty success.
+Data arrives through the dispatcher's FacilityCollector. The SimConnect
+library's own FacilitiesRequests is unusable here: its get() returns None and
+its results only ever reach dump(), which prints to stdout -- fatal on a
+stdio MCP server.
+
+SubscribeToFacilities does not hand back a "reality bubble" scoped to the
+aircraft. Measured live against MSFS 2024 before this module was written
+(see .superpowers/sdd/2026-08-29-mcp-modernization-phase2-capability/
+task-2-addendum.md and its facility_request_cost_probe.py): subscribing to
+AIRPORT returns the ENTIRE WORLD -- 85,249 airports in 0.03s -- and
+RequestFacilitiesList returns the identical list, so there is no cheaper
+"nearby" variant to call instead. Two consequences shape this module:
+
+* The world list for a kind does not change during a session, so each kind
+  is collected at most once per connection and cached on SimConnectManager
+  afterwards (get_cached_facilities/set_cached_facilities) -- see
+  _collect(). Every later call for that kind is served from the cache with
+  no further SimConnect traffic, and without re-running an O(n) haversine
+  filter over ~85k rows on every single call.
+* A per-kind asyncio.Lock (SimConnectManager.facility_lock) serializes
+  collection attempts for that kind. Without it, a second caller arriving
+  while the first is still waiting for its subscription to fill would reset
+  the collector's buffer out from under the first -- reset-then-subscribe is
+  not atomic with the wait that follows it, so both callers could end up
+  with a torn result. The cache is checked again after the lock is
+  acquired, so a caller that waited for the lock returns the first caller's
+  result instead of collecting a second time.
+
+The subscription itself goes quiet once its list completes -- also measured
+live, no further traffic 6s after completion -- so this is not a live-
+traffic problem. But it does mean a scenery change could still re-fire it at
+some arbitrary later moment, feeding a collector nothing here is watching
+any more. UnsubscribeToFacilities is therefore called once collection ends,
+on both the success and timeout paths, even when the result is cached and
+never subscribed to again.
+
+If the collector never reaches is_complete() within the timeout, this
+reports a ToolError rather than returning the partial list sitting in the
+collector: serving a partial world as though it were the complete one is
+exactly the fabricated-success pattern the rest of this project has spent
+two phases removing.
 """
-
 from __future__ import annotations
 
+import asyncio
+import logging
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
+from SimConnect.Enum import SIMCONNECT_FACILITY_LIST_TYPE
+
+from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.facilities import FacilityKind, great_circle_nm
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
-from simconnect_mcp.tools.models import ToolError
-
-_NOT_IMPLEMENTED = ToolError(
-    error="NOT_IMPLEMENTED",
-    message=(
-        "Facility lookup is not available yet. The SimConnect library's "
-        "FacilitiesRequests only prints results to stdout and returns nothing, "
-        "so this server implements its own facilities handler instead."
-    ),
-    suggestion=(
-        "Use msfs_get_aircraft_snapshot(sections=['position']) for the current "
-        "position, or an external navdata source for airport details."
-    ),
+from simconnect_mcp.tools.formatting import (
+    DEFAULT_LIMIT,
+    ResponseFormat,
+    paginate,
+    render_paginated_table,
 )
+from simconnect_mcp.tools.models import FacilityInfo, FacilityList, ToolError
+
+logger = logging.getLogger(__name__)
+
+_LIST_TYPES = {
+    FacilityKind.AIRPORT: SIMCONNECT_FACILITY_LIST_TYPE.SIMCONNECT_FACILITY_LIST_TYPE_AIRPORT,
+    FacilityKind.WAYPOINT: SIMCONNECT_FACILITY_LIST_TYPE.SIMCONNECT_FACILITY_LIST_TYPE_WAYPOINT,
+    FacilityKind.NDB: SIMCONNECT_FACILITY_LIST_TYPE.SIMCONNECT_FACILITY_LIST_TYPE_NDB,
+    FacilityKind.VOR: SIMCONNECT_FACILITY_LIST_TYPE.SIMCONNECT_FACILITY_LIST_TYPE_VOR,
+}
+
+AIRPORT_COLUMNS = [
+    ("icao", "ICAO"),
+    ("distance_nm", "Distance (nm)"),
+    ("latitude", "Latitude"),
+    ("longitude", "Longitude"),
+    ("altitude_ft", "Elevation (ft)"),
+]
+
+# Generous relative to the ~30ms a real SubscribeToFacilities took to deliver
+# the entire world (measured live -- see module docstring): this bounds how
+# long a stalled or still-loading sim can hang a caller, not the expected
+# case.
+_COLLECT_TIMEOUT = 5.0
+_POLL_INTERVAL = 0.1
+
+
+async def _collect(kind: FacilityKind) -> list[dict[str, Any]] | ToolError:
+    """Return the world list for one facility kind, caching it after the
+    first successful collection -- see module docstring.
+    """
+    manager = SimConnectManager()
+    collector = getattr(manager.sm, "facilities", None)
+    if collector is None:
+        return ToolError(
+            error="FACILITIES_NOT_AVAILABLE",
+            message="Facility data requires the SimConnect dispatcher.",
+            suggestion="Reconnect with msfs_connect; the plain SimConnect "
+                       "fallback cannot deliver facility data.",
+        )
+
+    cached = manager.get_cached_facilities(kind.value)
+    if cached is not None:
+        return cached
+
+    async with manager.facility_lock(kind.value):
+        # Re-check: whoever held the lock before us may have just finished
+        # collecting this exact kind, in which case there is nothing left
+        # for this call to do.
+        cached = manager.get_cached_facilities(kind.value)
+        if cached is not None:
+            return cached
+
+        list_type = _LIST_TYPES[kind]
+
+        def _subscribe() -> None:
+            collector.reset(kind)
+            manager.sm.dll.SubscribeToFacilities(
+                manager.sm.hSimConnect, list_type, manager.sm.new_request_id().value
+            )
+
+        def _unsubscribe() -> None:
+            # Best-effort: a failure here must not turn an otherwise
+            # successful (or already-timed-out) collection into an error.
+            try:
+                manager.sm.dll.UnsubscribeToFacilities(manager.sm.hSimConnect, list_type)
+            except Exception:
+                logger.debug(
+                    "UnsubscribeToFacilities failed for %s", kind.value, exc_info=True
+                )
+
+        await manager.run_sync(_subscribe)
+
+        waited = 0.0
+        while waited < _COLLECT_TIMEOUT and not collector.is_complete(kind):
+            await asyncio.sleep(_POLL_INTERVAL)
+            waited += _POLL_INTERVAL
+
+        complete = collector.is_complete(kind)
+        results = collector.results(kind)
+        await manager.run_sync(_unsubscribe)
+
+        if not complete:
+            return ToolError(
+                error="FACILITY_COLLECTION_TIMEOUT",
+                message=(
+                    f"The {kind.value} list did not finish loading within "
+                    f"{_COLLECT_TIMEOUT:.0f}s ({len(results)} facilities collected "
+                    "so far). Reporting that partial set as the full list would be "
+                    "misleading, so nothing is returned."
+                ),
+                suggestion="The sim may be paused, still loading, or busy. Try again shortly.",
+            )
+
+        manager.set_cached_facilities(kind.value, results)
+        return results
 
 
 @handle_simconnect_errors
 @require_connection
-async def get_nearby_airports() -> ToolError:
-    """Get nearby airports from the SimConnect facilities subscription.
+async def get_nearby_airports(
+    latitude: Annotated[
+        float | None,
+        Field(description="Centre latitude. Defaults to the aircraft's position.",
+              ge=-90, le=90),
+    ] = None,
+    longitude: Annotated[
+        float | None,
+        Field(description="Centre longitude. Defaults to the aircraft's position.",
+              ge=-180, le=180),
+    ] = None,
+    radius_nm: Annotated[
+        float, Field(description="Search radius in nautical miles", gt=0, le=500)
+    ] = 50.0,
+    limit: Annotated[int, Field(description="Maximum results", ge=1, le=200)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Field(description="Results to skip, for paging", ge=0)] = 0,
+    response_format: Annotated[
+        ResponseFormat, Field(description="'markdown' for a table, 'json' for rows")
+    ] = ResponseFormat.MARKDOWN,
+) -> FacilityList | ToolError:
+    """List airports near a point, nearest first.
 
-    Not implemented yet -- see the module docstring. Kept as a tool (rather
-    than removed) so its replacement in Phase 2 is a drop-in.
+    Filters SimConnect's airport facility list by great-circle distance from
+    the given (or current) position. That list is not scoped to the
+    aircraft's location at all -- measured live, it is the entire world
+    (85,249 airports) regardless of where the aircraft is -- so a radius
+    that finds nothing means there is genuinely no airport that close, not
+    that the sim "hasn't loaded" one. The distance filter always runs over
+    the complete list before pagination, so a later page can never miss a
+    match an earlier page's filtering already found.
     """
-    return _NOT_IMPLEMENTED
+    manager = SimConnectManager()
+
+    if latitude is None or longitude is None:
+        if manager.accessor is None:
+            return ToolError(
+                error="POSITION_UNAVAILABLE",
+                message="Could not read the aircraft position for the search centre.",
+                suggestion="Pass latitude and longitude explicitly.",
+            )
+        pos = await manager.run_sync(
+            lambda: manager.accessor.read_many([
+                ("PLANE_LATITUDE", "degrees", None),
+                ("PLANE_LONGITUDE", "degrees", None),
+            ])
+        )
+        latitude = latitude if latitude is not None else pos["PLANE_LATITUDE"].get("value")
+        longitude = longitude if longitude is not None else pos["PLANE_LONGITUDE"].get("value")
+        if latitude is None or longitude is None:
+            return ToolError(
+                error="POSITION_UNAVAILABLE",
+                message="Could not read the aircraft position for the search centre.",
+                suggestion="Pass latitude and longitude explicitly.",
+            )
+
+    airports = await _collect(FacilityKind.AIRPORT)
+    if isinstance(airports, ToolError):
+        return airports
+
+    nearby = []
+    for airport in airports:
+        distance = great_circle_nm(
+            latitude, longitude, airport["latitude"], airport["longitude"]
+        )
+        if distance <= radius_nm:
+            nearby.append({**airport, "distance_nm": round(distance, 1)})
+    nearby.sort(key=lambda a: a["distance_nm"])
+
+    window, page = paginate(nearby, offset, limit)
+    center = {"latitude": latitude, "longitude": longitude}
+
+    if response_format is ResponseFormat.JSON:
+        return FacilityList(page=page, center=center, radius_nm=radius_nm, results=window)
+
+    markdown = render_paginated_table(
+        window, page, AIRPORT_COLUMNS, title=f"Airports within {radius_nm} nm"
+    )
+    return FacilityList(page=page, center=center, radius_nm=radius_nm, markdown=markdown)
 
 
 @handle_simconnect_errors
 @require_connection
-async def get_facility_info(icao: str, facility_type: str = "airport") -> ToolError:
-    """Get details on a specific airport, waypoint, NDB, or VOR.
+async def get_facility_info(
+    icao: Annotated[
+        str,
+        Field(description="ICAO identifier, e.g. 'KJFK', 'EGLL', 'SEA'",
+              min_length=2, max_length=8),
+    ],
+    facility_type: Annotated[
+        Literal["airport", "waypoint", "ndb", "vor"],
+        Field(description="Kind of facility to look up: one of 'airport', "
+                          "'waypoint', 'ndb', or 'vor'"),
+    ] = "airport",
+) -> FacilityInfo | ToolError:
+    """Look up one airport, waypoint, NDB or VOR by ICAO identifier.
 
-    Not implemented yet -- see the module docstring. Kept as a tool (rather
-    than removed) so its replacement in Phase 2 is a drop-in.
+    Only facilities the sim currently has loaded are visible. Airports are
+    the exception: SimConnect's airport facility list is the complete
+    worldwide set (measured live -- see module docstring), not scoped to
+    the aircraft's location, so an airport miss means the identifier is
+    wrong rather than out of range.
     """
-    return _NOT_IMPLEMENTED
+    kind = FacilityKind(facility_type)
+    entries = await _collect(kind)
+    if isinstance(entries, ToolError):
+        return entries
+
+    needle = icao.strip().upper()
+    for entry in entries:
+        if entry["icao"].upper() == needle:
+            return FacilityInfo(facility=entry)
+
+    if kind is FacilityKind.AIRPORT:
+        suggestion = (
+            "Airports are matched against the sim's complete worldwide list, "
+            "already loaded regardless of position, so this ICAO likely doesn't "
+            "exist or is misspelled. Try msfs_get_nearby_airports with a wide "
+            "radius to browse what's available."
+        )
+    else:
+        suggestion = (
+            "The sim only publishes facilities it has loaded, typically the "
+            "area around the aircraft. Fly closer, or double-check the "
+            "identifier's spelling."
+        )
+
+    return ToolError(
+        error="FACILITY_NOT_FOUND",
+        message=f"No {facility_type} '{icao}' among the {len(entries)} loaded.",
+        suggestion=suggestion,
+    )

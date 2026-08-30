@@ -344,6 +344,34 @@ class PmdgEventResult(OkModel):
     )
 
 
+class FacilityInfo(OkModel):
+    """One airport, waypoint, NDB or VOR looked up by ICAO identifier."""
+
+    facility: dict[str, Any] = Field(
+        ...,
+        description="Parsed facility fields. Shape varies by kind -- see "
+        "simconnect_mcp.facilities -- but always includes icao, region, kind, "
+        "latitude, longitude, altitude_ft",
+    )
+
+
+class FacilityList(OkModel):
+    """Airports within a radius of a point, nearest first."""
+
+    page: Page
+    center: dict[str, float] = Field(
+        ..., description="Search centre used: {'latitude': ..., 'longitude': ...}"
+    )
+    radius_nm: float = Field(..., description="Search radius, in nautical miles")
+    results: list[dict[str, Any]] | None = Field(
+        None, description="Structured rows, each with a distance_nm; null when "
+        "response_format is markdown"
+    )
+    markdown: str | None = Field(
+        None, description="Rendered table; null when response_format is json"
+    )
+
+
 class ConnectionStatus(OkModel):
     state: str
     connected: bool
