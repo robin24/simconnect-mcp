@@ -4,15 +4,24 @@ handle_simconnect_errors and require_connection wrap nearly every tool.
 This covers require_connection's needs_accessor gate directly -- both
 decorator forms, and that the connection check still runs first -- and
 then, end to end, every real tool site the phase-1 final review found
-dereferencing manager.accessor without checking it first
-(simvars.py:153,187,290,393, aircraft.py:146, utilities.py:136,151):
-before this gate existed, each one turned a plain-SimConnect fallback
-connection into `UNEXPECTED: 'NoneType' object has no attribute 'read'` --
-a Python traceback leaking through the envelope -- instead of a typed
-error. Parametrized over the real tool functions, not reimplemented per
-module, so a future accessor-dependent tool that forgets needs_accessor=True
-has to be added to ACCESSOR_DEPENDENT_TOOLS to go undetected, rather than
-just quietly compiling.
+dereferencing manager.accessor as its only means of doing its primary job
+(no fallback path exists for it): simvars.py:153,187,290,393,
+aircraft.py:146. Before this gate existed, each one turned a
+plain-SimConnect fallback connection into `UNEXPECTED: 'NoneType' object
+has no attribute 'read'` -- a Python traceback leaking through the
+envelope -- instead of a typed error. Parametrized over the real tool
+functions, not reimplemented per module, so a future accessor-dependent
+tool that forgets needs_accessor=True has to be added to
+ACCESSOR_DEPENDENT_TOOLS to go undetected, rather than just quietly
+compiling.
+
+utilities.py's set_aircraft_position is deliberately NOT in that list. Its
+only accessor use is an optional, already-try/except-guarded read-back for
+the response's warning fields -- its primary action (manager.sm.set_pos)
+needs no accessor at all. It carried needs_accessor=True for one wave
+anyway (a wave B brief mis-listed it alongside the five genuine sites
+above); final-fix D2 removed it. test_utilities.py covers the fallback
+path it must keep serving.
 """
 from __future__ import annotations
 
@@ -27,7 +36,6 @@ from simconnect_mcp.tools.events import trigger_custom_event, trigger_event
 from simconnect_mcp.tools.lvars import execute_calculator_code, get_lvar
 from simconnect_mcp.tools.models import ToolError
 from simconnect_mcp.tools.simvars import get_simvar, get_simvar_bulk, set_simvar, watch_simvar
-from simconnect_mcp.tools.utilities import set_aircraft_position
 from simconnect_mcp.vendor.mobiflight_variable_requests import MobiFlightVariableRequests
 
 # ---------------------------------------------------------------------------
@@ -115,7 +123,6 @@ ACCESSOR_DEPENDENT_TOOLS = [
     ("get_simvar_bulk", get_simvar_bulk, ([{"name": "PLANE_ALTITUDE"}],), {}),
     ("watch_simvar", watch_simvar, ("PLANE_ALTITUDE",), {"duration_s": 1}),
     ("get_aircraft_snapshot", get_aircraft_snapshot, (), {}),
-    ("set_aircraft_position", set_aircraft_position, (47.0, -122.0), {}),
 ]
 
 

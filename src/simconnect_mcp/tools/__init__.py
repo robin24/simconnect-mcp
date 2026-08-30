@@ -83,8 +83,23 @@ def require_connection(
     `handle_simconnect_errors`' catch-all turns into
     `UNEXPECTED: 'NoneType' object has no attribute 'read'` -- a Python
     traceback leaking through the envelope, exactly what the typed errors
-    exist to prevent. Six call sites did this before this check existed
-    (simvars.py's four tools, get_aircraft_snapshot, set_aircraft_position).
+    exist to prevent. Five call sites did this before this check existed:
+    simvars.py's four tools, and get_aircraft_snapshot. For each of those,
+    the accessor is not just used but IS the tool's only means of doing its
+    primary job -- there is no fallback path to fall back to.
+
+    Do not reach for this just because a tool happens to touch
+    `manager.accessor` somewhere. set_aircraft_position also touches it
+    (for an optional post-write read-back, wrapped in its own try/except)
+    and does not take this flag -- its primary action, `manager.sm.set_pos`,
+    needs no accessor at all, so a missing one should degrade to honest
+    nulls, not a refusal. It briefly carried needs_accessor=True anyway
+    (wave B3, on a wave B brief that mis-listed it alongside the five
+    genuine sites); the effect was a tool that used to serve the
+    plain-SimConnect fallback -- reposition the aircraft, report the
+    read-back as unverified -- refusing outright instead. Fixed in final-fix
+    wave D. The lesson: check whether the *primary action* needs the
+    accessor, not merely whether the function body mentions it.
 
     Defaults to False, not True, deliberately: most tools (events, L-vars
     via MobiFlight, PMDG SDK reads) reach the sim through a different path

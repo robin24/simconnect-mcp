@@ -99,7 +99,7 @@ async def send_sim_text(
 
 
 @handle_simconnect_errors
-@require_connection(needs_accessor=True)
+@require_connection
 async def set_aircraft_position(
     latitude: Annotated[
         float, Field(description="Target latitude, degrees", ge=-90, le=90)

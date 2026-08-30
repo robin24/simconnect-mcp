@@ -169,6 +169,38 @@ async def test_total_read_back_failure_reports_all_nulls_without_crashing(mock_s
     assert result.warning is not None
 
 
+async def test_reposition_still_works_with_no_accessor(mock_simconnect):
+    """final-fix-D / D2: set_aircraft_position must keep serving the
+    plain-SimConnect fallback (manager.accessor is None) rather than
+    refusing outright.
+
+    Its primary action, manager.sm.set_pos, needs no accessor at all --
+    only the optional post-write read-back does, and that was already
+    wrapped in try/except before @require_connection(needs_accessor=True)
+    was (wrongly) added in wave B3. `manager.accessor.read(...)` with
+    accessor=None raises AttributeError, which is just another Exception
+    to that same try/except, so this exercises the identical code path as
+    test_total_read_back_failure_reports_all_nulls_without_crashing above
+    -- proving the None case degrades the same honest way, not that it
+    is special-cased.
+    """
+    mock_simconnect["manager"].accessor = None
+
+    result = await set_aircraft_position(
+        latitude=47.6, longitude=-122.3, altitude=433.0, on_ground=True
+    )
+
+    assert result.status == "ok"
+    mock_simconnect["sm"].set_pos.assert_called_once()
+    assert result.latitude is None
+    assert result.longitude is None
+    assert result.altitude is None
+    assert result.heading is None
+    assert result.on_ground is None
+    assert result.unverified == ["latitude", "longitude", "altitude", "heading", "on_ground"]
+    assert result.warning is not None
+
+
 async def test_ignored_reposition_is_flagged_even_when_altitude_matches(mock_simconnect):
     """B7: PositionResult.warning promised to fire "when the sim placed the
     aircraft somewhere other than requested", but the code only ever
