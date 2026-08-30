@@ -485,7 +485,7 @@ def test_read_many_caps_each_item_at_per_item_timeout():
     )
 
 
-def test_read_many_budget_scales_with_variable_count_up_to_the_cap():
+def test_read_many_budget_scales_with_variable_count_up_to_the_cap(monkeypatch):
     """The shared budget still grows with how many variables were asked
     for -- just capped at MAX_BATCH_BUDGET now (B1; see
     test_read_many_caps_the_total_budget_regardless_of_variable_count for
@@ -494,41 +494,69 @@ def test_read_many_budget_scales_with_variable_count_up_to_the_cap():
     This is the defect measured live: get_simvar_bulk passed no budget at
     all, so 100 variables shared DEFAULT_TIMEOUT -- one variable's worth --
     and 29 of them were reported as failures purely because the batch ran
-    out of time on an idle sim. A budget still stuck at one item's worth
-    would only let the first of these ever be attempted; proving every one
-    of them reaches SimConnect confirms the total actually scaled with
-    count instead.
+    out of time on an idle sim.
 
-    Every item responds quickly (respond_after well under per_item_timeout)
-    rather than hanging to the edge of its own share -- so real elapsed
-    time stays a small fraction of the budget throughout and the assertion
-    does not ride the same knife-edge as a batch where every item consumes
-    its full per-item timeout (OS scheduler granularity on `Event.wait()`
-    can overshoot a very tight per-item timeout by several milliseconds,
-    which compounds across many items sitting right at the boundary).
+    D5: the previous version of this test drove FakeSM's genuine
+    background-thread delay and asserted only a raw count of attempts
+    against real elapsed time. Measured on this (Windows) machine,
+    threading.Timer's ~15.6ms scheduler granularity inflated the nominal
+    5ms per-read cost to an actual ~16.3ms -- which still exceeded the
+    6.25ms (per_item_timeout / total) needed to trip the assertion against
+    the regression, but only by 2.6x. On a host with finer-grained timers,
+    real per-read cost could fall under that threshold and the test would
+    pass even with the regression reintroduced. Its docstring also claimed
+    a stuck budget "would only let the first of these ever be attempted",
+    which understates it -- the arithmetic lets three of eight through, not
+    one (see the numbers below).
+
+    This version fakes `time.monotonic` and stubs `read` itself, so a
+    "read" costs an exact, deterministic 0.02s of fake elapsed time rather
+    than whatever the OS scheduler happens to actually deliver -- no real
+    waiting occurs. That makes the assertion below a direct statement about
+    the computed budget rather than an inference from how many reads
+    happened to fit in real time: the 8th item only gets its full,
+    unsqueezed 0.05s share if the shared budget actually scaled to
+    total * per_item_timeout = 0.4s (comfortably under MAX_BATCH_BUDGET). A
+    budget stuck at one item's worth (0.05s -- the actual historical
+    regression) is exhausted after 3 of the 8 items (3 * 0.02s = 0.06s
+    already exceeds it); the rest, the 8th included, would be skipped
+    outright without `read` ever being called for them.
     """
-    sm = FakeSM(value=1.0, respond_after=0.005)
+    clock = [0.0]
+
+    def fake_monotonic() -> float:
+        return clock[0]
+
+    monkeypatch.setattr(simvar_access_module.time, "monotonic", fake_monotonic)
+
+    sm = FakeSM(value=1.0)
     accessor = SimVarAccessor(sm)
-    read_calls: list[str] = []
-    real_read = accessor.read
+    seen_timeouts: list[float] = []
+    cost = 0.02  # fake seconds "spent" per read -- no real waiting happens
 
-    def counting_read(name, unit=None, index=None, timeout=2.0):
-        read_calls.append(name)
-        return real_read(name, unit=unit, index=index, timeout=timeout)
+    def fake_read(name, unit=None, index=None, timeout=2.0):
+        seen_timeouts.append(timeout)
+        clock[0] += cost
+        return 1.0
 
-    accessor.read = counting_read
+    accessor.read = fake_read
 
     total = 8
     per_item_timeout = 0.05
     requests = [(f"VAR_{i}", None, None) for i in range(total)]
-    # total * per_item_timeout = 0.4s, comfortably under MAX_BATCH_BUDGET,
-    # so nothing here should be skipped as budget-exhausted.
     results = accessor.read_many(requests, per_item_timeout=per_item_timeout)
 
-    assert len(read_calls) == total, (
-        f"expected every one of {total} variables to be attempted -- a "
-        f"budget stuck at one item's worth ({per_item_timeout}s) would only "
-        f"reach 1, got {len(read_calls)}"
+    assert len(seen_timeouts) == total, (
+        f"expected every one of {total} variables to be attempted -- a budget "
+        f"stuck at one item's worth ({per_item_timeout}s) would exhaust itself "
+        f"after the 3rd (3 * {cost}s > {per_item_timeout}s), got "
+        f"{len(seen_timeouts)}"
+    )
+    assert seen_timeouts[-1] == pytest.approx(per_item_timeout), (
+        "the 8th item should have received its full, unsqueezed per-item "
+        f"share ({per_item_timeout}s) -- only possible if the shared budget "
+        "scaled with the variable count instead of staying stuck at one "
+        f"item's worth, got {seen_timeouts[-1]}"
     )
     assert all(r.get("value") == 1.0 for r in results.values()), (
         f"every variable should have been read successfully, got {results}"
