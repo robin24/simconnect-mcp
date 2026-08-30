@@ -251,6 +251,12 @@ async def get_pmdg_var(
         return ToolError(
             error="CATALOG_NOT_FOUND",
             message=f"{catalog_key} catalog not loaded.",
+            suggestion=(
+                f"{catalog_key} is one of the two built-in PMDG catalogs, so this "
+                "points at a packaging problem rather than a bad argument -- check "
+                "that the installed package includes "
+                "src/simconnect_mcp/data/pmdg_777.json and pmdg_737.json."
+            ),
         )
 
     pmdg, err = _ensure_pmdg_manager(catalog_key)
@@ -278,8 +284,8 @@ async def get_pmdg_var(
     if sdk_field is None or sdk_type in ("event", "lvar"):
         return ToolError(
             error="NOT_A_DATA_FIELD",
-            message=f"'{name}' is a {sdk_type}, not a readable data field. "
-                    "Use msfs_send_pmdg_event for events, or msfs_get_lvar for L-vars.",
+            message=f"'{name}' is a {sdk_type}, not a readable data field.",
+            suggestion="Use msfs_send_pmdg_event for events, or msfs_get_lvar for L-vars.",
         )
 
     manager = SimConnectManager()
@@ -370,11 +376,13 @@ async def get_pmdg_cdu(
         return ToolError(
             error="INVALID_CDU",
             message=f"PMDG 737 NG3 has only 2 CDUs (0=Captain, 1=F/O). Got {cdu}.",
+            suggestion="Pass cdu=0 for Captain or cdu=1 for F/O.",
         )
     if catalog_key == "pmdg_777" and cdu not in (0, 1, 2):
         return ToolError(
             error="INVALID_CDU",
             message=f"PMDG 777 CDU must be 0 (left), 1 (center), or 2 (right). Got {cdu}.",
+            suggestion="Pass cdu=0 (left), cdu=1 (center), or cdu=2 (right).",
         )
 
     if catalog_key == "pmdg_737":
@@ -414,7 +422,13 @@ async def get_pmdg_cdu(
 
     screen = pmdg.read_cdu(cdu)
     if screen is None:
-        return ToolError(error="NO_CDU_DATA", message="CDU screen not available.")
+        return ToolError(
+            error="NO_CDU_DATA",
+            message="CDU screen not available.",
+            suggestion=(
+                f"Ensure EnableCDUBroadcast.{cdu}=1 is set in {options_file} and restart the sim."
+            ),
+        )
 
     rows = render_cdu_text(screen)
     if rows is None:
@@ -512,6 +526,10 @@ async def send_pmdg_event(
             return ToolError(
                 error="MOBIFLIGHT_NOT_AVAILABLE",
                 message="MobiFlight WASM extension required for PMDG events.",
+                suggestion=(
+                    "Install the MobiFlight WASM module in your MSFS Community folder "
+                    "and reconnect with msfs_connect."
+                ),
             )
 
         def _execute():
