@@ -74,3 +74,23 @@ def restore_parking_brake(live_manager):
     yield
     event = live_manager.ae.find("PARKING_BRAKES")
     event()
+
+
+@pytest.fixture
+def restore_sim_rate(live_manager):
+    """SIM_RATE_INCR/SIM_RATE_DECR double/halve SIMULATION_RATE.
+
+    Restoration must happen even if the test's own assertion fails (final-
+    fix-C explicitly calls this out), so this fires the compensating native
+    event -- not through the tool under test -- in a bounded loop until the
+    rate matches what it was on entry, rather than assuming a single
+    corrective step undoes whatever the test did.
+    """
+    original = live_manager.accessor.read("SIMULATION_RATE")
+    yield original
+    for _ in range(10):
+        current = live_manager.accessor.read("SIMULATION_RATE")
+        if current == original:
+            break
+        event = live_manager.ae.find("SIM_RATE_DECR" if current > original else "SIM_RATE_INCR")
+        event()

@@ -28,6 +28,7 @@ from simconnect_mcp.tools.lvars import get_lvar
 from simconnect_mcp.tools.models import ToolError
 from simconnect_mcp.tools.simvars import get_simvar, get_simvar_bulk, set_simvar, watch_simvar
 from simconnect_mcp.tools.utilities import set_aircraft_position
+from simconnect_mcp.vendor.mobiflight_variable_requests import MobiFlightVariableRequests
 
 # ---------------------------------------------------------------------------
 # The decorator in isolation
@@ -159,7 +160,7 @@ async def test_mobiflight_lvar_tools_are_unaffected_by_a_missing_accessor(mock_s
     this task; it is deliberately not part of this fallback check)."""
     mock_simconnect["manager"].accessor = None
     mock_simconnect["manager"]._mobiflight_available = True
-    mock_simconnect["manager"].mobiflight = MagicMock()
+    mock_simconnect["manager"].mobiflight = MagicMock(spec=MobiFlightVariableRequests)
     mock_simconnect["manager"].mobiflight.get.return_value = 1.0
 
     result = await get_lvar("A32NX_TEST")

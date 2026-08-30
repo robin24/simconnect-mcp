@@ -28,14 +28,20 @@ from simconnect_mcp.tools.lvars import (
     set_lvar,
 )
 from simconnect_mcp.tools.models import CalculatorResult, LVarValue, LVarWriteResult, ToolError
+from simconnect_mcp.vendor.mobiflight_variable_requests import MobiFlightVariableRequests
 
 
 def _enable_mobiflight(mock_simconnect):
     """mock_simconnect leaves _mobiflight_available False and mobiflight None
     by default (see test_events.py's identical pattern for trigger_custom_event).
+
+    spec=MobiFlightVariableRequests so a call to a method the real bridge
+    does not have (e.g. the nonexistent trigger_event(), final-fix-C) raises
+    AttributeError here exactly as it does against the sim, instead of a
+    bare MagicMock silently auto-creating the attribute.
     """
     mock_simconnect["manager"]._mobiflight_available = True
-    mock_simconnect["manager"].mobiflight = MagicMock()
+    mock_simconnect["manager"].mobiflight = MagicMock(spec=MobiFlightVariableRequests)
     return mock_simconnect["manager"].mobiflight
 
 

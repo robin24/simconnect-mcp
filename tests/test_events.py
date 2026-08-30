@@ -12,6 +12,7 @@ from mcp.server.fastmcp.exceptions import ToolError as MCPToolError
 from simconnect_mcp.tools.events import search_events, trigger_custom_event, trigger_event
 from simconnect_mcp.tools.formatting import ResponseFormat
 from simconnect_mcp.tools.models import EventResult, SearchResult
+from simconnect_mcp.vendor.mobiflight_variable_requests import MobiFlightVariableRequests
 
 
 @pytest.mark.asyncio
@@ -320,7 +321,7 @@ async def test_trigger_custom_event_success_returns_a_model(mock_simconnect):
     _mobiflight_available False by default, so this wires up the MobiFlight
     mock explicitly rather than relying on fixture defaults."""
     mock_simconnect["manager"]._mobiflight_available = True
-    mock_simconnect["manager"].mobiflight = MagicMock()
+    mock_simconnect["manager"].mobiflight = MagicMock(spec=MobiFlightVariableRequests)
 
     result = await trigger_custom_event("MobiFlight.TEST", parameter=5)
 
@@ -328,8 +329,8 @@ async def test_trigger_custom_event_success_returns_a_model(mock_simconnect):
     assert result.status == "ok"
     assert result.custom is True
     assert result.parameter == 5
-    mock_simconnect["manager"].mobiflight.trigger_event.assert_called_once_with(
-        "MobiFlight.TEST", 5
+    mock_simconnect["manager"].mobiflight.set.assert_called_once_with(
+        "5 (>K:MobiFlight.TEST)"
     )
 
 
@@ -340,9 +341,43 @@ async def test_trigger_custom_event_message_does_not_overclaim_confirmation(mock
     fired -- the message must say it was sent, not that it "triggered
     successfully"."""
     mock_simconnect["manager"]._mobiflight_available = True
-    mock_simconnect["manager"].mobiflight = MagicMock()
+    mock_simconnect["manager"].mobiflight = MagicMock(spec=MobiFlightVariableRequests)
 
     result = await trigger_custom_event("MobiFlight.TEST")
 
     assert "successfully" not in result.message.lower()
     assert "sent" in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_trigger_custom_event_sends_exact_rpn_without_parameter(mock_simconnect):
+    """final-fix-C / C1: msfs_trigger_custom_event called
+    manager.mobiflight.trigger_event(), a method that does not exist on
+    MobiFlightVariableRequests -- confirmed live, every call raised
+    AttributeError. The working mechanism (measured live: SIM_RATE_INCR
+    delivered via this exact RPN form) is manager.mobiflight.set() with a
+    `(>K:NAME)` key-event RPN string. Fails against the pre-fix code because
+    the bare MagicMock().trigger_event(...) call succeeds silently and
+    .set is never touched.
+    """
+    mock_simconnect["manager"]._mobiflight_available = True
+    mobiflight = MagicMock(spec=MobiFlightVariableRequests)
+    mock_simconnect["manager"].mobiflight = mobiflight
+
+    await trigger_custom_event("PARKING_BRAKES")
+
+    mobiflight.set.assert_called_once_with("(>K:PARKING_BRAKES)")
+
+
+@pytest.mark.asyncio
+async def test_trigger_custom_event_sends_exact_rpn_with_parameter(mock_simconnect):
+    """Parameterised form: the value precedes the key-event RPN token, e.g.
+    '8192 (>K:THROTTLE_SET)' -- the same convention execute_calculator_code
+    already uses for direct-set events (see test_lvars.py)."""
+    mock_simconnect["manager"]._mobiflight_available = True
+    mobiflight = MagicMock(spec=MobiFlightVariableRequests)
+    mock_simconnect["manager"].mobiflight = mobiflight
+
+    await trigger_custom_event("THROTTLE_SET", parameter=8192)
+
+    mobiflight.set.assert_called_once_with("8192 (>K:THROTTLE_SET)")

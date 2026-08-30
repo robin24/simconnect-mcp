@@ -449,10 +449,20 @@ async def trigger_custom_event(
         int | None, Field(description="Optional integer parameter")
     ] = None,
 ) -> EventResult | ToolError:
-    """Fire a MobiFlight/custom event by name.
+    """Fire a custom event as a key event through the MobiFlight WASM module.
 
-    Requires the MobiFlight WASM module. Used for custom aircraft events that
-    are not in the standard SimConnect event list.
+    Requires the MobiFlight WASM module. The event is delivered via the WASM
+    module's RPN interface -- `(>K:NAME)`, or `PARAM (>K:NAME)` when a
+    parameter is given -- not through native SimConnect event mapping (that
+    is msfs_trigger_event). This reaches events outside the standard
+    SimConnect catalog.
+
+    An aircraft with its own event system (PMDG, Fenix) may silently ignore
+    a default key event in favour of its own SDK: measured live against a
+    PMDG 737, `PARKING_BRAKES` delivered through this path had no effect on
+    the aircraft's brake state, while a sim-level event (no aircraft can
+    intercept it) delivered correctly. A no-op result on such aircraft means
+    the aircraft ignored the event, not that this tool failed.
     """
     manager = SimConnectManager()
 
@@ -467,10 +477,8 @@ async def trigger_custom_event(
         )
 
     def _fire() -> None:
-        if parameter is not None:
-            manager.mobiflight.trigger_event(name, parameter)
-        else:
-            manager.mobiflight.trigger_event(name)
+        rpn = f"{parameter} (>K:{name})" if parameter is not None else f"(>K:{name})"
+        manager.mobiflight.set(rpn)
 
     await manager.run_sync(_fire)
     return EventResult(
