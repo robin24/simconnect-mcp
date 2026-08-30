@@ -127,14 +127,14 @@ async def test_network_failure_is_reported_actionably():
         side_effect=OSError("getaddrinfo failed"),
     ):
         result = await search_hubhop(query="autopilot")
-    assert result.error == "HUBHOP_UNAVAILABLE"
+    assert result.error == "HUBHOP_NOT_AVAILABLE"
     assert "internet" in result.suggestion.lower() or "offline" in result.suggestion.lower()
 
 
 async def test_search_timeout_is_reported_distinctly_from_unavailable():
     """A slow-but-maybe-reachable API and a genuinely unreachable one
     warrant different advice (retry shortly vs. check your connection), so
-    a timed-out fetch must not collapse into the same HUBHOP_UNAVAILABLE
+    a timed-out fetch must not collapse into the same HUBHOP_NOT_AVAILABLE
     code as a DNS/connection failure -- the addendum calls this out
     explicitly: never report a timeout as a generic failure.
 
@@ -269,3 +269,32 @@ async def test_malformed_response_reports_bad_response_not_unexpected():
     assert result.suggestion
     assert "json" in result.message.lower()
     assert "MSFS" not in result.suggestion
+async def test_list_aircraft_can_refresh_the_shared_cache_itself(monkeypatch):
+    """MINOR from the whole-phase review: refresh existed only on
+    msfs_search_hubhop, yet both tools share _client's cache -- so
+    refreshing the aircraft list meant calling the *other* tool with
+    refresh=True first. Fails against a list_hubhop_aircraft with no
+    refresh parameter (TypeError) or one that accepts it and drops it (the
+    second call reuses the warm cache and `calls` stays at 1)."""
+    from simconnect_mcp.tools.hubhop import list_hubhop_aircraft
+
+    calls: list[float | None] = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(timeout)
+        return _FakeResponse(json.dumps(PRESETS).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    await list_hubhop_aircraft(response_format=ResponseFormat.JSON)
+    await list_hubhop_aircraft(response_format=ResponseFormat.JSON)
+    assert len(calls) == 1, "second call should have hit the warm cache"
+
+    await list_hubhop_aircraft(refresh=True, response_format=ResponseFormat.JSON)
+    assert len(calls) == 2, "refresh=True should bypass the still-warm cache"
+
+    await list_hubhop_aircraft(response_format=ResponseFormat.JSON)
+    assert len(calls) == 2, (
+        "refresh must not disable caching -- this call should reuse what "
+        "the refresh call just repopulated"
+    )

@@ -103,7 +103,7 @@ def _hubhop_unavailable() -> ToolError:
     failure (DNS, refused connection, ...); see _hubhop_timeout for the
     slow-but-maybe-reachable case, which gets different advice."""
     return ToolError(
-        error="HUBHOP_UNAVAILABLE",
+        error="HUBHOP_NOT_AVAILABLE",
         message="Could not reach the HubHop API.",
         suggestion="HubHop needs internet access. Check your connection, or "
                    "work offline with msfs_search_lvars against the bundled catalogs.",
@@ -254,6 +254,12 @@ async def list_hubhop_aircraft(
     response_format: Annotated[
         ResponseFormat, Field(description="'markdown' for a table, 'json' for rows")
     ] = ResponseFormat.MARKDOWN,
+    refresh: Annotated[
+        bool,
+        Field(description="Bypass the cached preset database and re-fetch from "
+                          "HubHop before listing. Use this if an aircraft was "
+                          "added to HubHop recently and is not showing up."),
+    ] = False,
 ) -> SearchResult | ToolError:
     """List the aircraft that HubHop has presets for.
 
@@ -265,12 +271,14 @@ async def list_hubhop_aircraft(
     Like msfs_search_hubhop, the first call in this server's session
     downloads the full preset database (roughly 32,000 presets, ~17 MB),
     which can take several seconds; the two tools share the same in-memory
-    copy afterwards, refreshed automatically every 6 hours. Requires
-    internet access.
+    copy afterwards, refreshed automatically every 6 hours. Pass
+    refresh=True to force an immediate re-fetch instead of waiting on that.
+    Requires internet access.
     """
     try:
         aircraft = await _run(
-            _client.list_aircraft, vendor=vendor, timeout=_TIMEOUT_S
+            _client.list_aircraft, vendor=vendor, timeout=_TIMEOUT_S,
+            force_refresh=refresh,
         )
     except asyncio.TimeoutError:
         return _hubhop_timeout()

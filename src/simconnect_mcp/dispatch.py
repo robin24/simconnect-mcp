@@ -291,6 +291,12 @@ class SimConnectDispatcher(SimConnectMobiFlight):
         # Must exist before super().__init__ starts the dispatch thread.
         self.registry = RequestRegistry()
         self.facilities = FacilityCollector()
+        # Extension point with no in-tree consumer: Phase 0 built this hook
+        # for Phase 2's facility work, which then took `self.facilities`
+        # (the collector above) instead. Nothing in src/ appends to it --
+        # only tests do -- so an empty list here is the expected state, not
+        # a wiring bug to hunt down. Kept because an out-of-tree consumer
+        # wanting the raw pData costs nothing to support.
         self.facility_handlers: list = []
         if library_path:
             super().__init__(auto_connect, library_path)

@@ -209,7 +209,7 @@ These tools use the PMDG SDK Client Data Areas for direct binary access to the a
 | `msfs_search_hubhop` | read | Search the MobiFlight HubHop community preset database |
 | `msfs_list_hubhop_aircraft` | read | List the aircraft that HubHop has presets for |
 
-Unlike every other tool, these two reach HubHop's HTTP API rather than the simulator, so they work with MSFS closed. The first call downloads and caches the full preset database (~17 MB); later calls in the same server process are served from that in-memory cache.
+Unlike every other tool, these two reach HubHop's HTTP API rather than the simulator, so they work with MSFS closed. The first call downloads and caches the full preset database (~17 MB); later calls in the same server process are served from that in-memory cache, which both tools share and which re-fetches on its own every 6 hours. Either tool accepts `refresh=true` to force an immediate re-fetch.
 
 ### Flight and Scenario (4)
 
@@ -218,7 +218,7 @@ Unlike every other tool, these two reach HubHop's HTTP API rather than the simul
 | `msfs_load_flight` | write | Load a saved flight, replacing the current one |
 | `msfs_save_flight` | write | Save the current flight to a `.FLT` file — refuses to overwrite an existing file unless `overwrite=true` is passed explicitly |
 | `msfs_load_flight_plan` | write | Load a `.PLN` flight plan into the aircraft's GPS/FMS, replacing whatever plan is currently active |
-| `msfs_create_ai_object` | write | Spawn an AI aircraft or object at a position |
+| `msfs_create_ai_object` | write | Spawn an AI aircraft or object at a position — reports whether SimConnect accepted the request, which is not the same as the object existing (MSFS ignores an unmatched title silently) |
 
 These wrap the underlying SimConnect flight/scenario file operations for scripting test setups (e.g. "load this approach", "save the current state", "spawn traffic nearby") rather than driving them by hand in the sim's own UI. **Live, end-to-end confirmation against MSFS is still pending** as of this writing: the most recent live run against this group returned inconclusive results from an unhealthy sim session (unrelated pre-existing failures elsewhere in the same run), and a clean re-run has not yet been reported. What's above describes what each tool does — it is not a claim that this group has been confirmed working end-to-end against MSFS. See [Running the live tests](#running-the-live-tests) below.
 

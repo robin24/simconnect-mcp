@@ -183,18 +183,40 @@ _register(list_hubhop_aircraft, "msfs_list_hubhop_aircraft", "List HubHop Aircra
           read_only=True, idempotent=True)
 
 # --- Flight and scenario ---
-_register(load_flight, "msfs_load_flight", "Load Saved Flight", read_only=False)
-# Non-destructive only because save_flight refuses to overwrite an existing
-# file unless the caller passes overwrite=True (tools/flight.py) -- without
-# that guard this would be a false claim.
+# The three idempotentHints below were decided together, since loading a
+# file and saving one are not the same question and the first draft got two
+# of them inconsistent with each other.
+#
+# Idempotent: loading the same .FLT twice leaves the sim in the state that
+# file describes, both times -- the second call adds no effect the first
+# did not already have. Identical in character to load_flight_plan below,
+# which is why both now carry the hint; only one of them did before.
+_register(load_flight, "msfs_load_flight", "Load Saved Flight",
+          read_only=False, idempotent=True)
+# NOT idempotent, despite reading like a write-once operation. With
+# overwrite=False the second call refuses and changes nothing -- but with
+# overwrite=True it captures the flight state as it is *now*, so the file
+# it leaves behind differs from the first call's whenever the aircraft has
+# moved in between. idempotentHint is a static annotation and cannot vary
+# per argument, so it has to describe the tool's weakest case, not its
+# best one.
+#
+# destructive=False is a separate question and does hold: overwrite=False
+# is the default, so the tool refuses to replace an existing file unless
+# the caller opts in (tools/flight.py) -- without that guard this would be
+# a false claim.
 _register(save_flight, "msfs_save_flight", "Save Current Flight",
-          read_only=False, destructive=False, idempotent=True)
-# Unlike save_flight, load_flight_plan has no overwrite-style guard: it
-# replaces whatever flight plan is currently active with no prompt and no
-# way to opt out. Left at the read_only=False default (destructive=True),
-# matching load_flight above rather than copying save_flight's override.
+          read_only=False, destructive=False)
+# Idempotent for the same reason as load_flight. Unlike save_flight,
+# load_flight_plan has no overwrite-style guard: it replaces whatever
+# flight plan is currently active with no prompt and no way to opt out, so
+# it keeps the read_only=False default (destructive=True), matching
+# load_flight rather than copying save_flight's override.
 _register(load_flight_plan, "msfs_load_flight_plan", "Load Flight Plan",
           read_only=False, idempotent=True)
+# NOT idempotent, and unlike save_flight there is no reading under which it
+# could be: each call spawns another AI object at the same position, so
+# calling it twice leaves two.
 _register(create_ai_object, "msfs_create_ai_object", "Create AI Object",
           read_only=False)
 
