@@ -330,7 +330,10 @@ async def test_resolve_pmdg_catalog_marks_detected_when_title_matches(mock_simco
 async def test_get_pmdg_cdu_unpowered_response_includes_variant_source(mock_simconnect):
     """Regression: the 'powered: False' branch of get_pmdg_cdu omitted
     variant_source, hiding whether the catalog it used was a detection or a
-    guess -- the one PMDG response shape that had dropped the field."""
+    guess -- the one PMDG response shape that had dropped the field.
+
+    Also pins cdu_name on this same branch (B10): it was dropped here too,
+    even though cdu_names[cdu] is in scope and the powered branch sets it."""
     from simconnect_mcp.pmdg import PMDG_777X_CDU_Screen, PmdgDataManager
     from simconnect_mcp.tools.pmdg import get_pmdg_cdu
 
@@ -346,6 +349,7 @@ async def test_get_pmdg_cdu_unpowered_response_includes_variant_source(mock_simc
     assert result.status == "ok"
     assert result.powered is False
     assert result.variant_source is not None
+    assert result.cdu_name == "Left (Captain)"
 
 
 # ---------------------------------------------------------------------------
@@ -593,6 +597,30 @@ async def test_state_aircraft_resource_does_not_touch_aq_directly(mock_simconnec
     assert result["status"] == "ok"
     assert result["aircraft"]["TITLE"]["value"] == "Boeing 747-8i"
     assert not mock_simconnect["aq"].get.called
+
+
+async def test_state_aircraft_reports_the_standard_vocabulary_when_not_connected(mock_simconnect):
+    """B10: this used to return {"status": "not_connected"}, a status value
+    outside the status/error/message/suggestion vocabulary every tool
+    uses."""
+    import json
+
+    from mcp.server.fastmcp import FastMCP
+
+    from simconnect_mcp.resources.state import register_state_resources
+
+    mock_simconnect["manager"].disconnect()
+
+    mcp = FastMCP("test")
+    register_state_resources(mcp)
+
+    contents = await mcp.read_resource("simconnect://state/aircraft")
+    result = json.loads(contents[0].content)
+
+    assert result["status"] == "error"
+    assert result["error"] == "NOT_CONNECTED"
+    assert result["message"]
+    assert result["suggestion"]
 
 
 async def test_state_aircraft_lets_read_many_size_its_own_batch_budget(mock_simconnect):

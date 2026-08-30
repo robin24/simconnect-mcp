@@ -28,10 +28,10 @@ def extract_section(content: str, category: str) -> str:
     re-entered the section whenever a later heading also matched the category
     (e.g. 'Engine Limits' for category 'engine').
     """
-    if category == "all":
+    needle = category.lower()
+    if needle == "all":
         return content
 
-    needle = category.lower()
     lines = content.split("\n")
     collected: list[str] = []
     in_section = False

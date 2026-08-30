@@ -45,6 +45,34 @@ def test_extract_section_returns_everything_for_all():
     assert extract_section(SAMPLE, "all") == SAMPLE
 
 
+_SAMPLE_WITH_ALL_SUBSTRING = """# Doc
+
+## Stall Warnings
+stall content
+
+## Autopilot
+autopilot content
+"""
+
+
+@pytest.mark.parametrize("category", ["All", "ALL", "aLL"])
+def test_extract_section_all_sentinel_is_case_insensitive(category):
+    """B10: the rest of the matcher lowercases both sides (`needle in
+    line.lower()`), but the 'all' sentinel compared `category` verbatim --
+    an agent passing 'All' fell through to a substring search instead.
+
+    SAMPLE's own headings ('Engines', 'Engine Limits', 'Autopilot') don't
+    happen to contain the substring "all", so asserting against SAMPLE
+    alone would pass even pre-fix (falling through to the "nothing
+    matched, return everything" branch by coincidence -- the same result
+    as the correct "all" sentinel, for the wrong reason). "Stall Warnings"
+    does contain it, so the pre-fix code wrongly narrows to just that
+    section instead of returning the whole document.
+    """
+    assert extract_section(SAMPLE, category) == SAMPLE
+    assert extract_section(_SAMPLE_WITH_ALL_SUBSTRING, category) == _SAMPLE_WITH_ALL_SUBSTRING
+
+
 def test_extract_section_falls_back_to_full_doc_when_unmatched():
     assert extract_section(SAMPLE, "nonexistent") == SAMPLE
 
@@ -106,6 +134,28 @@ async def test_every_doc_file_is_reachable_through_a_resource(key):
     served = contents[0].content
 
     assert served == _read_doc(key)
+
+
+# ---------------------------------------------------------------------------
+# B10: docs/pmdg_737.md listed variant_source's values as explicit/detected/
+# name_match/fallback and omitted "probed" -- skipping the resolution step
+# Task 7 added and live-verified (a client-data probe of each SDK, which is
+# what actually identifies a PMDG 737-600 whose TITLE/ATC_MODEL carry no
+# PMDG branding at all). A served MCP resource stated the resolution order
+# wrongly. Checked against the doc content directly since variant_source is
+# free-text across several docstrings, not a single Literal to import.
+# ---------------------------------------------------------------------------
+
+_VARIANT_SOURCE_VALUES = ("explicit", "detected", "probed", "name_match", "fallback")
+
+
+def test_pmdg_737_doc_lists_every_variant_source_value():
+    content = _read_doc("pmdg-737")
+    missing = [v for v in _VARIANT_SOURCE_VALUES if v not in content]
+    assert not missing, (
+        f"docs/pmdg_737.md is missing variant_source value(s) {missing} -- "
+        "probably stale against tools/pmdg.py's _resolve_pmdg_catalog"
+    )
 
 
 # ---------------------------------------------------------------------------

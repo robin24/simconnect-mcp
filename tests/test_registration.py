@@ -92,6 +92,25 @@ async def test_every_tool_has_annotations_and_a_title():
         assert tool.annotations.title, f"{name} has no title"
 
 
+async def test_every_resource_and_template_declares_mime_type_and_title():
+    """Task 9 added mime_type/title to every @mcp.resource() registration
+    (documentation.py's seven, state.py's two), but nothing asserted either
+    field -- the exact metadata that task existed to add. Covers both
+    concrete resources (list_resources) and URI templates
+    (list_resource_templates), since Task 9 touched both kinds."""
+    resources = await mcp.list_resources()
+    templates = await mcp.list_resource_templates()
+    assert resources, "expected at least one registered resource"
+    assert templates, "expected at least one registered resource template"
+
+    for r in resources:
+        assert r.mimeType, f"resource {r.uri} has no mime_type"
+        assert r.title, f"resource {r.uri} has no title"
+    for t in templates:
+        assert t.mimeType, f"resource template {t.uriTemplate} has no mime_type"
+        assert t.title, f"resource template {t.uriTemplate} has no title"
+
+
 async def test_write_tools_are_marked_destructive():
     tools = await _tools()
     for name in WRITE_TOOLS:

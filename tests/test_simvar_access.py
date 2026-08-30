@@ -8,7 +8,6 @@ import pytest
 import simconnect_mcp.simvar_access as simvar_access_module
 from simconnect_mcp.dispatch import RequestRegistry
 from simconnect_mcp.simvar_access import (
-    DEFAULT_TIMEOUT,
     SimVarAccessor,
     SimVarNotFoundError,
     SimVarNotSettableError,
@@ -16,7 +15,6 @@ from simconnect_mcp.simvar_access import (
     UnitMismatchError,
     simconnect_name,
 )
-from simconnect_mcp.tools.simvars import MAX_BULK_VARIABLES
 
 
 class FakeSM:

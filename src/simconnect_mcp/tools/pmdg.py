@@ -469,6 +469,7 @@ async def get_pmdg_cdu(
     if rows is None:
         return PmdgCduResult(
             cdu=cdu,
+            cdu_name=cdu_names[cdu],
             powered=False,
             rows=None,
             grid=None,

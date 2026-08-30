@@ -29,7 +29,12 @@ def register_state_resources(mcp: FastMCP) -> None:
         """Current aircraft title, type, and position."""
         manager = SimConnectManager()
         if not manager.is_connected or manager.accessor is None:
-            return {"status": "not_connected"}
+            return {
+                "status": "error",
+                "error": "NOT_CONNECTED",
+                "message": "Not connected to MSFS.",
+                "suggestion": "Connect first with the msfs_connect tool.",
+            }
 
         names = [
             "TITLE", "ATC_TYPE", "ATC_ID",
