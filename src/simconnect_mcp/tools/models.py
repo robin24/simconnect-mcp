@@ -304,3 +304,6 @@ class ConnectionStatus(BaseModel):
     mobiflight_available: bool
     sim_paused: bool | None = None
     sim_running: bool | None = None
+    message: str | None = Field(
+        None, description="Human-readable line from the manager, e.g. 'Connected to MSFS'"
+    )

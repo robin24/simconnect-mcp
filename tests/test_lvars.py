@@ -195,6 +195,6 @@ async def test_browse_lvar_catalog_limit_over_bound_is_rejected_by_fastmcp():
     check (a previous task inadvertently connected to the user's live sim
     doing exactly that)."""
     test_mcp = FastMCP("test-lvars")
-    test_mcp.tool()(browse_lvar_catalog)
+    test_mcp.tool(name="msfs_browse_lvar_catalog")(browse_lvar_catalog)
     with pytest.raises(MCPToolError, match="200"):
-        await test_mcp.call_tool("browse_lvar_catalog", {"limit": 5000})
+        await test_mcp.call_tool("msfs_browse_lvar_catalog", {"limit": 5000})

@@ -79,16 +79,19 @@ def test_every_valid_level_name_is_accepted(monkeypatch, name, expected):
 def test_run_sync_uses_get_running_loop():
     """get_event_loop() inside a coroutine is deprecated since 3.10.
 
-    Covers both connection.py's run_sync and server.py's connect_to_sim/
-    disconnect_from_sim, which had the same pattern inline. This is a
+    Covers both connection.py's run_sync and connection_tools.py's
+    connect_to_sim/disconnect_from_sim, which had the same pattern inline
+    (the two lived together in server.py before the tool-registration
+    rewrite moved the connection tools into their own module). This is a
     source-text check, not a behavioral one: it would miss a differently
     formatted or aliased re-introduction of get_event_loop().
     """
     import inspect
 
-    from simconnect_mcp import connection, server
+    from simconnect_mcp import connection
+    from simconnect_mcp.tools import connection_tools
 
-    for module in (connection, server):
+    for module in (connection, connection_tools):
         source = inspect.getsource(module)
         assert "get_event_loop()" not in source, f"{module.__name__} still calls get_event_loop()"
         assert "get_running_loop()" in source, f"{module.__name__} never calls get_running_loop()"

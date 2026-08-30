@@ -117,9 +117,9 @@ async def test_search_events_limit_over_bound_is_rejected_by_fastmcp():
     user's live sim doing exactly that).
     """
     test_mcp = FastMCP("test-events")
-    test_mcp.tool()(search_events)
+    test_mcp.tool(name="msfs_search_events")(search_events)
     with pytest.raises(MCPToolError, match="200"):
-        await test_mcp.call_tool("search_events", {"keyword": "a", "limit": 5000})
+        await test_mcp.call_tool("msfs_search_events", {"keyword": "a", "limit": 5000})
 
 
 @pytest.mark.asyncio

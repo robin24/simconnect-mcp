@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 import sys
@@ -10,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 
 from simconnect_mcp.connection import SimConnectManager
 
@@ -39,6 +39,11 @@ from simconnect_mcp.prompts.templates import register_prompts  # noqa: E402
 from simconnect_mcp.resources.documentation import register_doc_resources  # noqa: E402
 from simconnect_mcp.resources.state import register_state_resources  # noqa: E402
 from simconnect_mcp.tools.aircraft import get_aircraft_snapshot  # noqa: E402
+from simconnect_mcp.tools.connection_tools import (  # noqa: E402
+    connect_to_sim,
+    disconnect_from_sim,
+    get_connection_status,
+)
 from simconnect_mcp.tools.events import (  # noqa: E402
     search_events,
     trigger_custom_event,
@@ -75,53 +80,86 @@ from simconnect_mcp.tools.utilities import (  # noqa: E402
 )
 
 
-# Connection tools (inline — small enough)
-@mcp.tool()
-async def connect_to_sim() -> dict:
-    """Establish SimConnect connection to MSFS.
+def _register(fn, name: str, title: str, *, read_only: bool, idempotent: bool = False,
+              destructive: bool | None = None) -> None:
+    """Register one tool with explicit behaviour annotations.
 
-    Must be called before using any other tools. Automatically attempts
-    to load MobiFlight WASM extension for L-var support.
+    destructiveHint is only meaningful when readOnlyHint is false, so it
+    defaults to the inverse of read_only.
     """
-    manager = SimConnectManager()
-    # Run in executor but NOT through run_sync: connect() takes no lock of
-    # its own (see the comment in SimConnectManager.connect). The reason to
-    # keep it off _sim_lock is that its SimConnect() constructor starts the
-    # dispatch thread, and doing that while holding _sim_lock is best
-    # avoided -- not, as this comment used to claim, that connect() manages
-    # the lock itself and run_sync would double-lock. Whether connect/
-    # disconnect should take _sim_lock at all is a separate design question,
-    # left open here.
-    return await asyncio.get_running_loop().run_in_executor(None, manager.connect)
+    mcp.tool(
+        name=name,
+        title=title,
+        annotations=ToolAnnotations(
+            title=title,
+            readOnlyHint=read_only,
+            destructiveHint=(not read_only) if destructive is None else destructive,
+            idempotentHint=idempotent,
+            openWorldHint=True,  # every tool talks to a live external simulator
+        ),
+    )(fn)
 
 
-@mcp.tool()
-async def disconnect_from_sim() -> dict:
-    """Close the SimConnect connection to MSFS."""
-    manager = SimConnectManager()
-    return await asyncio.get_running_loop().run_in_executor(None, manager.disconnect)
+# --- Connection ---
+_register(connect_to_sim, "msfs_connect", "Connect to MSFS",
+          read_only=False, destructive=False, idempotent=True)
+_register(disconnect_from_sim, "msfs_disconnect", "Disconnect from MSFS",
+          read_only=False, destructive=False, idempotent=True)
+_register(get_connection_status, "msfs_get_connection_status", "Get Connection Status",
+          read_only=True, idempotent=True)
 
+# --- SimVars ---
+_register(get_simvar, "msfs_get_simvar", "Read SimVar", read_only=True, idempotent=True)
+_register(set_simvar, "msfs_set_simvar", "Write SimVar", read_only=False, idempotent=True)
+_register(get_simvar_bulk, "msfs_get_simvars_bulk", "Read Multiple SimVars",
+          read_only=True, idempotent=True)
+_register(search_simvars, "msfs_search_simvars", "Search SimVars",
+          read_only=True, idempotent=True)
+_register(list_simvar_categories, "msfs_list_simvar_categories", "List SimVar Categories",
+          read_only=True, idempotent=True)
+_register(watch_simvar, "msfs_watch_simvar", "Watch SimVar Over Time",
+          read_only=True, idempotent=False)
 
-@mcp.tool()
-async def get_connection_status() -> dict:
-    """Check SimConnect connection state, whether sim is running/paused."""
-    manager = SimConnectManager()
-    return await manager.get_status()
+# --- Events ---
+_register(trigger_event, "msfs_trigger_event", "Trigger Event", read_only=False)
+_register(search_events, "msfs_search_events", "Search Events",
+          read_only=True, idempotent=True)
+_register(trigger_custom_event, "msfs_trigger_custom_event", "Trigger Custom Event",
+          read_only=False)
 
+# --- L-vars ---
+_register(get_lvar, "msfs_get_lvar", "Read L-Var", read_only=True, idempotent=True)
+_register(set_lvar, "msfs_set_lvar", "Write L-Var", read_only=False, idempotent=True)
+_register(list_lvars, "msfs_list_lvars", "List Aircraft L-Vars",
+          read_only=True, idempotent=True)
+_register(execute_calculator_code, "msfs_execute_calculator_code", "Execute RPN Code",
+          read_only=False)
+_register(search_lvars, "msfs_search_lvars", "Search L-Vars", read_only=True, idempotent=True)
+_register(browse_lvar_catalog, "msfs_browse_lvar_catalog", "Browse L-Var Catalogs",
+          read_only=True, idempotent=True)
 
-# Register tool functions
-for tool_fn in [
-    get_simvar, set_simvar, get_simvar_bulk, search_simvars,
-    list_simvar_categories, watch_simvar,
-    trigger_event, search_events, trigger_custom_event,
-    get_lvar, set_lvar, list_lvars, execute_calculator_code,
-    search_lvars, browse_lvar_catalog,
-    get_aircraft_snapshot,
-    get_nearby_airports, get_facility_info,
-    send_sim_text, set_aircraft_position,
-    get_pmdg_var, get_pmdg_cdu, send_pmdg_event,
-]:
-    mcp.tool()(tool_fn)
+# --- Aircraft ---
+_register(get_aircraft_snapshot, "msfs_get_aircraft_snapshot", "Get Aircraft Snapshot",
+          read_only=True, idempotent=True)
+
+# --- Facilities ---
+_register(get_nearby_airports, "msfs_get_nearby_airports", "Get Nearby Airports",
+          read_only=True, idempotent=True)
+_register(get_facility_info, "msfs_get_facility_info", "Get Facility Info",
+          read_only=True, idempotent=True)
+
+# --- Utilities ---
+_register(send_sim_text, "msfs_send_sim_text", "Show Text In Sim",
+          read_only=False, destructive=False)
+_register(set_aircraft_position, "msfs_set_aircraft_position", "Reposition Aircraft",
+          read_only=False, idempotent=True)
+
+# --- PMDG ---
+_register(get_pmdg_var, "msfs_get_pmdg_var", "Read PMDG Variable",
+          read_only=True, idempotent=True)
+_register(get_pmdg_cdu, "msfs_get_pmdg_cdu", "Read PMDG CDU Screen",
+          read_only=True, idempotent=True)
+_register(send_pmdg_event, "msfs_send_pmdg_event", "Send PMDG Event", read_only=False)
 
 # Register resources and prompts
 register_doc_resources(mcp)
