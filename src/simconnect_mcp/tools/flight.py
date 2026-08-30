@@ -116,7 +116,7 @@ _SIM_RECOVERY_POLL_INTERVAL_S = 0.1
 _SIM_RECOVERY_PROBE_VAR = "PLANE_ALTITUDE"
 
 
-async def _wait_for_sim_responsive(manager: SimConnectManager) -> bool:
+async def _wait_for_sim_responsive(manager: SimConnectManager) -> tuple[bool, float]:
     """Poll SimConnect until it answers again, bounded by
     _SIM_RECOVERY_TIMEOUT_S.
 
@@ -137,14 +137,17 @@ async def _wait_for_sim_responsive(manager: SimConnectManager) -> bool:
     the file exists (or the load call returns True) would still hand the
     caller a success while the sim cannot yet answer anything.
 
-    Returns True once a probe read succeeds, False if
-    _SIM_RECOVERY_TIMEOUT_S elapses first. Never raises for an unresponsive
-    sim -- that is reported as a plain bool for the caller to turn into a
-    `warning`, not a ToolError, since the save/load itself already
-    succeeded; FlightSave returning S_OK and the file landing on disk are
-    not in question here. A genuine asyncio.CancelledError (a client
-    cancelling this call) is a BaseException, not an Exception, so the
-    `except Exception` below does not catch it -- it propagates normally.
+    Returns (True, elapsed) once a probe read succeeds, (False, elapsed) if
+    _SIM_RECOVERY_TIMEOUT_S elapses first -- `elapsed` is how long this
+    call actually waited, so a caller can report a real number ("waited
+    30.1s") rather than just the configured bound. Never raises for an
+    unresponsive sim -- that is reported as a plain bool for the caller to
+    turn into a `warning`, not a ToolError, since the save/load itself
+    already succeeded; FlightSave returning S_OK and the file landing on
+    disk are not in question here. A genuine asyncio.CancelledError (a
+    client cancelling this call) is a BaseException, not an Exception, so
+    the `except Exception` below does not catch it -- it propagates
+    normally.
 
     Each iteration is one complete, independent SimVarAccessor.read() call
     with its own short _SIM_RECOVERY_PROBE_TIMEOUT_S, exactly the pattern
@@ -175,6 +178,7 @@ async def _wait_for_sim_responsive(manager: SimConnectManager) -> bool:
       wait loop is held across an `await` boundary, so there is no
       resource of its own left for a `finally` at this level to release.
     """
+    start = time.monotonic()
     if manager.accessor is None:
         # No SimVarAccessor on this connection (plain SimConnect fallback --
         # see connection.py's connect()). save_flight/load_flight/
@@ -183,9 +187,9 @@ async def _wait_for_sim_responsive(manager: SimConnectManager) -> bool:
         # this degrades to the pre-fix behaviour of not waiting at all
         # rather than refusing the whole tool over what is only ever a
         # bonus check.
-        return True
+        return True, 0.0
 
-    deadline = time.monotonic() + _SIM_RECOVERY_TIMEOUT_S
+    deadline = start + _SIM_RECOVERY_TIMEOUT_S
     while True:
         try:
             await manager.run_sync(
@@ -193,26 +197,31 @@ async def _wait_for_sim_responsive(manager: SimConnectManager) -> bool:
                     _SIM_RECOVERY_PROBE_VAR, timeout=_SIM_RECOVERY_PROBE_TIMEOUT_S
                 )
             )
-            return True
+            return True, time.monotonic() - start
         except Exception:
             pass
         if time.monotonic() >= deadline:
-            return False
+            return False, time.monotonic() - start
         await asyncio.sleep(_SIM_RECOVERY_POLL_INTERVAL_S)
 
 
-def _recovery_warning(action: str) -> str:
+def _recovery_warning(action: str, waited_s: float) -> str:
     """FlightResult.warning text for when the sim had not resumed answering
     SimConnect within the wait bound. `action` names the operation that
     already succeeded, e.g. "save", "load", "flight-plan load" -- this is
     never reached for a save/load that itself failed, so the wording always
-    leads with the fact that the requested operation is not in doubt."""
+    leads with the fact that the requested operation is not in doubt.
+    `waited_s` is _wait_for_sim_responsive's own measured elapsed time, not
+    just the configured bound -- the fix brief specifically asked for "how
+    long was waited", which the bound alone does not answer (the actual
+    wait can run slightly past it: the last probe/sleep before the deadline
+    check is not clipped)."""
     return (
-        f"MSFS had not resumed answering SimConnect requests within "
-        f"{_SIM_RECOVERY_TIMEOUT_S:.0f}s of the {action} completing. That is "
-        f"not a failure of the {action} itself -- it already succeeded -- "
-        "but the sim may still be busy, so the very next tool call could be "
-        "slow or fail."
+        f"MSFS had not resumed answering SimConnect requests after waiting "
+        f"{waited_s:.1f}s (bounded at {_SIM_RECOVERY_TIMEOUT_S:.0f}s) for "
+        f"the {action} to complete. That is not a failure of the {action} "
+        f"itself -- it already succeeded -- but the sim may still be busy, "
+        "so the very next tool call could be slow or fail."
     )
 
 
@@ -252,12 +261,12 @@ async def load_flight(
             suggestion="Check the file is a valid .FLT for this MSFS version, "
                        "and that the sim is not mid-load.",
         )
-    responsive = await _wait_for_sim_responsive(manager)
+    responsive, waited = await _wait_for_sim_responsive(manager)
     return FlightResult(
         action="msfs_load_flight", path=str(validated),
         message=f"Loaded flight '{validated.name}'",
         duration_s=round(time.monotonic() - start, 2),
-        warning=None if responsive else _recovery_warning("load"),
+        warning=None if responsive else _recovery_warning("load", waited),
     )
 
 
@@ -348,7 +357,7 @@ async def save_flight(
     # a failure here: FlightSave already returned S_OK and the file is
     # confirmed on disk, so the save itself is not in doubt -- only whether
     # the sim has finished being busy about it.
-    responsive = await _wait_for_sim_responsive(manager)
+    responsive, waited = await _wait_for_sim_responsive(manager)
     return FlightResult(
         action="msfs_save_flight",
         path=str(validated),
@@ -357,7 +366,7 @@ async def save_flight(
             + (" (replaced an existing file)" if existed_before else "")
         ),
         duration_s=round(time.monotonic() - start, 2),
-        warning=None if responsive else _recovery_warning("save"),
+        warning=None if responsive else _recovery_warning("save", waited),
     )
 
 
@@ -388,12 +397,12 @@ async def load_flight_plan(
             message=f"MSFS refused to load flight plan '{path}'.",
             suggestion="Check the file is a valid .PLN for this MSFS version.",
         )
-    responsive = await _wait_for_sim_responsive(manager)
+    responsive, waited = await _wait_for_sim_responsive(manager)
     return FlightResult(
         action="msfs_load_flight_plan", path=str(validated),
         message=f"Loaded flight plan '{validated.name}'",
         duration_s=round(time.monotonic() - start, 2),
-        warning=None if responsive else _recovery_warning("flight-plan load"),
+        warning=None if responsive else _recovery_warning("flight-plan load", waited),
     )
 
 

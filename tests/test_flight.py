@@ -11,6 +11,7 @@ since writing a flight file to a temp path is not disruptive.
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 import time
 from types import SimpleNamespace
@@ -260,7 +261,9 @@ async def test_wait_for_sim_responsive_returns_true_as_soon_as_a_probe_succeeds(
 
     # conftest.py's mock accessor answers immediately by default
     # (simulated_read_seconds=0.0), so this must resolve on the first probe.
-    assert await _wait_for_sim_responsive(mock_simconnect["manager"]) is True
+    responsive, waited = await _wait_for_sim_responsive(mock_simconnect["manager"])
+    assert responsive is True
+    assert waited >= 0.0
 
 
 async def test_wait_for_sim_responsive_does_not_wait_without_an_accessor(mock_simconnect):
@@ -273,14 +276,18 @@ async def test_wait_for_sim_responsive_does_not_wait_without_an_accessor(mock_si
 
     manager = mock_simconnect["manager"]
     manager.accessor = None
-    assert await _wait_for_sim_responsive(manager) is True
+    responsive, waited = await _wait_for_sim_responsive(manager)
+    assert responsive is True
+    assert waited == 0.0
 
 
 async def test_wait_for_sim_responsive_gives_up_after_its_bound(mock_simconnect, monkeypatch):
     """If every probe keeps timing out, this must give up at
     _SIM_RECOVERY_TIMEOUT_S rather than waiting forever -- shrunk here via
     monkeypatch so the test runs in milliseconds instead of the production
-    30s."""
+    30s. Also checks the returned `waited` reflects the actual elapsed time
+    (the fix brief asked the warning to state "how long was waited", not
+    just the configured bound)."""
     from simconnect_mcp.tools import flight as flight_module
 
     monkeypatch.setattr(flight_module, "_SIM_RECOVERY_TIMEOUT_S", 0.2)
@@ -290,7 +297,9 @@ async def test_wait_for_sim_responsive_gives_up_after_its_bound(mock_simconnect,
     manager = mock_simconnect["manager"]
     manager.accessor.simulated_read_seconds = 999.0  # every probe times out
 
-    assert await flight_module._wait_for_sim_responsive(manager) is False
+    responsive, waited = await flight_module._wait_for_sim_responsive(manager)
+    assert responsive is False
+    assert waited >= 0.2
 
 
 async def test_save_flight_attaches_a_warning_when_the_sim_stays_unresponsive(
@@ -323,6 +332,15 @@ async def test_save_flight_attaches_a_warning_when_the_sim_stays_unresponsive(
     assert "resumed answering" in result.warning
     assert "save" in result.warning
     assert result.duration_s >= 0.2
+    # The fix brief asked the warning to say "how long was waited", not
+    # just the configured bound -- so a real measured duration (close to
+    # the monkeypatched 0.2s bound, not exactly it: the loop can overshoot
+    # by up to one poll interval) must appear in the text, extracted rather
+    # than matched as a literal substring since exact wall-clock timing is
+    # not deterministic enough to assert on directly.
+    waited_match = re.search(r"waiting (\d+\.\d+)s", result.warning)
+    assert waited_match, f"warning does not state how long was waited: {result.warning!r}"
+    assert float(waited_match.group(1)) >= 0.2
 
 
 async def test_load_flight_attaches_a_warning_when_the_sim_stays_unresponsive(
