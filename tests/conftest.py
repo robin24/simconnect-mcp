@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 import pytest
 
 from simconnect_mcp.connection import SimConnectManager
 from simconnect_mcp.data.simvar_catalog import is_string_var, resolve_unit
-from simconnect_mcp.simvar_access import SimVarTimeoutError
+from simconnect_mcp.simvar_access import SimVarTimeoutError, values_match
 
 
 @pytest.fixture(autouse=True)
@@ -106,12 +106,32 @@ def mock_simconnect():
                 "unit": resolve_unit(name, unit),
             }
 
-        def _read(name, unit=None, index=None, timeout=2.0):
+        # L-vars written through the raw-datum path, so a write and its
+        # verifying read-back see the same store. Without this the mock
+        # could not distinguish a write that landed from one that did
+        # nothing, which is the whole point of set_lvar's `verified` field.
+        lvar_values: dict[str, float] = {}
+
+        def _read(name, unit=None, index=None, timeout=2.0, raw_name=False):
             if mock_accessor.simulated_read_seconds > timeout:
                 raise SimVarTimeoutError(
                     f"No response for SimVar '{name}' within {timeout}s."
                 )
+            if raw_name:
+                # Verified against a live sim: a native read of an L-var
+                # that was never set returns 0.0 rather than raising, so an
+                # absent name is indistinguishable from one holding zero.
+                return lvar_values.get(name.strip(), 0.0)
             return _decode(name, simvar_values.get(name.split(":")[0]))
+
+        def _write(name, value, unit=None, index=None, grace=0.15, verify=False,
+                   raw_name=False):
+            if not raw_name:
+                # Leave SimVar writes to whatever the test configured via
+                # write.return_value / write.side_effect.
+                return DEFAULT
+            lvar_values[name.strip()] = float(value)
+            return values_match(float(value), float(value)) if verify else None
 
         def _read_many(reqs, per_item_timeout=2.0):
             budget = len(reqs) * per_item_timeout
@@ -138,6 +158,7 @@ def mock_simconnect():
 
         mock_accessor.read.side_effect = _read
         mock_accessor.read_many.side_effect = _read_many
+        mock_accessor.write.side_effect = _write
         manager.accessor = mock_accessor
 
         yield {
@@ -148,4 +169,5 @@ def mock_simconnect():
             "event": mock_event,
             "simvar_values": simvar_values,
             "accessor": mock_accessor,
+            "lvar_values": lvar_values,
         }

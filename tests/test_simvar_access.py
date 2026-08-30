@@ -1,3 +1,4 @@
+import ctypes
 import threading
 from unittest.mock import MagicMock
 
@@ -603,7 +604,11 @@ class FakeWriteSM(FakeSM):
         self.dll.SetDataOnSimObject.side_effect = self._on_write
 
     def _on_write(self, handle, def_id, obj, flags, count, size, data):
-        self.writes.append((def_id, size))
+        # The payload itself, not just its size: a write that reached
+        # SetDataOnSimObject with the right definition but the wrong number
+        # in the buffer would otherwise look identical to a correct one.
+        payload = ctypes.cast(data, ctypes.POINTER(ctypes.c_double)).contents.value
+        self.writes.append((def_id, size, payload))
         self._packet_id += 1
         self.packet_ids_issued.append(self._packet_id)
         if self._definition_exception is not None:
@@ -732,3 +737,156 @@ def test_name_errors_still_raise_even_with_verify():
     sm = FakeWriteSM(definition_exception="SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED")
     with pytest.raises(SimVarNotFoundError):
         SimVarAccessor(sm).write("NOT_A_REAL_VAR", 1.0, verify=True, grace=0.3)
+
+
+# ---------------------------------------------------------------------------
+# Raw datum names (L-vars).
+#
+# msfs_set_lvar used to hand-roll AddToDataDefinition + SetDataOnSimObject
+# in connection.py, outside this accessor -- so it had no definition cache
+# (a fresh new_def_id() per write, never reclaimed), no typed error for a
+# non-ASCII name (a bare UnicodeEncodeError reached the tool decorator's
+# catch-all), and no send-ID correlation (a rejected write was invisible).
+# It now routes through write(raw_name=True).
+# ---------------------------------------------------------------------------
+
+
+def test_simconnect_name_would_destroy_an_lvar_name():
+    """Why raw_name exists at all.
+
+    simconnect_name upper-cases, splits on the first ':' and turns
+    underscores into spaces -- all correct for a SimVar, and all wrong for
+    a datum name like 'L:A32NX_TEST', which it reduces to 'L'. A raw write
+    that forgot the flag would register a definition for a variable called
+    "L" and silently write to nothing.
+    """
+    assert simconnect_name("L:A32NX_TEST") == b"L"
+
+
+def test_raw_write_encodes_the_datum_verbatim_and_sends_the_value():
+    """The name reaching AddToDataDefinition and the double reaching
+    SetDataOnSimObject are both pinned: a write with the right definition
+    but the wrong bytes in the buffer would otherwise pass."""
+    sm = FakeWriteSM()
+    SimVarAccessor(sm).write("L:A32NX_TEST", 3.0, unit="number", raw_name=True)
+
+    _, name, unit, datatype = sm.definitions[0]
+    assert name == b"L:A32NX_TEST"
+    assert unit == b"number"
+
+    assert len(sm.writes) == 1
+    _def_id, size, payload = sm.writes[0]
+    assert size == ctypes.sizeof(ctypes.c_double)
+    assert payload == 3.0
+
+
+def test_raw_write_preserves_the_case_of_the_datum_name():
+    """SimVar names are folded to upper case; a raw datum name is not.
+
+    This pins the ENCODING, not the cache key -- it fails against a raw
+    path that reused simconnect_name (which would send b"L") but passes
+    either way on the cache-key question, which the next test covers.
+    """
+    sm = FakeWriteSM()
+    SimVarAccessor(sm).write("L:Fenix_Fcu_Alt", 1.0, raw_name=True)
+    assert sm.definitions[0][1] == b"L:Fenix_Fcu_Alt"
+
+
+def test_two_spellings_of_a_raw_name_do_not_share_one_definition():
+    """The cache key must not fold a raw datum name's case.
+
+    MSFS documents L-var names as case-sensitive. (Measured against a live
+    MSFS 2024 build, lookup was in fact case-insensitive there -- but the
+    two mistakes are not symmetric: keeping the case costs one extra
+    definition slot for a caller that spells the same variable two ways,
+    while folding it would hand two genuinely different variables the same
+    definition, so a write to one would land on the other.)
+
+    Fails against a key that upper-cases raw names: one definition, and
+    the second write silently retargeted.
+    """
+    sm = FakeWriteSM()
+    accessor = SimVarAccessor(sm)
+    accessor.write("L:Fenix_Fcu_Alt", 1.0, raw_name=True)
+    accessor.write("L:FENIX_FCU_ALT", 2.0, raw_name=True)
+
+    assert [d[1] for d in sm.definitions] == [b"L:Fenix_Fcu_Alt", b"L:FENIX_FCU_ALT"]
+    def_ids = {def_id for def_id, _size, _payload in sm.writes}
+    assert len(def_ids) == 2, "each spelling must get its own definition"
+
+
+def test_raw_write_defaults_to_the_number_unit():
+    """resolve_unit would consult the SimVar catalog, which knows nothing
+    about L-vars; 'number' is what AddToDataDefinition wants for one."""
+    sm = FakeWriteSM()
+    SimVarAccessor(sm).write("L:A32NX_TEST", 1.0, raw_name=True)
+    assert sm.definitions[0][2] == b"number"
+
+
+def test_two_writes_to_the_same_lvar_reuse_one_definition_id():
+    """The leak this fix removes.
+
+    connection.set_lvar called new_def_id() on every write. That function
+    rebuilds an Enum from every prior member on each call and the IDs were
+    never reclaimed, so a long session leaked one definition per write --
+    and CLAUDE.md's documented Fenix FCU procedure issues one write per
+    knob click at 15 ms intervals, making the documented usage pattern the
+    fastest leak.
+
+    Fails against a per-write implementation: two definitions, two IDs.
+    """
+    sm = FakeWriteSM()
+    accessor = SimVarAccessor(sm)
+    accessor.write("L:A32NX_TEST", 1.0, raw_name=True)
+    accessor.write("L:A32NX_TEST", 2.0, raw_name=True)
+
+    assert len(sm.definitions) == 1, "definition IDs are a finite resource"
+    assert len(sm.writes) == 2, "both writes must still be sent"
+    assert {def_id for def_id, _size, _payload in sm.writes} == {sm.definitions[0][0]}
+
+
+def test_a_raw_datum_and_a_simvar_never_share_a_definition():
+    """The cache key carries the raw flag, so a hypothetical datum name
+    that normalises onto a SimVar name cannot collide with it."""
+    sm = FakeWriteSM()
+    accessor = SimVarAccessor(sm)
+    accessor.write("PLANE_ALTITUDE", 1.0, unit="feet", raw_name=True)
+    accessor.write("PLANE_ALTITUDE", 1.0, unit="feet")
+    assert len(sm.definitions) == 2
+    assert sm.definitions[0][1] == b"PLANE_ALTITUDE"
+    assert sm.definitions[1][1] == b"PLANE ALTITUDE"
+
+
+def test_non_ascii_lvar_name_raises_a_typed_error_not_unicodeencodeerror():
+    """connection.set_lvar's `name.encode("ascii")` raised a bare
+    UnicodeEncodeError, which handle_simconnect_errors' generic `except
+    Exception` turned into an UNEXPECTED envelope leaking Python exception
+    text -- the exact failure mode typed errors exist to prevent. Verified
+    live against the old path, which raised UnicodeEncodeError for
+    'L:DEGREE_\N{DEGREE SIGN}'.
+    """
+    sm = FakeWriteSM()
+    with pytest.raises(SimVarNotFoundError):
+        SimVarAccessor(sm).write("L:DEGREE_\N{DEGREE SIGN}", 1.0, raw_name=True)
+
+
+def test_a_rejected_raw_write_is_correlated_to_a_typed_error():
+    """Send-ID correlation, which the hand-rolled path had none of: a write
+    SimConnect actually rejected simply vanished."""
+    sm = FakeWriteSM(exception="SIMCONNECT_EXCEPTION_DATA_ERROR")
+    with pytest.raises(SimVarNotSettableError):
+        SimVarAccessor(sm).write("L:A32NX_TEST", 1.0, raw_name=True, grace=0.5)
+
+
+def test_raw_write_verify_reads_the_same_datum_back():
+    """verify=True must re-read through the raw path too -- a read-back
+    that went through simconnect_name would query 'L' and compare the
+    answer against the value written to 'L:A32NX_TEST'."""
+    sm = FakeWriteSM()
+    sm.set_readback(9.0)
+    accessor = SimVarAccessor(sm)
+
+    assert accessor.write("L:A32NX_TEST", 9.0, raw_name=True, verify=True) is True
+    assert accessor.write("L:A32NX_TEST", 4.0, raw_name=True, verify=True) is False
+    # Both the write and the verifying read used the one cached definition.
+    assert [d[1] for d in sm.definitions] == [b"L:A32NX_TEST"]

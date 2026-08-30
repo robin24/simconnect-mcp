@@ -15,6 +15,11 @@ import pytest
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError as MCPToolError
 
+from simconnect_mcp.simvar_access import (
+    SimVarNotFoundError,
+    SimVarNotSettableError,
+    SimVarTimeoutError,
+)
 from simconnect_mcp.tools.lvars import (
     browse_lvar_catalog,
     execute_calculator_code,
@@ -69,13 +74,28 @@ async def test_get_lvar_returns_a_model(mock_simconnect):
 async def test_set_lvar_uses_the_native_data_definition_path(mock_simconnect):
     """mock_simconnect leaves manager.mobiflight as None (mobiflight_available
     is False by default), so a regression to the RPN path would raise
-    AttributeError here -- this is not just an absence-of-call assertion."""
+    AttributeError here -- this is not just an absence-of-call assertion.
+
+    The write goes through the accessor's raw-datum path now rather than a
+    hand-rolled copy of AddToDataDefinition + SetDataOnSimObject in
+    connection.py, so this asserts on the accessor call. What reaches
+    SetDataOnSimObject -- the encoded name b"L:A32NX_TEST" and the payload
+    double -- is pinned against a real accessor in
+    tests/test_simvar_access.py, which a MagicMock accessor cannot check.
+    """
     result = await set_lvar("A32NX_TEST", 1.0)
 
     assert isinstance(result, LVarWriteResult)
     assert result.name == "A32NX_TEST"
     assert result.value_set == 1.0
-    mock_simconnect["sm"].dll.SetDataOnSimObject.assert_called_once()
+
+    call = mock_simconnect["accessor"].write.call_args
+    assert call.args[0] == "L:A32NX_TEST", "the L: prefix must reach SimConnect"
+    assert call.args[1] == 1.0
+    assert call.kwargs["raw_name"] is True, (
+        "without raw_name the accessor would run the datum through "
+        "simconnect_name and register a definition for a variable called 'L'"
+    )
 
 
 async def test_set_lvar_does_not_require_mobiflight(mock_simconnect):
@@ -83,6 +103,114 @@ async def test_set_lvar_does_not_require_mobiflight(mock_simconnect):
     assert mock_simconnect["manager"].mobiflight_available is False
     result = await set_lvar("L:A32NX_TEST", 5.0)
     assert result.status == "ok"
+
+
+# --- set_lvar's success envelope has to be earned ------------------------
+#
+# The tool used to call manager.set_lvar (which returned None) and then
+# return LVarWriteResult(status="ok", value_set=value) unconditionally --
+# no verification of any kind, on exactly the aircraft class (Fenix, PMDG)
+# this server exists to serve. msfs_set_simvar had verify=True, a
+# `verified` field and a warning; an agent generalising from one write
+# tool to the other silently lost the whole honest-failure mechanism.
+
+
+async def test_set_lvar_reports_verified_true_when_the_value_lands(mock_simconnect):
+    result = await set_lvar("A32NX_TEST", 3.0)
+    assert result.verified is True
+    assert result.warning is None
+    assert mock_simconnect["lvar_values"]["L:A32NX_TEST"] == 3.0
+
+
+async def test_set_lvar_reports_verified_false_when_the_value_does_not_land(
+    mock_simconnect,
+):
+    """An aircraft that ignores the write. SimConnect raises nothing for
+    this, so the read-back is the only evidence -- and reporting it as a
+    plain success is the fabricated-success pattern this phase removes.
+
+    Fails against the pre-fix tool, which had no `verified` field at all
+    and returned status="ok" here.
+    """
+    mock_simconnect["accessor"].read.side_effect = (
+        lambda name, unit=None, index=None, timeout=2.0, raw_name=False: 0.0
+    )
+
+    result = await set_lvar("A32NX_TEST", 3.0)
+
+    assert result.verified is False
+    assert result.warning is not None
+    assert "did not read back" in result.warning
+
+
+async def test_set_lvar_reports_verified_none_when_verification_is_impossible(
+    mock_simconnect,
+):
+    """Tri-state: None means "could not verify", never "succeeded".
+
+    A read-back that itself fails is not evidence the write failed, so
+    False would be a claim this call cannot support.
+    """
+    mock_simconnect["accessor"].read.side_effect = SimVarTimeoutError("sim not answering")
+
+    result = await set_lvar("A32NX_TEST", 3.0)
+
+    assert result.verified is None
+    assert result.warning is not None
+    assert "not a report of success" in result.warning.lower()
+
+
+async def test_set_lvar_never_reports_an_unverified_write_as_verified(mock_simconnect):
+    """The one invariant that matters: whatever happens, `verified` is
+    True only when a read-back actually confirmed the value."""
+    for readback, expected in ((3.0, True), (0.0, False)):
+        mock_simconnect["accessor"].read.side_effect = (
+            lambda name, unit=None, index=None, timeout=2.0, raw_name=False, _v=readback: _v
+        )
+        result = await set_lvar("A32NX_TEST", 3.0)
+        assert result.verified is expected
+
+
+async def test_set_lvar_with_a_non_ascii_name_returns_a_typed_error(mock_simconnect):
+    """connection.set_lvar's name.encode("ascii") raised a bare
+    UnicodeEncodeError straight into handle_simconnect_errors' catch-all,
+    producing an UNEXPECTED envelope leaking Python exception text --
+    verified live against the pre-fix path. It must be a typed error now.
+    """
+    mock_simconnect["accessor"].write.side_effect = SimVarNotFoundError(
+        "Variable name 'L:DEGREE_\N{DEGREE SIGN}' is not valid ASCII"
+    )
+
+    result = await set_lvar("DEGREE_\N{DEGREE SIGN}", 1.0)
+
+    assert isinstance(result, ToolError)
+    assert result.error == "LVAR_NAME_INVALID"
+    assert result.error != "UNEXPECTED"
+    assert result.suggestion
+
+
+async def test_set_lvar_reports_a_rejected_write_instead_of_success(mock_simconnect):
+    """Send-ID correlation reaches the tool: a write SimConnect rejected
+    used to be invisible, because nothing bound the packet."""
+    mock_simconnect["accessor"].write.side_effect = SimVarNotSettableError(
+        "SimConnect rejected the write to 'L:A32NX_TEST'"
+    )
+
+    result = await set_lvar("A32NX_TEST", 1.0)
+
+    assert isinstance(result, ToolError)
+    assert result.error == "LVAR_NOT_SETTABLE"
+
+
+async def test_set_lvar_without_an_accessor_says_so(mock_simconnect):
+    """The plain-SimConnect fallback has no data-definition layer. Saying
+    so beats an AttributeError in an UNEXPECTED envelope."""
+    mock_simconnect["manager"].accessor = None
+
+    result = await set_lvar("A32NX_TEST", 1.0)
+
+    assert isinstance(result, ToolError)
+    assert result.error == "ACCESSOR_UNAVAILABLE"
 
 
 # ---------------------------------------------------------------------------

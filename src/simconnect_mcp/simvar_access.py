@@ -6,8 +6,13 @@ None/False.  That design makes four things impossible: honouring a requested
 unit, reading variables outside the table, reading string variables, and
 telling a failed write from a successful one.
 
-This layer builds definitions directly -- the same native pattern already
-used by SimConnectManager.set_lvar -- so all four work.
+This layer builds definitions directly -- the native AddToDataDefinition +
+SetDataOnSimObject pattern -- so all four work.
+
+SimConnectManager.set_lvar now routes through here too (see write's
+`raw_name`). It used to hold its own hand-rolled copy of the same pattern,
+which meant a fresh definition ID per write, a bare UnicodeEncodeError for
+a non-ASCII name, and no send-ID correlation for a rejected write.
 """
 from __future__ import annotations
 
@@ -108,6 +113,15 @@ def simconnect_name(name: str, index: int | None = None) -> bytes:
     return base.encode("ascii")
 
 
+def values_match(readback: float, written: float) -> bool:
+    """Whether a post-write read-back confirms the value landed.
+
+    One definition of "landed" for every write path, so a SimVar write and
+    an L-var write cannot drift into two different tolerances.
+    """
+    return math.isclose(readback, written, rel_tol=1e-6, abs_tol=1e-6)
+
+
 class SimVarAccessor:
     """Reads and writes SimVars through SimConnect data definitions."""
 
@@ -117,12 +131,36 @@ class SimVarAccessor:
 
     @staticmethod
     def _cache_key(
-        name: str, unit: str, index: int | None, is_string: bool
-    ) -> tuple[str, str, int | None, bool]:
-        return (name.strip().upper(), unit, index, is_string)
+        name: str, unit: str, index: int | None, is_string: bool, raw: bool = False
+    ) -> tuple[str, str, int | None, bool, bool]:
+        """Cache identity for one data definition.
+
+        A SimVar name is case-insensitive and is folded to upper case so
+        'plane_altitude' and 'PLANE_ALTITUDE' share one definition. A RAW
+        datum name is not folded: measured against a live MSFS 2024 build,
+        L-var lookup happened to be case-insensitive there, but the MSFS
+        documentation calls L-var names case-sensitive, and the two
+        mistakes are not symmetric -- keeping the case costs at most one
+        extra definition slot for a caller that spells the same variable
+        two ways, while folding it would hand two genuinely different
+        variables the same definition. `raw` is part of the key so a raw
+        datum and a SimVar can never collide on the name alone.
+        """
+        return (
+            name.strip() if raw else name.strip().upper(),
+            unit,
+            index,
+            is_string,
+            raw,
+        )
 
     def definition_id(
-        self, name: str, unit: str, index: int | None, is_string: bool
+        self,
+        name: str,
+        unit: str,
+        index: int | None,
+        is_string: bool,
+        raw_name: bool = False,
     ) -> tuple[int, int | None]:
         """Definition ID for this (name, unit, index), creating it once.
 
@@ -163,18 +201,31 @@ class SimVarAccessor:
         UnicodeEncodeError that handle_simconnect_errors' generic `except
         Exception` turns into an opaque UNEXPECTED envelope -- and never
         burns a definition slot on a value that was never going to work.
+
+        `raw_name=True` passes `name` to AddToDataDefinition verbatim
+        instead of putting it through simconnect_name(). An L-var write
+        needs that: the datum name is 'L:SOME_VAR', and simconnect_name --
+        which upper-cases, splits on the first ':' and turns underscores
+        into spaces, all correct for a SimVar -- would reduce it to 'L'.
+        Everything else about the definition is identical, which is the
+        whole reason L-var writes route through here rather than through a
+        parallel hand-rolled path: one definition cache, one ASCII check,
+        one send-ID correlation.
         """
-        key = self._cache_key(name, unit, index, is_string)
+        key = self._cache_key(name, unit, index, is_string, raw_name)
         cached = self._definitions.get(key)
         if cached is not None:
             self._definitions.move_to_end(key)
             return cached, None
 
         try:
-            encoded_name = simconnect_name(name, index)
+            encoded_name = (
+                name.strip().encode("ascii") if raw_name
+                else simconnect_name(name, index)
+            )
         except UnicodeEncodeError as e:
             raise SimVarNotFoundError(
-                f"SimVar name '{name}' is not valid ASCII: {e}"
+                f"Variable name '{name}' is not valid ASCII: {e}"
             ) from e
 
         encoded_unit = None
@@ -247,14 +298,24 @@ class SimVarAccessor:
         unit: str | None = None,
         index: int | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        raw_name: bool = False,
     ):
         """Read one SimVar. Returns float, or str for string variables.
 
         Raises SimVarNotFoundError, UnitMismatchError, SimVarTimeoutError.
+
+        `raw_name=True` reads a verbatim datum name such as 'L:SOME_VAR'.
+        The SimVar catalog knows nothing about those, so neither
+        is_string_var nor resolve_unit is consulted: the value is numeric
+        and the unit defaults to 'number', which is what AddToDataDefinition
+        wants for an L-var.
         """
-        as_string = is_string_var(name)
-        resolved_unit = "string" if as_string else resolve_unit(name, unit)
-        key = self._cache_key(name, resolved_unit, index, as_string)
+        as_string = False if raw_name else is_string_var(name)
+        if raw_name:
+            resolved_unit = unit or "number"
+        else:
+            resolved_unit = "string" if as_string else resolve_unit(name, unit)
+        key = self._cache_key(name, resolved_unit, index, as_string, raw_name)
 
         req_id = self._sm.registry.acquire_request_id(lambda: self._sm.new_request_id().value)
         pending = PendingRequest(request_id=req_id, is_string=as_string)
@@ -277,7 +338,9 @@ class SimVarAccessor:
             # definition-level exception unmatched, and the caller would see
             # a timeout instead of the correct typed error.
             with self._sm.registry.pending_lock:
-                def_id, def_send_id = self.definition_id(name, resolved_unit, index, as_string)
+                def_id, def_send_id = self.definition_id(
+                    name, resolved_unit, index, as_string, raw_name
+                )
                 if def_send_id is not None:
                     self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
 
@@ -410,6 +473,7 @@ class SimVarAccessor:
         index: int | None = None,
         grace: float = 0.15,
         verify: bool = False,
+        raw_name: bool = False,
     ) -> bool | None:
         """Write one numeric SimVar.
 
@@ -446,9 +510,16 @@ class SimVarAccessor:
         Raises SimVarNotFoundError or SimVarNotSettableError-family errors
         only for a bad name or a bad unit, exactly as before; `verify` does
         not change what can raise, only what a clean return means.
+
+        `raw_name=True` writes a verbatim datum name such as 'L:SOME_VAR'
+        (see definition_id). The SimVar catalog does not know those names,
+        so resolve_unit is skipped and the unit defaults to 'number'.
         """
-        resolved_unit = resolve_unit(name, unit)
-        key = self._cache_key(name, resolved_unit, index, False)
+        if raw_name:
+            resolved_unit = unit or "number"
+        else:
+            resolved_unit = resolve_unit(name, unit)
+        key = self._cache_key(name, resolved_unit, index, False, raw_name)
 
         pending = PendingRequest(request_id=None)
         payload = (ctypes.c_double * 1)(float(value))
@@ -469,7 +540,9 @@ class SimVarAccessor:
             # SetDataOnSimObject that follows. `definition_id` returns
             # (def_id, send_id_or_None) -- None on a cache hit.
             with self._sm.registry.pending_lock:
-                def_id, def_send_id = self.definition_id(name, resolved_unit, index, False)
+                def_id, def_send_id = self.definition_id(
+                    name, resolved_unit, index, False, raw_name
+                )
                 if def_send_id is not None:
                     self._sm.registry.bind_send_id(pending, def_send_id, _locked=True)
                 self._sm.dll.SetDataOnSimObject(
@@ -499,5 +572,5 @@ class SimVarAccessor:
         # value, or the write being a no-op, are both legitimate outcomes.
         # A failure in this read (timeout, disconnect) is real information
         # and is allowed to propagate rather than being folded into False.
-        readback = self.read(name, unit=resolved_unit, index=index)
-        return math.isclose(readback, value, rel_tol=1e-6, abs_tol=1e-6)
+        readback = self.read(name, unit=resolved_unit, index=index, raw_name=raw_name)
+        return values_match(readback, value)

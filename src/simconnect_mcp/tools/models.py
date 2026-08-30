@@ -197,6 +197,18 @@ class LVarValue(OkModel):
 class LVarWriteResult(OkModel):
     name: str
     value_set: float
+    verified: bool | None = Field(
+        ...,
+        description="Tri-state. True: a read-back confirmed the value landed. False: a "
+        "read-back confirmed it did not. Null: the write was sent but could not be "
+        "verified -- NOT a claim that it succeeded",
+    )
+    warning: str | None = Field(
+        None,
+        description="Set when verified is False or null. SimConnect does not reject a "
+        "write an aircraft simply ignores, so an unverified write looks identical to a "
+        "successful one",
+    )
 
 
 class LVarList(OkModel):

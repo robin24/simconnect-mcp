@@ -126,3 +126,41 @@ async def test_failed_lvar_detection_is_disclosed_not_guessed(live_manager):
     assert result.filters["catalog"] == "all"
     assert result.message is not None
     assert "auto-detected" in result.message.lower()
+
+
+def test_a_full_size_bulk_read_is_not_starved_by_its_own_budget(live_manager):
+    """Finding A1, as measured.
+
+    Before the fix, get_simvar_bulk passed no budget to read_many, whose
+    `timeout` was a TOTAL budget defaulting to DEFAULT_TIMEOUT -- one
+    variable's worth. A 100-variable call against this idle sim returned
+    ok=71 with 26 entries reported as timeouts, each advising "The sim may
+    be paused or loading. Try again shortly." It was neither.
+
+    Deliberately end-to-end through the tool rather than through read_many:
+    the defect was that the tool call site passed nothing, so a test that
+    supplied a budget itself could not have caught it.
+    """
+    import asyncio
+
+    from simconnect_mcp.data.simvar_catalog import load_catalog
+    from simconnect_mcp.tools.simvars import MAX_BULK_VARIABLES, get_simvar_bulk
+
+    names = [entry["name"] for rows in load_catalog().values() for entry in rows]
+    names = names[:MAX_BULK_VARIABLES]
+    assert len(names) == MAX_BULK_VARIABLES
+
+    result = asyncio.run(get_simvar_bulk([{"name": n} for n in names]))
+
+    starved = {
+        key: entry for key, entry in result.variables.items()
+        if entry.get("error_code") == "BATCH_BUDGET_EXCEEDED"
+    }
+    assert not starved, (
+        f"{len(starved)} of {result.count} variables ran out of batch budget on an "
+        f"idle sim: {sorted(starved)[:5]}"
+    )
+    assert result.error_count < result.count // 4, (
+        f"{result.error_count} of {result.count} failed -- more than a stray bad "
+        "catalog name would explain"
+    )

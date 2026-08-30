@@ -347,50 +347,69 @@ class SimConnectManager:
             "sim_running": bool(self.sm.running),
         }
 
-    def set_lvar(self, name: str, value: float) -> None:
-        """Write an L-var using native SimConnect data definition.
+    LVAR_UNIT = "number"
 
-        This uses AddToDataDefinition + SetDataOnSimObject, which is
-        the method that works with proprietary aircraft like the Fenix.
-        The MobiFlight RPN set() command does NOT work for these aircraft.
+    def set_lvar(self, name: str, value: float, verify: bool = False) -> bool | None:
+        """Write an L-var through the SimVar accessor's definition layer.
+
+        Still AddToDataDefinition + SetDataOnSimObject -- the native path
+        that works with proprietary aircraft like the Fenix, where the
+        MobiFlight RPN set() command does not. What changed is that it now
+        goes through SimVarAccessor instead of a hand-rolled copy of that
+        pattern, which fixes three things at once:
+
+        * **The definition cache.** This used to call new_def_id() on every
+          write. That function rebuilds an Enum from every prior member on
+          each call, and the IDs it hands out were never reclaimed -- so a
+          long session leaked one definition per write, unbounded.
+          CLAUDE.md's documented Fenix FCU procedure issues one write per
+          knob click at 15 ms intervals, making the documented usage
+          pattern the one that leaked fastest.
+        * **A typed error for a bad name.** `name.encode("ascii")` here
+          raised a bare UnicodeEncodeError, which
+          handle_simconnect_errors' catch-all turned into an UNEXPECTED
+          envelope leaking Python exception text. The accessor converts
+          that same failure to SimVarNotFoundError.
+        * **Send-ID correlation**, so a write SimConnect actually rejects
+          surfaces as SimVarNotSettableError instead of being invisible.
+
+        Returns tri-state: True if a read-back confirmed the value landed,
+        False if it confirmed it did not, None if verification was not
+        attempted (`verify=False`) or could not be completed. Never
+        reports False as True, and never reports None as either.
+
+        Verification reads back natively rather than through MobiFlight.
+        Measured live against MSFS 2024 with the WASM module loaded: after
+        writing 0.0 over a previous 7.0, the native read returned 0.0 while
+        MobiFlight still returned 7.0. MobiFlight's value is cached, so it
+        would have reported a landed write as failed.
         """
-        import ctypes
-        from ctypes import c_float, c_void_p, cast, sizeof
+        from simconnect_mcp.simvar_access import SimVarError, values_match
 
-        from SimConnect.Constants import SIMCONNECT_OBJECT_ID_USER, SIMCONNECT_UNUSED
-        from SimConnect.Enum import SIMCONNECT_DATA_SET_FLAG, SIMCONNECT_DATATYPE
+        if self.accessor is None:
+            raise RuntimeError(
+                "L-var writes require the SimConnect dispatcher; this connection "
+                "fell back to plain SimConnect."
+            )
 
-        # Ensure L: prefix
-        if not name.startswith("L:"):
-            name = f"L:{name}"
+        datum = name if name.startswith("L:") else f"L:{name}"
+        self.accessor.write(datum, value, unit=self.LVAR_UNIT, raw_name=True)
 
-        # Create a new data definition
-        def_id = self.sm.new_def_id()
+        if not verify:
+            return None
 
-        # Register the L-var in the data definition
-        self.sm.dll.AddToDataDefinition(
-            self.sm.hSimConnect,
-            def_id.value,
-            name.encode("ascii"),
-            b"number",
-            SIMCONNECT_DATATYPE.SIMCONNECT_DATATYPE_FLOAT64,
-            c_float(0.0),
-            SIMCONNECT_UNUSED,
-        )
-
-        # Prepare and send the value
-        data_array = (ctypes.c_double * 1)(value)
-        p_data = cast(data_array, c_void_p)
-
-        self.sm.dll.SetDataOnSimObject(
-            self.sm.hSimConnect,
-            def_id.value,
-            SIMCONNECT_OBJECT_ID_USER,
-            SIMCONNECT_DATA_SET_FLAG.SIMCONNECT_DATA_SET_FLAG_DEFAULT,
-            0,
-            sizeof(ctypes.c_double),
-            p_data,
-        )
+        # A read-back that fails is "could not verify", not "did not land":
+        # reporting False here would assert something this call has no
+        # evidence for. The write itself already raised for anything
+        # SimConnect rejected outright.
+        try:
+            readback = self.accessor.read(datum, unit=self.LVAR_UNIT, raw_name=True)
+        except SimVarError:
+            logger.debug("L-var read-back failed for %s", datum, exc_info=True)
+            return None
+        if readback is None:
+            return None
+        return values_match(readback, value)
 
     @classmethod
     def reset(cls) -> None:

@@ -20,6 +20,11 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.simvar_access import (
+    SimVarError,
+    SimVarNotFoundError,
+    SimVarNotSettableError,
+)
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 from simconnect_mcp.tools.formatting import (
     DEFAULT_LIMIT,
@@ -36,6 +41,7 @@ from simconnect_mcp.tools.models import (
     LVarWriteResult,
     SearchResult,
     ToolError,
+    error_from,
 )
 
 
@@ -99,15 +105,71 @@ async def set_lvar(
     SetDataOnSimObject), which works with proprietary aircraft like the
     Fenix A320/A321. Does NOT require MobiFlight and does NOT use the
     MobiFlight RPN set() command.
+
+    Reads the variable back afterwards and reports 'verified': true if the
+    value landed, false if it did not, null if the read-back could not be
+    completed. A false or null is never reported as success.
     """
     manager = SimConnectManager()
+    if manager.accessor is None:
+        return ToolError(
+            error="ACCESSOR_UNAVAILABLE",
+            message=(
+                "This connection fell back to plain SimConnect, which cannot "
+                "write L-vars through a data definition."
+            ),
+            suggestion="Reconnect with msfs_connect and check msfs_get_connection_status.",
+        )
+
     bare_name = _bare_lvar_name(name)
 
-    def _write() -> None:
-        manager.set_lvar(bare_name, value)
+    # verify=True re-reads after the write. SimConnect raises nothing when
+    # an aircraft simply ignores a write, so a read-back is the only
+    # evidence the value landed -- the same reason msfs_set_simvar does it.
+    try:
+        verified = await manager.run_sync(
+            lambda: manager.set_lvar(bare_name, value, verify=True)
+        )
+    except SimVarNotFoundError as e:
+        return ToolError(
+            error="LVAR_NAME_INVALID",
+            message=str(e),
+            suggestion=(
+                "L-var names must be plain ASCII. Check the name with "
+                "msfs_search_lvars or msfs_browse_lvar_catalog."
+            ),
+        )
+    except SimVarNotSettableError as e:
+        return ToolError(
+            error="LVAR_NOT_SETTABLE",
+            message=str(e),
+            suggestion=(
+                f"SimConnect rejected the write to '{bare_name}'. Check the name with "
+                "msfs_search_lvars, or use msfs_execute_calculator_code to set it "
+                "through RPN instead."
+            ),
+        )
+    except SimVarError as e:
+        return error_from(e)
 
-    await manager.run_sync(_write)
-    return LVarWriteResult(name=bare_name, value_set=value)
+    warning = None
+    if verified is False:
+        warning = (
+            f"The write was sent but '{bare_name}' did not read back as {value}. "
+            "SimConnect does not reject a write the aircraft ignores, so this "
+            "usually means the variable is not writable, or the aircraft "
+            "immediately overrode the value."
+        )
+    elif verified is None:
+        warning = (
+            f"The write to '{bare_name}' was sent, but the read-back could not be "
+            "completed, so whether it landed is unknown. This is not a report of "
+            "success."
+        )
+
+    return LVarWriteResult(
+        name=bare_name, value_set=value, verified=verified, warning=warning
+    )
 
 
 @handle_simconnect_errors
