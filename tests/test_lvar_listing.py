@@ -10,13 +10,20 @@ from a complete one by the sentinel alone. A naive implementation would
 report total:1000/has_more:false for a list that is neither -- the exact
 fabricated-completeness pattern this project has spent Phase 0 and Phase 1
 removing. See test_list_lvars_reports_truncated_at_the_cap below.
+
+The fake bridges below only answer MF.LVars.List specifically, never any
+other command (including the re-arm command list_lvars now sends first) --
+matching the live-confirmed fact that MF.SimVars.Set.* produces zero
+response-channel messages of its own (task-3-report.md). A fake that fired
+on every send_command call regardless of the command string would silently
+double-count every response once the re-arm landed.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from simconnect_mcp.tools.lvars import list_lvars
+from simconnect_mcp.tools.lvars import _REARM_COMMAND, list_lvars
 
 
 @pytest.fixture
@@ -39,6 +46,8 @@ def mobiflight_sim(mock_simconnect):
 
         def send_command(self, command):
             self.commands.append(command)
+            if command != "MF.LVars.List":
+                return  # e.g. the re-arm command -- real WASM sends no echo
             for handler in list(self.response_handlers):
                 for name in ("A32NX_AUTOPILOT_1_ACTIVE", "A32NX_FCU_HDG", "XMLVAR_Baro"):
                     handler(name)
@@ -57,6 +66,7 @@ class _CountingBridge:
     def __init__(self, count: int):
         self.count = count
         self.response_handlers = []
+        self.commands = []
 
     def add_response_handler(self, fn):
         self.response_handlers.append(fn)
@@ -66,6 +76,9 @@ class _CountingBridge:
             self.response_handlers.remove(fn)
 
     def send_command(self, command):
+        self.commands.append(command)
+        if command != "MF.LVars.List":
+            return  # e.g. the re-arm command -- real WASM sends no echo
         for handler in list(self.response_handlers):
             for i in range(self.count):
                 handler(f"ZZZ_LVAR_{i:04d}")
@@ -81,6 +94,23 @@ async def test_list_lvars_returns_real_names(mobiflight_sim):
 async def test_list_lvars_sends_the_list_command(mobiflight_sim):
     await list_lvars()
     assert "MF.LVars.List" in mobiflight_sim["bridge"].commands
+
+
+async def test_list_lvars_sends_the_rearm_command_immediately_before_list(mobiflight_sim):
+    """Regression guard for the re-arm fix (task-4-report.md): the WASM
+    module gives no response to MF.LVars.List when it is byte-identical to
+    the command immediately preceding it. list_lvars sends a harmless
+    no-op RPN command right before every list request specifically to
+    prevent that -- if someone "cleans up" that extra call as dead code,
+    this fails.
+    """
+    await list_lvars()
+    commands = mobiflight_sim["bridge"].commands
+    assert _REARM_COMMAND in commands
+    list_index = commands.index("MF.LVars.List")
+    assert commands[list_index - 1] == _REARM_COMMAND, (
+        f"expected {_REARM_COMMAND!r} immediately before 'MF.LVars.List', got {commands!r}"
+    )
 
 
 async def test_list_lvars_filters_by_prefix(mobiflight_sim):

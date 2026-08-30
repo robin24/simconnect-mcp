@@ -180,6 +180,12 @@ _LIST_TERMINATORS = ("MF.LVars.List.End", "MF.LVars.List.Complete")
 _LIST_SETTLE_S = 1.5
 _LIST_TIMEOUT_S = 10.0
 
+# Re-arm command sent immediately before every MF.LVars.List -- see the
+# extended comment at its call site below for the full story (repeat
+# suppression measured live, ruled out as a byte-comparison dedupe, ruled
+# out as client-side/connection-scoped state).
+_REARM_COMMAND = "MF.SimVars.Set.1"
+
 # Measured live against MSFS 2024 + the MobiFlight WASM module
 # (task-3-4-addendum.md): MF.LVars.List returned *exactly* 1000 names and
 # still sent its .End sentinel. Proven, not inferred -- an L-var created to
@@ -221,11 +227,16 @@ async def list_lvars(
     msfs_search_lvars / msfs_browse_lvar_catalog for aircraft with a bundled
     catalog.
 
-    Calling this twice in immediate succession can return NO_LVARS_RETURNED
-    on the second call: the WASM module appears to silently drop a request
-    byte-identical to the one it just answered (confirmed live -- waiting
-    does not clear it, only some other MobiFlight command happening first
-    does). Requires the MobiFlight WASM extension.
+    Internally sends a harmless no-op RPN command immediately before the
+    WASM request, to re-arm the module against a quirk where it otherwise
+    gives no response to a request byte-identical to the one it just
+    answered (see _send_list_request's own docstring below for the full
+    story). This creates no variable and has no effect on the aircraft, so
+    calling this repeatedly is safe -- but the underlying quirk is a
+    third-party module behavior this project does not control, so
+    NO_LVARS_RETURNED below stays the honest report for the rare case
+    where even the re-arm doesn't help, rather than this call ever
+    assuming success. Requires the MobiFlight WASM extension.
     """
     err = _require_mobiflight()
     if err:
@@ -259,9 +270,45 @@ async def list_lvars(
                 "msfs_list_lvars response handler failed on %r", text, exc_info=True
             )
 
+    def _send_list_request() -> None:
+        """Re-arm, then ask for the list -- both under one run_sync call so
+        no other tool call's DLL access can land between them.
+
+        Measured live (task-4-report.md): MF.LVars.List gets NO response
+        at all when it is byte-identical to the command immediately
+        preceding it on MobiFlight.Command -- reproduced 0/4 on back-to-
+        back identical requests, and NOT a time-based cooldown (a 20s wait
+        with nothing else sent never cleared it). Two things ruled out
+        that would otherwise look like an obvious fix:
+
+        * NOT a raw byte-comparison dedupe. "MF.LVars.List " (trailing
+          space -- different payload bytes, same intent) still got zero
+          responses, so whatever gates this is keyed to the command
+          itself, not a content diff.
+        * NOT client- or connection-scoped state. A brand-new process with
+          a brand-new SimConnect connection reproduced the same stuck
+          state 4/4 on its very first call, right after a previous
+          process's run left the channel "stuck" -- the state lives in
+          the WASM module (or something in the client-data layer it
+          uses), not in this Python object or this connection, so
+          reconnecting is not an escape either.
+
+        What does work: sending any OTHER command first. This sends a bare
+        RPN literal with no (>L:...) write target -- MobiFlight's executor
+        evaluates "1" and discards it, so nothing is read, written, or
+        subscribed. Confirmed 4/4 across two independent live runs (fresh
+        process each time) immediately before this exact MF.LVars.List
+        call, with zero footprint on the aircraft -- prefer this over a
+        scratch-L-var write for exactly that reason. If some future WASM
+        build stops answering to this specific no-op, that is not silently
+        papered over: NO_LVARS_RETURNED below still fires honestly.
+        """
+        bridge.send_command(_REARM_COMMAND)
+        bridge.send_command("MF.LVars.List")
+
     bridge.add_response_handler(_on_response)
     try:
-        await manager.run_sync(lambda: bridge.send_command("MF.LVars.List"))
+        await manager.run_sync(_send_list_request)
         try:
             await asyncio.wait_for(finished.wait(), timeout=_LIST_TIMEOUT_S)
         except asyncio.TimeoutError:
@@ -280,12 +327,12 @@ async def list_lvars(
             message="The MobiFlight WASM module returned no L-var names.",
             suggestion=(
                 "Ensure an aircraft is fully loaded and that the MobiFlight WASM "
-                "module supports MF.LVars.List. If a msfs_list_lvars call just "
-                "succeeded, this may be the WASM module silently ignoring an "
-                "immediately repeated identical request -- confirmed live that "
-                "waiting does not clear this, only some other MobiFlight command "
-                "happening first does. msfs_get_lvar, msfs_search_lvars, and "
-                "msfs_browse_lvar_catalog are unaffected and work in the meantime."
+                "module supports MF.LVars.List. This call already sends a re-arm "
+                "command before every request specifically to prevent the WASM "
+                "module from silently dropping an immediately repeated identical "
+                "request, so seeing this even on a fast repeated call is "
+                "unexpected; if it persists, msfs_get_lvar, msfs_search_lvars, and "
+                "msfs_browse_lvar_catalog remain unaffected in the meantime."
             ),
         )
 

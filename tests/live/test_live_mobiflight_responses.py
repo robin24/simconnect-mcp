@@ -50,15 +50,23 @@ async def test_lvars_list_responses_reach_a_registered_handler(
     # Phase 2 Task 4 discovered (task-4-report.md) that the WASM module
     # silently drops MF.LVars.List when it is byte-identical to the
     # immediately preceding command on this channel -- not time-based (a
-    # 20s wait alone never clears it), only a different command in between
-    # does. live_manager is session-scoped, so another test's own
-    # MF.LVars.List (e.g. test_live_lvars.py's, which collects
-    # alphabetically first) can leave this channel "stuck" before this
-    # test ever runs. clear_sim_variables sends a different command
-    # (MF.SimVars.Clear) first, which is unconditionally safe here --
-    # connection.py already calls it once on every connect for the same
-    # reason MobiFlight's own docs give: stale registrations return 0.
-    live_manager.mobiflight.clear_sim_variables()
+    # 20s wait alone never clears it), and not fixed by a trailing space
+    # either (that changes the payload bytes and still fails), only a
+    # different command in between does. live_manager is session-scoped,
+    # so another test's own MF.LVars.List (e.g. test_live_lvars.py's,
+    # which collects alphabetically first) can leave this channel "stuck"
+    # before this test ever runs. This test bypasses msfs_list_lvars's own
+    # fix (it talks to the bridge directly, to test Task 3's routing in
+    # isolation), so it needs the same re-arm msfs_list_lvars sends
+    # internally: a bare RPN literal with no (>L:...) write target, which
+    # touches no variable and has no effect on the aircraft or on any
+    # other tool's state (unlike MF.SimVars.Clear, which this used
+    # previously -- that works too, but wipes tracking state
+    # get_lvar/execute_calculator_code depend on, for no benefit over the
+    # side-effect-free alternative).
+    from simconnect_mcp.tools.lvars import _REARM_COMMAND
+
+    await live_manager.run_sync(live_manager.mobiflight.send_command, _REARM_COMMAND)
 
     seen: list[str] = []
     live_manager.mobiflight.add_response_handler(seen.append)

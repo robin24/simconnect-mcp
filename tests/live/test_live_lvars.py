@@ -17,6 +17,8 @@ deletes an L-var, so each test zeroes the ones it created on the way out.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from simconnect_mcp.simvar_access import SimVarNotFoundError
@@ -139,19 +141,19 @@ async def test_list_lvars_enumerates_the_loaded_aircraft(live_manager):
     whatever add-ons happen to be installed. What's pinned instead is the
     honesty contract: whenever the cap is actually hit, 'truncated' must
     say so, and never the opposite.
+
+    No defensive reset needed before this call (there was one here
+    previously): list_lvars sends its own re-arm command immediately
+    before every MF.LVars.List, so it no longer matters what a previous
+    test left on the MobiFlight.Command channel. See
+    test_repeated_list_lvars_calls_both_succeed and
+    test_repeated_identical_raw_list_command_gets_no_response below for the
+    two halves of that story.
     """
     from simconnect_mcp.tools.lvars import list_lvars
 
     if not live_manager.mobiflight_available:
         pytest.skip("MobiFlight WASM module not installed")
-
-    # See test_repeated_identical_list_request_gets_no_response below: the
-    # WASM module drops MF.LVars.List when it repeats the immediately
-    # preceding command on this channel, and live_manager is
-    # session-scoped, so a prior test elsewhere could leave this "stuck"
-    # before this one even runs. Reset first so this test's own result
-    # reflects the aircraft, not test ordering.
-    live_manager.mobiflight.clear_sim_variables()
 
     result = await list_lvars()
     if getattr(result, "error", None) == "MOBIFLIGHT_NOT_AVAILABLE":
@@ -171,39 +173,88 @@ async def test_list_lvars_enumerates_the_loaded_aircraft(live_manager):
         assert result.message is None
 
 
-async def test_repeated_identical_list_request_gets_no_response(live_manager, monkeypatch):
-    """Pins a real WASM module quirk discovered while building this tool
-    (see task-4-report.md): MF.LVars.List gets no response at all when it
-    is byte-identical to the command immediately preceding it on the
-    MobiFlight.Command channel. Confirmed NOT a time-based cooldown --
-    waiting 20s with nothing else sent still produced zero messages; only
-    a different command in between (even one with no response of its own,
-    like MF.SimVars.Clear) restored it. msfs_list_lvars's own
-    NO_LVARS_RETURNED error mentions this so a caller isn't left thinking
-    the aircraft or the WASM module broke.
+async def test_repeated_list_lvars_calls_both_succeed(live_manager):
+    """Confirms the re-arm fix end to end, through the real tool.
 
-    Timeout/settle constants are patched down after the first (expected to
-    succeed) call, since confirming the second call gets nothing would
-    otherwise cost the full production wait for no reason.
+    Before the fix (task-4-report.md), two back-to-back msfs_list_lvars
+    calls reliably failed on the second: the WASM module gives no response
+    to MF.LVars.List when it is byte-identical to the command immediately
+    preceding it on MobiFlight.Command. list_lvars now sends a harmless
+    no-op re-arm command first every time, specifically so an agent calling
+    it twice in a row -- a perfectly ordinary thing to do -- doesn't hit
+    that. No delay and no cleanup between the two calls: this is
+    deliberately the tightest, most adversarial back-to-back timing, the
+    same shape that reproduced the bug 0/4 while building the fix.
+    """
+    from simconnect_mcp.tools.lvars import list_lvars
+
+    if not live_manager.mobiflight_available:
+        pytest.skip("MobiFlight WASM module not installed")
+
+    first = await list_lvars()
+    second = await list_lvars()
+
+    for label, result in (("first", first), ("second", second)):
+        if getattr(result, "error", None) == "MOBIFLIGHT_NOT_AVAILABLE":
+            pytest.skip("MobiFlight WASM module not installed")
+        assert result.status == "ok", f"{label} call failed: {result!r}"
+        assert result.page.total > 0, f"{label} call returned no names: {result!r}"
+
+
+async def test_repeated_identical_raw_list_command_gets_no_response(live_manager):
+    """Pins the underlying WASM module quirk itself (task-4-report.md),
+    independent of msfs_list_lvars's own workaround: two MF.LVars.List
+    commands sent back to back, with nothing in between, get a response
+    only for the first. This talks to the bridge directly rather than
+    through list_lvars, specifically so it keeps proving the quirk exists
+    rather than proving the tool's fix works (that's
+    test_repeated_list_lvars_calls_both_succeed above) -- once list_lvars
+    always re-arms first, two list_lvars calls no longer reproduce this.
+
+    Self-contained on both ends: re-arms before its own first ("prerequisite")
+    call too, not just its last one -- live_manager is session-scoped, and a
+    previous test's own trailing MF.LVars.List (e.g.
+    test_repeated_list_lvars_calls_both_succeed above, which necessarily
+    ends on one) would otherwise make even this test's first call collide,
+    which is exactly the failure mode this test exists to demonstrate, just
+    arriving one call too early to be measuring it on purpose. So: re-arm,
+    confirm a list succeeds, send an identical list with nothing in
+    between and confirm THAT one gets nothing, then re-arm again in a
+    finally so whatever test runs next isn't left holding this one's mess
+    either.
     """
     if not live_manager.mobiflight_available:
         pytest.skip("MobiFlight WASM module not installed")
 
-    from simconnect_mcp.tools import lvars as lvars_module
+    from simconnect_mcp.tools.lvars import _REARM_COMMAND
 
-    # Guarantees this test's own first call isn't itself a dup of whatever
-    # a previous test last sent on this channel.
-    live_manager.mobiflight.clear_sim_variables()
+    async def _list_once(wait_s: float) -> list[str]:
+        seen: list[str] = []
+        live_manager.mobiflight.add_response_handler(seen.append)
+        try:
+            await live_manager.run_sync(live_manager.mobiflight.send_command, "MF.LVars.List")
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + wait_s
+            while loop.time() < deadline:
+                if seen and seen[-1] == "MF.LVars.List.End":
+                    break
+                await asyncio.sleep(0.05)
+        finally:
+            live_manager.mobiflight.remove_response_handler(seen.append)
+        return seen
 
-    first = await lvars_module.list_lvars()
-    assert first.status == "ok", f"prerequisite call itself failed: {first!r}"
+    try:
+        await live_manager.run_sync(live_manager.mobiflight.send_command, _REARM_COMMAND)
 
-    monkeypatch.setattr(lvars_module, "_LIST_TIMEOUT_S", 1.0)
-    monkeypatch.setattr(lvars_module, "_LIST_SETTLE_S", 0.2)
+        first = await _list_once(6.0)
+        assert first and first[-1] == "MF.LVars.List.End", (
+            f"prerequisite call itself got no response: {first!r}"
+        )
 
-    second = await lvars_module.list_lvars()
-
-    assert getattr(second, "error", None) == "NO_LVARS_RETURNED", (
-        "expected the WASM module's confirmed repeat-suppression to produce "
-        f"NO_LVARS_RETURNED on an immediate identical repeat, got {second!r}"
-    )
+        second = await _list_once(1.0)
+        assert second == [], (
+            "expected the WASM module's confirmed repeat-suppression to "
+            f"produce no response on an immediate identical repeat, got {second!r}"
+        )
+    finally:
+        await live_manager.run_sync(live_manager.mobiflight.send_command, _REARM_COMMAND)

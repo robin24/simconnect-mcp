@@ -247,6 +247,8 @@ async def test_list_lvars_with_no_response_reports_no_lvars_returned(
     a response handler doesn't cost this test the full ~11.5s production
     wait.
     """
+    from unittest.mock import call
+
     from simconnect_mcp.tools import lvars as lvars_module
 
     monkeypatch.setattr(lvars_module, "_LIST_TIMEOUT_S", 0.05)
@@ -258,7 +260,13 @@ async def test_list_lvars_with_no_response_reports_no_lvars_returned(
 
     assert isinstance(result, ToolError)
     assert result.error == "NO_LVARS_RETURNED"
-    mobiflight.send_command.assert_called_once_with("MF.LVars.List")
+    # Two calls now, not one: the re-arm command (task-4-report.md's fix
+    # for the WASM module's repeat-suppression quirk) immediately before
+    # the actual list request.
+    assert mobiflight.send_command.call_args_list == [
+        call(lvars_module._REARM_COMMAND),
+        call("MF.LVars.List"),
+    ]
 
 
 # ---------------------------------------------------------------------------
