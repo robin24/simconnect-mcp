@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import math
 import time
 from typing import Annotated, Literal
@@ -83,14 +84,41 @@ async def send_sim_text(
 
     manager = SimConnectManager()
 
-    def _send() -> None:
+    def _send() -> bool:
         from SimConnect.Enum import SIMCONNECT_TEXT_TYPE
 
         text_type = getattr(SIMCONNECT_TEXT_TYPE, _TEXT_COLORS[color_key])
-        # The library method is sendText, not send_text.
-        manager.sm.sendText(text, duration_s, text_type)
 
-    await manager.run_sync(_send)
+        # Not manager.sm.sendText(): that wrapper (SimConnect.py in the
+        # installed library) calls self.dll.Text(...) and discards the
+        # HRESULT it returns, so a call MSFS rejects outright looked
+        # identical to one it accepted -- this tool could report success
+        # for a message that was never sent. SimConnect_Text's restype is
+        # HRESULT (Attributes.py in the same package), and IsHR is the
+        # library's own helper for reading one -- already used the same way
+        # for load_flight/load_flight_plan/set_pos. Calling the DLL function
+        # directly (the same arguments sendText() itself builds, including
+        # its cbUnitSize computation) is the only way to get that HRESULT
+        # back instead of letting the wrapper swallow it.
+        pyarr = bytearray(text.encode())
+        dataarray = (ctypes.c_char * len(pyarr))(*pyarr)
+        data_ptr = ctypes.cast(dataarray, ctypes.c_void_p)
+        hr = manager.sm.dll.Text(
+            manager.sm.hSimConnect,
+            text_type,
+            duration_s,
+            0,
+            ctypes.sizeof(ctypes.c_double) * len(pyarr),
+            data_ptr,
+        )
+        return bool(manager.sm.IsHR(hr, 0))
+
+    if not await manager.run_sync(_send):
+        return ToolError(
+            error="TEXT_DISPLAY_FAILED",
+            message=f"MSFS rejected the text display request for '{text}'.",
+            suggestion="Check the sim is running and not paused or mid-load.",
+        )
     return TextResult(
         message=f"Text displayed in sim: '{text}'",
         duration_s=duration_s,

@@ -1,3 +1,5 @@
+import ctypes
+
 from simconnect_mcp.tools.models import PositionResult, TextResult, ToolError
 from simconnect_mcp.tools.utilities import send_sim_text, set_aircraft_position
 
@@ -9,15 +11,49 @@ async def test_send_sim_text_returns_a_model(mock_simconnect):
     assert isinstance(result, TextResult)
 
 
-async def test_send_sim_text_calls_the_real_library_method(mock_simconnect):
-    """Regression: the tool called send_text; the method is sendText."""
+async def test_send_sim_text_calls_the_dll_directly_not_the_wrapper(mock_simconnect):
+    """Regression: sendText() (SimConnect.py in the installed library) builds
+    this exact DLL call but discards the HRESULT SimConnect_Text returns, so
+    a call MSFS rejected outright was indistinguishable from one it accepted
+    -- this tool could report success for a message that was never sent. The
+    tool must call self.dll.Text(...) directly instead, so the return code
+    survives to be checked with IsHR (see utilities.py)."""
+    captured = {}
+
+    def _capture_text(hsimconnect, text_type, duration, event_id, size, data_ptr):
+        # Reading the buffer here, while _send()'s local `dataarray` is still
+        # alive on the stack, is what makes this safe -- data_ptr is a
+        # ctypes.cast() of that local array, with no reference of its own to
+        # keep the underlying memory alive once the call returns.
+        captured["duration"] = duration
+        captured["text"] = ctypes.string_at(data_ptr, len(b"hello"))
+        return 0
+
+    mock_simconnect["sm"].dll.Text.side_effect = _capture_text
+    mock_simconnect["sm"].IsHR.return_value = True
+
     result = await send_sim_text("hello", duration_s=3.0)
 
     assert result.status == "ok"
-    mock_simconnect["sm"].sendText.assert_called_once()
-    args = mock_simconnect["sm"].sendText.call_args.args
-    assert args[0] == "hello"
-    assert args[1] == 3.0
+    assert not mock_simconnect["sm"].sendText.called
+    mock_simconnect["sm"].dll.Text.assert_called_once()
+    assert captured["duration"] == 3.0
+    assert captured["text"] == b"hello"
+    mock_simconnect["sm"].IsHR.assert_called_once_with(0, 0)
+
+
+async def test_send_sim_text_reports_failure_when_the_hresult_is_not_ok(mock_simconnect):
+    """If SimConnect_Text's HRESULT says the call failed, this must return a
+    ToolError instead of claiming the message was displayed -- the
+    fabricated-success pattern this project has been removing elsewhere."""
+    mock_simconnect["sm"].dll.Text.return_value = 0x8000FFFF
+    mock_simconnect["sm"].IsHR.return_value = False
+
+    result = await send_sim_text("hello")
+
+    assert isinstance(result, ToolError)
+    assert result.error == "TEXT_DISPLAY_FAILED"
+    assert result.suggestion
 
 
 async def test_send_sim_text_accepts_a_colour(mock_simconnect):
