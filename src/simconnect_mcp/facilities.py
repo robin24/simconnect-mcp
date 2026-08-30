@@ -215,33 +215,53 @@ class FacilityCollector:
     ``results()``/``is_complete()`` (via an executor, off the event loop).
     All access goes through ``_lock``, and ``results()`` returns a fresh
     list on every call so a caller holding a previous snapshot is never
-    affected by a concurrent ``handle()`` mutating the buffer underneath it.
+    affected by a concurrent ``handle()`` mutating storage underneath it.
+
+    Completeness is derived from which ``dwEntryNumber`` chunks have
+    actually been *seen*, not from the most recently arrived chunk's own
+    number. An earlier version tracked only
+    ``dwEntryNumber >= dwOutOf - 1``, which is a claim about the last chunk
+    to arrive, not about the whole set: if chunk 1 of 3 never arrives and
+    chunk 2 does, that check is satisfied forever with a third of the list
+    silently missing and no signal to the caller. Chunks are stored keyed
+    by their own ``dwEntryNumber`` (a dict, not an appended list) so that a
+    result is only ever reported complete once every index in
+    ``range(dwOutOf)`` has actually been recorded, and so that a result
+    reconstructed from out-of-order chunk arrival is still sorted back into
+    logical order rather than wire-arrival order.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._buffers: dict[FacilityKind, list[dict[str, Any]]] = {}
-        self._complete: dict[FacilityKind, bool] = {}
+        self._chunks: dict[FacilityKind, dict[int, list[dict[str, Any]]]] = {}
+        self._out_of: dict[FacilityKind, int] = {}
 
     def handle(self, kind: FacilityKind, header: Any, entries: list[dict[str, Any]]) -> None:
         with self._lock:
-            # dwEntryNumber 0 begins a new transmission; do not append to the
-            # results of a previous request.
+            # dwEntryNumber 0 begins a new transmission; do not merge with
+            # the chunks of a previous request.
             if header.dwEntryNumber == 0:
-                self._buffers[kind] = []
-                self._complete[kind] = False
-            self._buffers.setdefault(kind, []).extend(entries)
-            self._complete[kind] = header.dwEntryNumber >= (header.dwOutOf - 1)
+                self._chunks[kind] = {}
+            # Keyed (not appended) so a duplicate or reordered delivery of
+            # the same index overwrites rather than double-counts, and so
+            # results() can always reassemble in logical order regardless
+            # of the order chunks actually arrived in.
+            self._chunks.setdefault(kind, {})[header.dwEntryNumber] = list(entries)
+            self._out_of[kind] = header.dwOutOf
 
     def results(self, kind: FacilityKind) -> list[dict[str, Any]]:
         with self._lock:
-            return list(self._buffers.get(kind, []))
+            chunks = self._chunks.get(kind, {})
+            return [entry for index in sorted(chunks) for entry in chunks[index]]
 
     def is_complete(self, kind: FacilityKind) -> bool:
         with self._lock:
-            return self._complete.get(kind, False)
+            out_of = self._out_of.get(kind)
+            if out_of is None:
+                return False
+            return len(self._chunks.get(kind, {})) == out_of
 
     def reset(self, kind: FacilityKind) -> None:
         with self._lock:
-            self._buffers[kind] = []
-            self._complete[kind] = False
+            self._chunks[kind] = {}
+            self._out_of.pop(kind, None)
