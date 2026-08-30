@@ -27,7 +27,9 @@ import threading
 
 import pytest
 
+from simconnect_mcp.tools import lvars as lvars_module
 from simconnect_mcp.tools.lvars import _REARM_COMMAND, list_lvars
+from simconnect_mcp.tools.models import ToolError
 
 
 @pytest.fixture
@@ -194,6 +196,119 @@ async def test_list_lvars_truncation_survives_prefix_filtering(mock_simconnect):
 
     result = await list_lvars(filter_prefix="ZZZ_LVAR_00")
     assert result.truncated is True
+
+
+# ---------------------------------------------------------------------------
+# The missing terminator (IMPORTANT from the whole-phase review). An earlier
+# version swallowed asyncio.TimeoutError with "some WASM builds may send no
+# terminator -- accept what arrived", and nothing downstream recorded that
+# MF.LVars.List.End never came: `truncated` is judged on the 1000-name cap
+# alone, so a stream cut off at 437 names returned page.total:437,
+# has_more:false, truncated:false, message:null -- byte-for-byte
+# indistinguishable from an exhaustive listing of an aircraft with 437
+# L-vars. That premise was also checked live (task-3-4-addendum.md): the
+# module ALWAYS sends .End, even for a capped list, so the branch's real
+# reachable cause is a stream disrupted mid-flight, which is exactly when
+# the result is partial. tools/facilities.py answers this same question by
+# refusing a timed-out collection outright; list_lvars now matches it.
+# ---------------------------------------------------------------------------
+
+
+class _UnterminatedBridge:
+    """Delivers `count` names for MF.LVars.List and then simply stops --
+    the MF.LVars.List.End sentinel never arrives, as if the response
+    stream were cut off part-way through."""
+
+    def __init__(self, count: int):
+        self.count = count
+        self.response_handlers: list = []
+        self.commands: list[str] = []
+
+    def add_response_handler(self, fn):
+        self.response_handlers.append(fn)
+
+    def remove_response_handler(self, fn):
+        if fn in self.response_handlers:
+            self.response_handlers.remove(fn)
+
+    def send_command(self, command):
+        self.commands.append(command)
+        if command != "MF.LVars.List":
+            return  # the re-arm command -- real WASM sends no echo
+        for handler in list(self.response_handlers):
+            for i in range(self.count):
+                handler(f"ZZZ_LVAR_{i:04d}")
+            # No terminator.
+
+
+@pytest.fixture
+def fast_list_timeouts(monkeypatch):
+    """Shrink the 10s wait and 1.5s settle so the no-terminator path can be
+    exercised in a test without a 11.5s pause."""
+    monkeypatch.setattr(lvars_module, "_LIST_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(lvars_module, "_LIST_SETTLE_S", 0.05)
+
+
+async def test_list_lvars_refuses_an_unterminated_listing(
+    mock_simconnect, fast_list_timeouts
+):
+    """Fails against the pre-fix code, which returned the 437 collected
+    names as a complete listing. The assertion is deliberately written as
+    "must not look exhaustive" rather than "must equal a specific error",
+    because the defect was precisely that the result was indistinguishable
+    from an exhaustive one."""
+    manager = mock_simconnect["manager"]
+    manager._mobiflight_available = True
+    manager.mobiflight = _UnterminatedBridge(437)
+
+    result = await list_lvars()
+
+    looks_exhaustive = (
+        getattr(result, "truncated", None) is False
+        and getattr(getattr(result, "page", None), "has_more", None) is False
+        and getattr(result, "message", None) is None
+    )
+    assert not looks_exhaustive, (
+        "a listing that never reached MF.LVars.List.End was returned as "
+        f"truncated=False/has_more=False/message=None: {result!r}"
+    )
+    assert isinstance(result, ToolError)
+    assert result.error == "LVAR_LIST_INCOMPLETE"
+    assert "437" in result.message
+    assert result.suggestion
+
+
+async def test_list_lvars_accepts_the_same_listing_when_it_is_terminated(
+    mock_simconnect, fast_list_timeouts
+):
+    """The complement, so the guard above is provably about the missing
+    terminator and not about the size of the response: the identical
+    437-name listing, terminated, comes back as an ordinary success."""
+    manager = mock_simconnect["manager"]
+    manager._mobiflight_available = True
+    manager.mobiflight = _CountingBridge(437)
+
+    result = await list_lvars()
+
+    assert not isinstance(result, ToolError)
+    assert result.page.total == 437
+    assert result.truncated is False
+
+
+async def test_list_lvars_with_no_names_at_all_keeps_its_own_diagnosis(
+    mock_simconnect, fast_list_timeouts
+):
+    """A silent module produces no names AND no terminator. That case keeps
+    NO_LVARS_RETURNED, whose message and suggestion carry the live-verified
+    re-arm story -- LVAR_LIST_INCOMPLETE would be a worse diagnosis for it."""
+    manager = mock_simconnect["manager"]
+    manager._mobiflight_available = True
+    manager.mobiflight = _UnterminatedBridge(0)
+
+    result = await list_lvars()
+
+    assert isinstance(result, ToolError)
+    assert result.error == "NO_LVARS_RETURNED"
 
 
 # ---------------------------------------------------------------------------

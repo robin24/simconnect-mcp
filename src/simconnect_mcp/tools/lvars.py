@@ -241,6 +241,12 @@ async def list_lvars(
     NO_LVARS_RETURNED below stays the honest report for the rare case
     where even the re-arm doesn't help, rather than this call ever
     assuming success. Requires the MobiFlight WASM extension.
+
+    A listing that stops without the module's end-of-list marker returns
+    LVAR_LIST_INCOMPLETE rather than the names collected so far: an
+    arbitrary prefix of the list is indistinguishable from a complete
+    listing of that size once returned, so it is refused the same way
+    msfs_get_nearby_airports refuses a timed-out facility collection.
     """
     err = _require_mobiflight()
     if err:
@@ -330,12 +336,17 @@ async def list_lvars(
             try:
                 await asyncio.wait_for(finished.wait(), timeout=_LIST_TIMEOUT_S)
             except asyncio.TimeoutError:
-                # Some WASM builds may send no terminator. Accept what
-                # arrived, as long as something did.
+                # No MF.LVars.List.End inside the window. Handled after the
+                # lock is released -- see the `terminated` check below.
                 pass
             # Give any trailing names a chance to land before reading `names`.
             if not finished.is_set():
                 await asyncio.sleep(_LIST_SETTLE_S)
+            # Read AFTER the settle sleep, not before: a terminator that
+            # lands during that extra 1.5s means the listing did finish, and
+            # this is the last moment it can be observed before the handler
+            # comes off the bridge.
+            terminated = finished.is_set()
         finally:
             bridge.remove_response_handler(_on_response)
 
@@ -351,6 +362,51 @@ async def list_lvars(
                 "request, so seeing this even on a fast repeated call is "
                 "unexpected; if it persists, msfs_get_lvar, msfs_search_lvars, and "
                 "msfs_browse_lvar_catalog remain unaffected in the meantime."
+            ),
+        )
+
+    if not terminated:
+        # The listing never reached its MF.LVars.List.End sentinel, so
+        # `names` is whatever happened to arrive before the stream stopped
+        # -- not an inventory. Nothing about that count distinguishes it
+        # from a complete listing of the same size, so returning it with
+        # truncated=False/has_more=False/message=None would present a cut-
+        # off stream as an exhaustive one: the fabricated-success pattern
+        # this project has removed nine times over. An earlier version of
+        # this branch accepted the partial list on the theory that some
+        # WASM build might send no terminator; that premise was checked
+        # live (task-3-4-addendum.md) and the module always sends .End,
+        # even for a capped 1000-name response. What actually reaches here
+        # is a stream disrupted mid-flight -- list_lvars_lock serialises
+        # this tool against itself but holds no _sim_lock across the 10s
+        # wait, so msfs_get_lvar, msfs_execute_calculator_code and
+        # msfs_send_pmdg_event can all push commands onto the
+        # order-sensitive MobiFlight.Command channel mid-listing -- which
+        # is exactly the case where the result is partial.
+        #
+        # This refuses rather than flagging, matching tools/facilities.py's
+        # FACILITY_COLLECTION_TIMEOUT for the identical question one module
+        # over: an agent that learns "an unterminated collection here is an
+        # error envelope" from one of these tools must not be silently
+        # handed a truncated inventory by the other. `truncated` stays
+        # reserved for the different, live-measured case it documents -- a
+        # response the module DID terminate but capped at _LIST_CAP, where
+        # the partial list is all that exists to serve and the flag is the
+        # only signal available.
+        return ToolError(
+            error="LVAR_LIST_INCOMPLETE",
+            message=(
+                f"The L-var listing stopped after {len(names)} names without "
+                "the MobiFlight WASM module's end-of-list marker."
+            ),
+            suggestion=(
+                "Those names are an arbitrary prefix of the real list, not a "
+                "shorter version of it, so nothing is returned rather than "
+                "risk being read as a complete inventory. Another tool "
+                "writing to the WASM command channel mid-listing can cause "
+                "this; retry with no other sim calls in flight. "
+                "msfs_get_lvar reads any name directly meanwhile, and "
+                "msfs_search_lvars works off the bundled catalogs."
             ),
         )
 

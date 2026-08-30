@@ -159,6 +159,16 @@ async def test_list_lvars_enumerates_the_loaded_aircraft(live_manager):
     if getattr(result, "error", None) == "MOBIFLIGHT_NOT_AVAILABLE":
         pytest.skip("MobiFlight WASM module not installed")
 
+    # Deliberately a failure, not a skip. The addendum established live that
+    # the module always sends .End, even for a capped list, so seeing this
+    # would mean the response stream was disrupted mid-listing -- worth
+    # knowing about loudly rather than stepping around. Checked before
+    # result.page below so it reports the envelope instead of dying on an
+    # AttributeError against a ToolError.
+    assert getattr(result, "error", None) != "LVAR_LIST_INCOMPLETE", (
+        f"MF.LVars.List ended with no .End sentinel: {result!r}"
+    )
+
     assert result.page.total > 0
     assert all(isinstance(name, str) and name for name in result.lvars)
 
