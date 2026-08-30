@@ -103,12 +103,12 @@ Not every aircraft has HubHop coverage. Here are other ways to find L-var names:
 With MSFS running and the aircraft loaded:
 
 ```
-list_lvars          -- enumerate all registered L-vars
-search_lvars("ap")  -- search by keyword
-list_lvar_panels    -- list panels from the loaded catalog
+msfs_list_lvars()                 -- enumerate registered L-vars (capped at 1000 names; see below)
+msfs_search_lvars("ap")           -- search by keyword
+msfs_browse_lvar_catalog()        -- list panels in the loaded aircraft's catalog
 ```
 
-This uses the MobiFlight WASM module to read the sim's internal variable table at runtime.
+This uses the MobiFlight WASM module to read the sim's internal variable table at runtime. The module caps `msfs_list_lvars()` at 1000 names and still reports the list as complete when it truncates — a busy add-on setup (GSX and similar) can crowd the aircraft's own variables out of the response entirely. Watch for `truncated: true` in the result, and don't treat a live listing as a guaranteed inventory: `msfs_get_lvar` can still read a name that never appeared in it.
 
 ### 2. MobiFlight Connector
 
@@ -175,7 +175,7 @@ Each catalog file follows this structure:
 The pattern must be a substring that uniquely identifies the aircraft when matched against the `TITLE` SimVar. To find the right value:
 
 1. Load the aircraft in MSFS
-2. Run `get_simvar("TITLE")`
+2. Run `msfs_get_simvar("TITLE")`
 3. Pick a substring unique to that aircraft (e.g. `"Fenix"`, `"PMDG 737"`, `"FlyByWire"`)
 
 If two catalogs match the same title, only the first match is used.
@@ -193,7 +193,7 @@ If two catalogs match the same title, only the first match is used.
 
 - Mark a variable `writable: true` only if writing to it actually does something in the sim.
 - For aircraft with prefix conventions (like Fenix), the prefix is a reliable guide: `S_`, `A_`, `E_` are writable; `N_`, `I_`, `B_` are read-only.
-- When in doubt, leave `writable` as `false`. The user can always try writing via `set_lvar` regardless.
+- When in doubt, leave `writable` as `false`. The user can always try writing via `msfs_set_lvar` regardless.
 
 ### The `values` field
 

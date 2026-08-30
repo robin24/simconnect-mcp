@@ -11,9 +11,12 @@ MCP Protocol (FastMCP, stdio)
   → server.py (tool/resource/prompt registration, lifespan)
     → tools/*.py (domain modules)
       → connection.py (SimConnectManager singleton)
-        → SimConnect Python + vendored SimConnectMobiFlight
-          → SimConnect DLL / MSFS
-          → MobiFlight WASM Module (L-vars, calculator code)
+        → simvar_access.py (SimVarAccessor — generic SimVar reads/writes, replaces AircraftRequests)
+        → facilities.py (facility *_LIST message parsing/accumulation, feeds tools/facilities.py)
+        → dispatch.py (SimConnectDispatcher — owns the dispatch loop; both of the above depend on it)
+          → vendored SimConnectMobiFlight (client-data support for the WASM bridge)
+            → SimConnect DLL / MSFS
+            → MobiFlight WASM Module (L-vars, calculator code)
 ```
 
 ### Key Design Decisions
@@ -21,8 +24,12 @@ MCP Protocol (FastMCP, stdio)
 - **Singleton connection** — SimConnect allows one connection per process. `SimConnectManager` is a thread-safe singleton with lazy-connect.
 - **`run_in_executor` + `threading.Lock`** — all SimConnect DLL calls are blocking and not thread-safe. Every call goes through `run_sync()` which acquires a lock and runs in an executor to avoid blocking the async MCP event loop.
 - **MobiFlight optional** — the vendored `SimConnectMobiFlight` (from [Koseng/MSFSPythonSimConnectMobiFlightExtension](https://github.com/Koseng/MSFSPythonSimConnectMobiFlightExtension)) is a drop-in subclass of `SimConnect` that adds client-data support for the WASM bridge. If it fails to load, core SimVar/event tools still work; only L-var tools degrade.
-- **Native L-var writes** — `set_lvar` uses `AddToDataDefinition` + `SetDataOnSimObject` (the native SimConnect API), NOT the MobiFlight RPN `set()` command. This is critical because proprietary aircraft like the Fenix ignore MobiFlight RPN writes but respond to native SimConnect data writes.
+- **`SimVarAccessor` replaced `AircraftRequests`** — SimVar access no longer goes through `SimConnect.AircraftRequests`, which holds a hardcoded table of ~828 variables each bound to one fixed unit and signals failure by returning `None`/`False`. `simvar_access.py`'s `SimVarAccessor` builds data definitions directly (`AddToDataDefinition` + `RequestDataOnSimObject`/`SetDataOnSimObject`), which is what makes unit selection, reading variables outside the table, string variables, and honest write failures possible. `SimConnectManager.set_lvar` routes through the same accessor rather than a hand-rolled copy of the pattern.
+- **`SimConnectDispatcher` owns `my_dispatch_proc`.** This is the single most important invariant in the codebase. `dispatch.py`'s `SimConnectDispatcher` (a subclass of the vendored `SimConnectMobiFlight`) takes over the SimConnect dispatch loop so SimVar reads/writes and exceptions can be correlated back to the call that caused them, and so facility (`*_LIST`) messages can be parsed directly. **Anything added to the dispatch loop must never fall through to the library's `SYSTEM_STATE` or `*_LIST` branches** — both call `print()` (`handle_state_event`, and `dump()` on the facility objects) and would corrupt the JSON-RPC stream this server speaks over stdio.
+- **The vendored bridge has exactly two documented local changes** — see the header comment in `vendor/mobiflight_variable_requests.py`: per-call logging demoted from INFO to DEBUG, and response-channel strings (definition ID 0) routed to registered handlers instead of being logged as "DefinitionID not found" and dropped. Both must survive a re-sync from upstream — the header comment is the only thing standing between a re-sync and silently reverting them. `vendor/simconnect_mobiflight.py` carries no local changes at all.
+- **Native L-var writes** — `SimConnectManager.set_lvar()` (which the `msfs_set_lvar` tool calls) uses `AddToDataDefinition` + `SetDataOnSimObject` (the native SimConnect API, via `SimVarAccessor`), NOT the MobiFlight RPN `set()` command. This is critical because proprietary aircraft like the Fenix ignore MobiFlight RPN writes but respond to native SimConnect data writes.
 - **`clear_sim_variables()` on connect** — the MobiFlight WASM module retains stale variable registrations from prior sessions. Without clearing on connect, all reads return 0.
+- **Tool naming and contract** — every tool is registered in `server.py` with the `msfs_` prefix and explicit `ToolAnnotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `title`); there is no annotation-free registration path. Every tool function returns `SomeResult | ToolError`, never a bare dict and never a fabricated success — a new tool must follow both conventions.
 
 ## Project Structure
 
@@ -30,14 +37,25 @@ MCP Protocol (FastMCP, stdio)
 src/simconnect_mcp/
 ├── server.py              # FastMCP instance, lifespan, tool registration
 ├── connection.py          # SimConnectManager singleton + native set_lvar
+├── dispatch.py            # SimConnectDispatcher — owns the SimConnect dispatch loop
+├── simvar_access.py       # SimVarAccessor — generic SimVar reads/writes via data definitions
+├── facilities.py          # Facility (*_LIST) message parsing and accumulation
+├── pmdg.py                # PMDG 777 SDK structs, CDU rendering, data manager
+├── pmdg_ng3.py            # PMDG 737 NG3 SDK structs, CDU rendering, data manager
 ├── tools/
 │   ├── __init__.py        # @handle_simconnect_errors, @require_connection decorators
-│   ├── simvars.py         # SimVar CRUD + built-in catalog (~50 common vars)
-│   ├── events.py          # Event trigger/search + built-in catalog (~50 events)
-│   ├── lvars.py           # L-var read/write/search/panels/calculator code
-│   ├── aircraft.py        # State snapshots (get_aircraft_state, position, systems)
-│   ├── facilities.py      # Airport/navaid lookup via FacilitiesRequests
-│   └── utilities.py       # send_sim_text, set_aircraft_position
+│   ├── connection_tools.py # connect_to_sim, disconnect_from_sim, get_connection_status
+│   ├── simvars.py         # SimVar CRUD via SimVarAccessor (1,080+ vars in the catalog)
+│   ├── events.py          # Event trigger/search + built-in catalog
+│   ├── lvars.py           # L-var read/write/search/enumerate/browse catalogs/calculator code
+│   ├── pmdg.py            # PMDG tools — auto-dispatch to 777 or 737 NG3
+│   ├── aircraft.py        # get_aircraft_snapshot — combined state snapshot
+│   ├── facilities.py      # Airport/navaid lookup on top of facilities.py
+│   ├── flight.py          # load/save flight, load flight plan, spawn AI object
+│   ├── hubhop.py          # HubHop preset search, exposed as MCP tools
+│   ├── utilities.py       # send_sim_text, set_aircraft_position
+│   ├── models.py          # Shared Pydantic result/error models
+│   └── formatting.py      # Pagination and markdown-table helpers
 ├── resources/
 │   ├── documentation.py   # Embedded docs served as MCP resources
 │   └── state.py           # Live connection/aircraft state resources
@@ -45,19 +63,33 @@ src/simconnect_mcp/
 │   └── templates.py       # debug_simvar, analyze_aircraft_vars, rpn_helper, etc.
 ├── data/
 │   ├── catalog.py         # L-var catalog loader and search engine
-│   ├── hubhop.py          # MobiFlight HubHop API client (CLI + library)
+│   ├── simvar_catalog.py  # SimVar catalog loader, unit resolution, string-var detection
+│   ├── hubhop.py          # MobiFlight HubHop API client (CLI + library), in-memory cache
 │   ├── fenix_a320.json    # Fenix A320/A321 catalog (1,433 vars, 26 panels)
+│   ├── pmdg_777.json      # PMDG 777 catalog (1,607 vars, 28 panels)
+│   ├── pmdg_737.json      # PMDG 737 NG3 catalog (1,861 vars, 27 panels)
 │   └── simvars_catalog.json  # Built-in SimVar catalog (1,080+ vars, 25 categories)
-├── vendor/
-│   ├── simconnect_mobiflight.py          # Vendored from Koseng's repo
-│   └── mobiflight_variable_requests.py   # MobiFlight WASM bridge
-└── docs/                  # Embedded markdown documentation
+├── vendor/                # Byte-faithful to upstream except two documented local changes
+│   ├── simconnect_mobiflight.py          # unmodified
+│   └── mobiflight_variable_requests.py   # log-level demotion + response-channel routing
+└── docs/                  # Embedded markdown documentation, served as MCP resources
     ├── overview.md, simvars.md, events.md, rpn.md, lvars.md, best_practices.md
+    └── pmdg_777.md, pmdg_737.md
 ```
+
+## Known Sim Behaviours
+
+Measured against a live sim during this project. Each cost real investigation to establish, so they are recorded here rather than left to be rediscovered. This is a reference, not a narrative.
+
+- **MSFS 2024 packs facility records on the wire.** The installed `SimConnect.Enum` bindings for `SIMCONNECT_DATA_FACILITY_AIRPORT/WAYPOINT/NDB/VOR` are stale in two independent ways: they declare a single `Icao[9]` field where MSFS 2024 actually sends `Ident[6]` + `Region[3]`, and they assume ordinary 8-byte-aligned structs where the wire records are packed with no padding. `facilities.py` defines its own structs with `_pack_ = 1` and the Ident/Region split; verified strides are AIRPORT 33, WAYPOINT 37, NDB 41, VOR 77. Committed fixtures in `tests/fixtures/facilities/` replay real captured bytes, so a regression back to 8-byte alignment fails the suite immediately.
+- **Only the airport facility list is world-wide** (85,249 records, unrelated to the aircraft's position). Waypoints, NDBs and VORs are a "reality bubble" scoped to wherever the aircraft currently is — all measured within ~193 nm of it — so they must not be cached across a reposition. Only AIRPORT is cached (`SimConnectManager._facility_cache`); the other three are recollected on every call.
+- **`MF.LVars.List` is capped at 1000 names and still sends its end sentinel**, so a truncated response is indistinguishable from a complete one at the protocol level. `msfs_list_lvars` reports `truncated: true` when the raw pre-filter wire count hits the cap. Treat any one source — a catalog or a live listing — as a starting point, not a guaranteed inventory: `msfs_get_lvar` reads any name you supply, whether or not it surfaced there.
+- **The WASM module ignores a repeated identical command.** Sending `MF.LVars.List` twice in a row returns nothing the second time. A trailing space does not help — this is not a byte-level dedupe check — and the state survives reconnection, so it lives in the WASM module itself, not the client. The fix that works reliably: send a different, zero-side-effect RPN command (a bare `MF.SimVars.Set.1` literal, which stores nothing) immediately before `MF.LVars.List` to re-arm it. See the call site in `tools/lvars.py` before "simplifying" this away.
+- **PMDG aircraft ignore default key events.** A `(>K:PARKING_BRAKES)` that does nothing on a loaded PMDG aircraft is the aircraft's own behaviour — PMDG reimplements most default events internally rather than responding to them — not a broken mechanism. Use `msfs_send_pmdg_event` for PMDG control surfaces instead of `msfs_trigger_event`.
 
 ## Extending the Aircraft L-Var Catalog
 
-The catalog system provides searchable, human-readable L-var databases per aircraft. When `search_lvars("seatbelt")` is called, the server auto-detects the loaded aircraft from its `TITLE` SimVar and searches the matching catalog.
+The catalog system provides searchable, human-readable L-var databases per aircraft. When `msfs_search_lvars("seatbelt")` is called, the server auto-detects the loaded aircraft from its `TITLE` SimVar and searches the matching catalog.
 
 ### Adding a New Aircraft
 
@@ -105,8 +137,8 @@ Create a JSON file in `src/simconnect_mcp/data/` (e.g., `fbw_a320.json`). All `*
 
 - **From existing tools:** export variable lists from FSUIPC, MobiFlight Connector, or SPAD.neXt
 - **From source code:** if the aircraft is open source (e.g., FlyByWire), extract variable names from the codebase
-- **By discovery:** use `list_lvars` to enumerate variables on a loaded aircraft, then categorize by prefix patterns
-- **The `title_pattern`** should match a unique substring from `get_simvar("TITLE")`
+- **By discovery:** use `msfs_list_lvars` to enumerate variables on a loaded aircraft (capped at 1000 names — see "Known Sim Behaviours" above), then categorize by prefix patterns
+- **The `title_pattern`** should match a unique substring from `msfs_get_simvar("TITLE")`
 
 ## Fenix A320/A321 Notes
 
@@ -142,14 +174,17 @@ Some Fenix switches are momentary buttons that need a press-release cycle: set t
 
 ### Write Method
 
-The Fenix responds to native SimConnect `SetDataOnSimObject` for L-var writes, NOT to MobiFlight RPN `set()` commands. The `set_lvar` tool already uses the native method.
+The Fenix responds to native SimConnect `SetDataOnSimObject` for L-var writes, NOT to MobiFlight RPN `set()` commands. The `msfs_set_lvar` tool already uses the native method.
 
 ## Running Tests
 
 ```bash
-uv run pytest           # all tests
+uv run pytest           # all tests (mocked; no MSFS required)
 uv run pytest -v        # verbose
 uv run pytest -k search # only search tests
+uv run pytest -m live   # live suite against a real, running MSFS instance
 ```
 
-Tests mock SimConnect so they run without MSFS. The `conftest.py` fixture provides a mock SimConnect with realistic SimVar values.
+Tests mock SimConnect so the default run happens without MSFS. The `conftest.py` fixture provides a mock SimConnect with realistic SimVar values.
+
+The live suite under `tests/live/` is marked `@pytest.mark.live` and deselected by default (`pyproject.toml`'s `addopts = "-m 'not live'"`), so it never runs on a machine without MSFS — including CI. It requires MSFS running with an aircraft loaded; a connection failure is skipped rather than failed, but some files assume a specific aircraft is loaded (check that file's own module docstring before running it against an arbitrary airframe).

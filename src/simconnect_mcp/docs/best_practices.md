@@ -16,11 +16,8 @@ If the connection drops, wait a few seconds before retrying. The sim may be shut
 
 ## Data Requests
 
-### Do: Use AircraftRequests with caching
-```python
-aq = AircraftRequests(sm, _time=2000)  # Cache for 2 seconds
-value = aq.get("PLANE_ALTITUDE")  # Returns cached value if recent
-```
+### Do: Let the server manage data definitions
+`msfs_get_simvar`/`msfs_set_simvar` are backed by `SimVarAccessor`, which builds a SimConnect data definition for each (name, unit, index) combination the first time it's needed and reuses it afterward — this is automatic and not something a caller configures. There is no separate value-level cache: every call is a fresh read from (or write to) the sim, which is what makes an accurate `unit`, a variable outside the bundled catalog, a string variable, and an honest failure on a rejected write all possible. (If you've seen older SimConnect examples reach for `AircraftRequests(sm, _time=2000)` — a fixed table of ~828 variables, each bound to one hardcoded unit, that silently returns a stale cached value — this server does not use that mechanism.)
 
 ### Do: Batch related reads
 Use `msfs_get_simvars_bulk()` to read multiple variables at once rather than making many individual calls.
@@ -116,7 +113,6 @@ Display debug messages in the sim to confirm your add-on is responding.
 ## Performance
 
 - Limit SimVar polling to what you need
-- Use `AircraftRequests` caching (`_time` parameter)
 - Batch reads with `msfs_get_simvars_bulk()`
-- Don't enumerate all L-vars repeatedly — cache the list
+- `msfs_list_lvars()` is capped at 1000 names by the WASM module and can be crowded out by other add-ons (see "Discover before assuming" above) — don't rely on repeated calls to build a definitive inventory. Use `msfs_get_lvar` for a name you already know, and the bundled catalogs (`msfs_search_lvars`, `msfs_browse_lvar_catalog`) as the more stable reference
 - Calculator code runs in the sim's gauge loop — keep it short
