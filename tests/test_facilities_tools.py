@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -75,9 +76,8 @@ async def test_nearby_airports_are_sorted_by_distance(facility_sim):
 
 
 async def test_nearby_airports_paginate(facility_sim):
-    """Also proves the radius filter runs over the whole set before
-    pagination: page.total must reflect all 3 in-range matches even though
-    only 1 comes back in this window."""
+    """page.total must reflect all 3 in-range matches even though only 1
+    comes back in this window (radius_nm=200, limit=1)."""
     from simconnect_mcp.tools.facilities import get_nearby_airports
 
     result = await get_nearby_airports(
@@ -87,6 +87,40 @@ async def test_nearby_airports_paginate(facility_sim):
     assert result.page.count == 1
     assert result.page.has_more is True
     assert result.page.total == 3
+
+
+async def test_radius_filter_runs_before_pagination_not_after(facility_sim):
+    """MINOR 3 from review: the test above alone doesn't prove filter-
+    before-paginate, since all 3 fixture airports are in range -- a
+    filter-after-paginate bug would slice the same raw window and produce
+    an identical result. This puts an out-of-range airport (KFAR, Fargo ND,
+    ~1036 nm from the search centre) FIRST in raw arrival order, ahead of
+    the in-range ones. A paginate-then-filter bug would slice raw[0:1] =
+    [KFAR] before ever applying the radius check, returning an empty (or
+    KFAR-tainted) window and the wrong total instead of the nearest
+    in-range airport."""
+    from simconnect_mcp.tools.facilities import get_nearby_airports
+
+    collector = facility_sim["sm"].facilities
+    out_of_range_first = [
+        {"icao": "KFAR", "kind": "airport", "latitude": 46.9207,
+         "longitude": -96.8206, "altitude_ft": 902.0},
+        *_AIRPORTS,
+    ]
+
+    def _fake_subscribe(_hsim, _list_type, _request_id):
+        collector.handle(FacilityKind.AIRPORT, _Header(), out_of_range_first)
+
+    facility_sim["sm"].dll.SubscribeToFacilities.side_effect = _fake_subscribe
+
+    result = await get_nearby_airports(
+        latitude=47.45, longitude=-122.31, radius_nm=200, limit=1,
+        response_format=ResponseFormat.JSON,
+    )
+
+    assert result.page.total == 3, "KFAR is ~1036 nm away and must not count as a match"
+    assert result.results[0]["icao"] == "KSEA"
+    assert result.page.has_more is True
 
 
 async def test_nearby_airports_markdown_names_withheld_rows(facility_sim):
@@ -113,17 +147,33 @@ async def test_nearby_airports_never_touches_the_stdout_printing_facilities_requ
     dispatch.py's module docstring). The real implementation must reach
     facility data only through manager.sm.facilities/manager.sm.dll, never
     through manager.fr, including on a fully successful call -- not just
-    while the tool was still a stub."""
+    while the tool was still a stub.
+
+    IMPORTANT review finding: asserting only `manager.fr is None` afterward
+    cannot fail. manager.fr is None from __init__ and nothing ever writes
+    it, so that assertion passes whether or not the code under test touches
+    it -- and it was only ever meaningful while the tool was a stub that
+    executed nothing at all. Now that @handle_simconnect_errors wraps the
+    tool with a bare `except Exception`, a hypothetical
+    `manager.fr.get(...)` would raise AttributeError on a real None,
+    which the decorator converts into an ordinary-looking ToolError rather
+    than letting it surface -- so even a reintroduced reference to fr would
+    not raise past this test and would not change fr's value either. Giving
+    manager.fr a MagicMock makes a call to it observable via method_calls;
+    asserting on the tool's own return value catches the case where a
+    stray AttributeError gets silently absorbed into a ToolError instead
+    of raising."""
     from simconnect_mcp.tools.facilities import get_nearby_airports
 
-    await get_nearby_airports(
+    facility_sim["manager"].fr = MagicMock()
+
+    result = await get_nearby_airports(
         latitude=47.45, longitude=-122.31, radius_nm=200,
         response_format=ResponseFormat.JSON,
     )
-    # The mock fixture never sets manager.fr (stays None from __init__), so
-    # any attribute access on it would raise -- reaching this assertion at
-    # all is itself proof fr was never touched.
-    assert facility_sim["manager"].fr is None
+
+    assert result.status == "ok"
+    assert facility_sim["manager"].fr.method_calls == []
 
 
 async def test_facility_info_finds_an_airport_case_insensitively(facility_sim):
@@ -246,6 +296,55 @@ async def test_unsubscribes_after_a_complete_collection(facility_sim):
     assert facility_sim["sm"].dll.UnsubscribeToFacilities.call_count == 1
 
 
+async def test_a_cancelled_collection_still_unsubscribes(facility_sim):
+    """IMPORTANT 1 from review: the poll loop awaits asyncio.sleep() on
+    every iteration and can legitimately run for up to _COLLECT_TIMEOUT
+    (5s) -- a real window for the caller's MCP request to be cancelled
+    (notifications/cancelled cancels this coroutine's task). Without a
+    try/finally around subscribe -> poll -> unsubscribe, a cancellation
+    here skips _unsubscribe entirely, leaving an orphaned subscription that
+    can go on delivering chunks nobody is watching -- which, without the
+    request-id correlation fix, could silently contaminate a LATER,
+    unrelated collection for the same kind. Fails against a version of
+    _collect with no try/finally: UnsubscribeToFacilities is never called
+    when the CancelledError is raised at the sleep and propagates straight
+    out."""
+    from simconnect_mcp.tools.facilities import get_nearby_airports
+
+    # Never completes -- nothing calls collector.handle(), so the poll loop
+    # is guaranteed to still be sleeping when this test cancels the task.
+    facility_sim["sm"].dll.SubscribeToFacilities.side_effect = None
+
+    task = asyncio.create_task(get_nearby_airports(
+        latitude=47.45, longitude=-122.31, radius_nm=200,
+        response_format=ResponseFormat.JSON,
+    ))
+
+    # Let the task actually start and reach the poll loop's first sleep.
+    await asyncio.sleep(0.05)
+    assert not task.done(), "the collection should still be polling"
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert facility_sim["sm"].dll.UnsubscribeToFacilities.call_count == 1
+
+    # A follow-up call must still work normally -- proves the per-kind lock
+    # was released (facility_lock's `async with` already guaranteed this)
+    # and the collector/cache don't wedge after a cancellation.
+    def _fake_subscribe(_hsim, _list_type, _request_id):
+        facility_sim["sm"].facilities.handle(FacilityKind.AIRPORT, _Header(), _AIRPORTS)
+
+    facility_sim["sm"].dll.SubscribeToFacilities.side_effect = _fake_subscribe
+
+    follow_up = await get_nearby_airports(
+        latitude=47.45, longitude=-122.31, radius_nm=200,
+        response_format=ResponseFormat.JSON,
+    )
+    assert follow_up.status == "ok"
+
+
 async def test_timeout_reports_an_error_not_a_partial_success(mock_simconnect, monkeypatch):
     """Addendum point 3: a collection that never completes must surface as
     a ToolError, never as a FacilityList quietly built from whatever
@@ -274,39 +373,58 @@ async def test_timeout_reports_an_error_not_a_partial_success(mock_simconnect, m
     assert mock_simconnect["manager"].get_cached_facilities("airport") is None
 
 
-async def test_concurrent_calls_do_not_race_the_collector_reset(facility_sim):
+@pytest.mark.parametrize(
+    "kind", [FacilityKind.AIRPORT, FacilityKind.WAYPOINT, FacilityKind.NDB, FacilityKind.VOR]
+)
+async def test_concurrent_calls_do_not_race_the_collector_reset(facility_sim, kind):
     """Addendum point 2's race: the brief's collector.reset(kind)-then-
     subscribe is not atomic with the wait that follows it, so a second
     caller arriving mid-collection must not reset the buffer the first is
-    still waiting to fill. Proven deterministically (not via real-thread
-    timing races) by holding the first call inside its SubscribeToFacilities
-    call with a threading.Event until a second call has had a chance to
-    reach (and block on) the per-kind lock."""
-    from simconnect_mcp.tools.facilities import get_nearby_airports
+    still waiting to fill. facility_lock wraps _collect's whole body
+    unconditionally, so this guard is identical for every kind regardless
+    of whether it is cacheable (MINOR 5 from review) -- parametrized so a
+    future change that only locks the cacheable path can't silently
+    regress WAYPOINT/NDB/VOR.
+
+    Proven deterministically (not via real-thread timing races) by holding
+    the first call inside its SubscribeToFacilities call with a
+    threading.Event until a second call has had a chance to reach (and
+    block on) the per-kind lock. Uses get_facility_info rather than
+    get_nearby_airports so the same test body works for all four kinds.
+
+    What "task2 didn't race" looks like differs by cacheability, both
+    correctly: for AIRPORT, task2 must find task1's result already cached
+    and never subscribe again. For WAYPOINT/NDB/VOR (never cached, by
+    design -- see _CACHEABLE_KINDS), task2 legitimately re-collects once
+    task1's finally block releases the lock; what matters for those three
+    is only that task2's own reset did not happen while task1 was still
+    mid-flight (asserted below, before the gate opens), and that task2's
+    own collection still comes back correct once it does run."""
+    from simconnect_mcp.tools.facilities import _CACHEABLE_KINDS, get_facility_info
 
     collector = facility_sim["sm"].facilities
+    entry = {
+        "icao": "TEST1", "kind": kind.value, "latitude": 33.7, "longitude": -84.1,
+        "altitude_ft": 0.0,
+    }
     reset_calls = []
     real_reset = collector.reset
 
-    def _spy_reset(kind):
-        reset_calls.append(kind)
-        real_reset(kind)
+    def _spy_reset(k, request_id=None):
+        reset_calls.append(k)
+        real_reset(k, request_id)
 
     collector.reset = _spy_reset
 
     proceed = threading.Event()
-    real_side_effect = facility_sim["sm"].dll.SubscribeToFacilities.side_effect
 
-    def _gated_subscribe(*args):
+    def _gated_subscribe(_hsim, _list_type, _request_id):
         proceed.wait(timeout=2.0)
-        return real_side_effect(*args)
+        collector.handle(kind, _Header(), [entry])
 
     facility_sim["sm"].dll.SubscribeToFacilities.side_effect = _gated_subscribe
 
-    task1 = asyncio.create_task(get_nearby_airports(
-        latitude=47.45, longitude=-122.31, radius_nm=200,
-        response_format=ResponseFormat.JSON,
-    ))
+    task1 = asyncio.create_task(get_facility_info("TEST1", facility_type=kind.value))
 
     # Wait for task1 to actually reach the gated subscribe call (it resets
     # the collector immediately beforehand, on the same executor thread).
@@ -316,10 +434,7 @@ async def test_concurrent_calls_do_not_race_the_collector_reset(facility_sim):
             break
     assert reset_calls, "task1 never reached the subscribe step"
 
-    task2 = asyncio.create_task(get_nearby_airports(
-        latitude=47.45, longitude=-122.31, radius_nm=200,
-        response_format=ResponseFormat.JSON,
-    ))
+    task2 = asyncio.create_task(get_facility_info("TEST1", facility_type=kind.value))
     # Give task2 a real chance to run up to (and block on) the per-kind lock.
     await asyncio.sleep(0.05)
     assert len(reset_calls) == 1, "a concurrent caller reset the collector mid-flight"
@@ -327,6 +442,15 @@ async def test_concurrent_calls_do_not_race_the_collector_reset(facility_sim):
     proceed.set()
     result1, result2 = await asyncio.gather(task1, task2)
 
-    assert len(reset_calls) == 1, "task2 should have been served from cache, not resubscribed"
-    assert facility_sim["sm"].dll.SubscribeToFacilities.call_count == 1
-    assert {a["icao"] for a in result1.results} == {a["icao"] for a in result2.results}
+    if kind in _CACHEABLE_KINDS:
+        assert len(reset_calls) == 1, "task2 should have been served from cache, not resubscribed"
+        assert facility_sim["sm"].dll.SubscribeToFacilities.call_count == 1
+    else:
+        # Correctly uncached (see _CACHEABLE_KINDS): task2 re-collects for
+        # real once unblocked. The race guard is already proven above --
+        # this just confirms task2's own, later collection wasn't corrupted.
+        assert len(reset_calls) == 2
+        assert facility_sim["sm"].dll.SubscribeToFacilities.call_count == 2
+
+    assert result1.facility["icao"] == "TEST1"
+    assert result2.facility["icao"] == "TEST1"

@@ -229,15 +229,43 @@ class FacilityCollector:
     ``range(dwOutOf)`` has actually been recorded, and so that a result
     reconstructed from out-of-order chunk arrival is still sorted back into
     logical order rather than wire-arrival order.
+
+    ``handle()`` also discards a chunk whose ``dwRequestID`` does not match
+    the request ``reset()`` was most recently told to expect for that kind.
+    ``UnsubscribeToFacilities`` does not retroactively cancel messages
+    SimConnect has already queued, and a caller can also stop watching a
+    kind without ever unsubscribing at all -- its coroutine's ``asyncio``
+    task can be cancelled (e.g. an MCP client sending
+    ``notifications/cancelled`` mid-poll) with no chance to run cleanup
+    that was not wrapped in a ``finally``. Either way, an orphaned
+    subscription can go on delivering chunks for a kind nobody is waiting
+    on, and without this check a stray late chunk would land in whatever
+    the *next* collection for that same kind happens to be -- silently
+    mixing an old subscription's data into a new one, potentially flipping
+    ``is_complete()`` true on a torn mix of both, with no signal to either
+    caller. A ``reset()`` that omits ``request_id`` (every call site that
+    predates this parameter) leaves correlation disabled for that kind, so
+    existing callers are unaffected.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._chunks: dict[FacilityKind, dict[int, list[dict[str, Any]]]] = {}
         self._out_of: dict[FacilityKind, int] = {}
+        self._request_id: dict[FacilityKind, int | None] = {}
 
     def handle(self, kind: FacilityKind, header: Any, entries: list[dict[str, Any]]) -> None:
         with self._lock:
+            expected = self._request_id.get(kind)
+            incoming = getattr(header, "dwRequestID", None)
+            if expected is not None and incoming is not None and incoming != expected:
+                # A chunk from a subscription this collector is no longer
+                # waiting on -- see class docstring. Not logged: this runs
+                # on SimConnect's own dispatch callback thread, and a
+                # discard here is the expected outcome of an ordinary
+                # timeout or cancellation, not a failure worth a line every
+                # time it happens.
+                return
             # dwEntryNumber 0 begins a new transmission; do not merge with
             # the chunks of a previous request.
             if header.dwEntryNumber == 0:
@@ -261,7 +289,17 @@ class FacilityCollector:
                 return False
             return len(self._chunks.get(kind, {})) == out_of
 
-    def reset(self, kind: FacilityKind) -> None:
+    def reset(self, kind: FacilityKind, request_id: int | None = None) -> None:
+        """Clear kind's buffer and start tracking a new request id.
+
+        `request_id` should be the SimConnect request ID the caller is
+        about to (re)subscribe with, so a later `handle()` can tell a chunk
+        that actually belongs to this request apart from one left over from
+        a previous, abandoned subscription for the same kind -- see class
+        docstring. Omitting it (the default) disables that check for this
+        reset cycle; every call site that predates this parameter does.
+        """
         with self._lock:
             self._chunks[kind] = {}
             self._out_of.pop(kind, None)
+            self._request_id[kind] = request_id

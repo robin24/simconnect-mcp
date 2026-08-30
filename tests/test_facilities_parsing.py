@@ -30,10 +30,11 @@ from simconnect_mcp.facilities import (
 
 
 class FakeHeader:
-    def __init__(self, entry_number, out_of, array_size):
+    def __init__(self, entry_number, out_of, array_size, request_id=None):
         self.dwEntryNumber = entry_number
         self.dwOutOf = out_of
         self.dwArraySize = array_size
+        self.dwRequestID = request_id
 
 
 def test_collector_accumulates_a_single_chunk():
@@ -146,6 +147,63 @@ def test_reset_clears_both_results_and_completeness():
 
     assert collector.is_complete(FacilityKind.AIRPORT) is False
     assert collector.results(FacilityKind.AIRPORT) == []
+
+
+def test_reset_without_a_request_id_leaves_correlation_disabled():
+    """Every call site that predates the request_id parameter calls
+    reset(kind) with no second argument (see the test above) and must keep
+    working exactly as before: unconditionally accepting whatever arrives,
+    regardless of dwRequestID."""
+    collector = FacilityCollector()
+    collector.reset(FacilityKind.AIRPORT)
+
+    collector.handle(FacilityKind.AIRPORT, FakeHeader(0, 1, 1, request_id=12345),
+                     [{"icao": "KSEA"}])
+
+    assert collector.is_complete(FacilityKind.AIRPORT) is True
+    assert [a["icao"] for a in collector.results(FacilityKind.AIRPORT)] == ["KSEA"]
+
+
+def test_a_chunk_with_a_foreign_request_id_is_discarded():
+    """A subscription this collector has moved on from -- unsubscribed,
+    timed out, or its caller's asyncio task cancelled before cleanup could
+    run (see tools/facilities.py's _collect) -- can still go on delivering
+    chunks. reset()'s request_id lets handle() tell a chunk that actually
+    belongs to the CURRENT request apart from a stray one left over from an
+    old, abandoned request for the same kind, so the stray is discarded
+    instead of silently contaminating whatever collection for this kind is
+    in progress now -- which could otherwise flip is_complete() true on a
+    torn mix of old and new chunks. Fails against every collector version
+    before this test: reset() did not accept a request id at all."""
+    collector = FacilityCollector()
+    collector.reset(FacilityKind.AIRPORT, request_id=100)
+
+    # A stray chunk from an old, abandoned request (99) must not count,
+    # and must not even start a "chunk 0 seen" state for the new request.
+    collector.handle(FacilityKind.AIRPORT, FakeHeader(0, 1, 1, request_id=99),
+                     [{"icao": "STALE"}])
+    assert collector.results(FacilityKind.AIRPORT) == []
+    assert collector.is_complete(FacilityKind.AIRPORT) is False
+
+    # The chunk actually belonging to the current request (100) still counts.
+    collector.handle(FacilityKind.AIRPORT, FakeHeader(0, 1, 1, request_id=100),
+                     [{"icao": "FRESH"}])
+    assert [a["icao"] for a in collector.results(FacilityKind.AIRPORT)] == ["FRESH"]
+    assert collector.is_complete(FacilityKind.AIRPORT) is True
+
+
+def test_a_chunk_with_no_request_id_is_accepted_even_after_a_correlated_reset():
+    """A header that carries no dwRequestID at all (a fake header in an
+    older test, or a genuinely absent field) is not treated as "foreign" --
+    only an explicit mismatch is discarded. This keeps handle() permissive
+    for callers that don't participate in correlation, even after some
+    other caller for the same kind did set an expected request id."""
+    collector = FacilityCollector()
+    collector.reset(FacilityKind.AIRPORT, request_id=100)
+
+    collector.handle(FacilityKind.AIRPORT, FakeHeader(0, 1, 1), [{"icao": "KSEA"}])
+
+    assert [a["icao"] for a in collector.results(FacilityKind.AIRPORT)] == ["KSEA"]
 
 
 def test_great_circle_distance_seattle_to_portland():

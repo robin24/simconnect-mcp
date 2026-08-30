@@ -62,7 +62,26 @@ traffic problem. But it does mean a scenery change could still re-fire it at
 some arbitrary later moment, feeding a collector nothing here is watching
 any more. UnsubscribeToFacilities is therefore called once collection ends,
 on both the success and timeout paths, even when the result is cached and
-never subscribed to again.
+never subscribed to again -- and, per the next paragraph, even when the
+caller never gets to run that line at all.
+
+Subscribe -> poll -> unsubscribe runs inside a try/finally, not just three
+sequential calls. The poll loop awaits asyncio.sleep() every iteration and
+can legitimately run for up to _COLLECT_TIMEOUT (5s) -- a real window for
+the caller's MCP request to be cancelled (notifications/cancelled cancels
+this coroutine's task), which raises CancelledError straight out of that
+sleep. Without the finally, that skips the unsubscribe entirely and leaves
+an orphaned subscription free to keep delivering chunks to a collector
+nothing is watching any more -- belt and braces, FacilityCollector.reset()
+also now takes the SimConnect request id the subscription was issued under
+(threaded through from _subscribe below) and FacilityCollector.handle()
+discards any chunk whose dwRequestID doesn't match. That second guard
+matters even when the finally succeeds: UnsubscribeToFacilities does not
+retroactively cancel messages SimConnect already queued before it runs, so
+a stray late chunk from an already-abandoned subscription could otherwise
+land inside a LATER, unrelated _collect() call for the same kind and
+silently flip its is_complete() true on a mix of old and new data --
+served as a success, indistinguishable from a correct one to the caller.
 
 If the collector never reaches is_complete() within the timeout, this
 reports a ToolError rather than returning the partial list sitting in the
@@ -120,6 +139,19 @@ _POLL_INTERVAL = 0.1
 _CACHEABLE_KINDS = frozenset({FacilityKind.AIRPORT})
 
 
+def _position_unavailable() -> ToolError:
+    """Fresh ToolError for get_nearby_airports' two missing-position exits
+    (no accessor to default from, or the read came back empty) -- a new
+    instance per call, matching _accessor_unavailable() in tools/__init__.py
+    rather than sharing one mutable model instance across both call sites.
+    """
+    return ToolError(
+        error="POSITION_UNAVAILABLE",
+        message="Could not read the aircraft position for the search centre.",
+        suggestion="Pass latitude and longitude explicitly.",
+    )
+
+
 async def _collect(kind: FacilityKind) -> list[dict[str, Any]] | ToolError:
     """Return the facility list for one kind.
 
@@ -156,11 +188,14 @@ async def _collect(kind: FacilityKind) -> list[dict[str, Any]] | ToolError:
 
         list_type = _LIST_TYPES[kind]
 
-        def _subscribe() -> None:
-            collector.reset(kind)
-            manager.sm.dll.SubscribeToFacilities(
-                manager.sm.hSimConnect, list_type, manager.sm.new_request_id().value
-            )
+        def _subscribe() -> int:
+            request_id = manager.sm.new_request_id().value
+            # Told to the collector *before* the DLL call, so a chunk that
+            # somehow arrives before this function returns (unlikely, but
+            # not this code's place to assume) is still correlated correctly.
+            collector.reset(kind, request_id)
+            manager.sm.dll.SubscribeToFacilities(manager.sm.hSimConnect, list_type, request_id)
+            return request_id
 
         def _unsubscribe() -> None:
             # Best-effort: a failure here must not turn an otherwise
@@ -172,16 +207,34 @@ async def _collect(kind: FacilityKind) -> list[dict[str, Any]] | ToolError:
                     "UnsubscribeToFacilities failed for %s", kind.value, exc_info=True
                 )
 
-        await manager.run_sync(_subscribe)
+        # try/finally around subscribe -> poll -> unsubscribe, not just
+        # sequential calls: the poll loop below awaits asyncio.sleep() on
+        # every iteration and can legitimately run for up to
+        # _COLLECT_TIMEOUT (5s) -- a real window for the caller's MCP
+        # request to be cancelled (notifications/cancelled cancels this
+        # coroutine's task). Without this, a cancellation here would skip
+        # _unsubscribe entirely and leave an orphaned subscription that can
+        # go on delivering chunks nobody is watching -- see this module's
+        # and FacilityCollector's docstrings for what an orphaned chunk can
+        # do to a later, unrelated collection for the same kind if it lands
+        # uncorrelated (the request-id check in FacilityCollector.handle is
+        # the other half of that defense, for when even this finally can't
+        # run to completion). The facility_lock's `async with` above already
+        # releases correctly on cancellation (`__aexit__` always runs); this
+        # covers the DLL subscription itself, which has no such automatic
+        # cleanup.
+        try:
+            await manager.run_sync(_subscribe)
 
-        waited = 0.0
-        while waited < _COLLECT_TIMEOUT and not collector.is_complete(kind):
-            await asyncio.sleep(_POLL_INTERVAL)
-            waited += _POLL_INTERVAL
+            waited = 0.0
+            while waited < _COLLECT_TIMEOUT and not collector.is_complete(kind):
+                await asyncio.sleep(_POLL_INTERVAL)
+                waited += _POLL_INTERVAL
 
-        complete = collector.is_complete(kind)
-        results = collector.results(kind)
-        await manager.run_sync(_unsubscribe)
+            complete = collector.is_complete(kind)
+            results = collector.results(kind)
+        finally:
+            await manager.run_sync(_unsubscribe)
 
         if not complete:
             return ToolError(
@@ -237,11 +290,7 @@ async def get_nearby_airports(
 
     if latitude is None or longitude is None:
         if manager.accessor is None:
-            return ToolError(
-                error="POSITION_UNAVAILABLE",
-                message="Could not read the aircraft position for the search centre.",
-                suggestion="Pass latitude and longitude explicitly.",
-            )
+            return _position_unavailable()
         pos = await manager.run_sync(
             lambda: manager.accessor.read_many([
                 ("PLANE_LATITUDE", "degrees", None),
@@ -251,11 +300,7 @@ async def get_nearby_airports(
         latitude = latitude if latitude is not None else pos["PLANE_LATITUDE"].get("value")
         longitude = longitude if longitude is not None else pos["PLANE_LONGITUDE"].get("value")
         if latitude is None or longitude is None:
-            return ToolError(
-                error="POSITION_UNAVAILABLE",
-                message="Could not read the aircraft position for the search centre.",
-                suggestion="Pass latitude and longitude explicitly.",
-            )
+            return _position_unavailable()
 
     airports = await _collect(FacilityKind.AIRPORT)
     if isinstance(airports, ToolError):
