@@ -556,6 +556,7 @@ async def send_pmdg_event(
             pmdg.send_control(dispatch["event_id"], dispatch["parameter"])
 
         await manager.run_sync(_send_control)
+        message = f"Event '{event_name}' sent successfully"
     else:
         # Standard cockpit events — use ROTOR_BRAKE via MobiFlight RPN
         if not manager.mobiflight_available:
@@ -572,12 +573,23 @@ async def send_pmdg_event(
             manager.mobiflight.set(dispatch["code"])
 
         await manager.run_sync(_execute)
+        # Not "sent successfully": manager.mobiflight.set() sends
+        # MF.SimVars.Set.* over the same command channel as the two sites
+        # Phase 1 already corrected in tools/lvars.py and tools/events.py.
+        # Now that the WASM response channel is readable (see
+        # MobiFlightVariableRequests.add_response_handler in
+        # vendor/mobiflight_variable_requests.py), this was re-checked live
+        # rather than assumed still true: MF.LVars.List produces response
+        # traffic, but an MF.SimVars.Set.* command does not, even though
+        # the write itself lands (confirmed via readback). Nothing here
+        # observes the event actually firing -- only that it was sent.
+        message = f"Event '{event_name}' sent; delivery is not confirmed"
 
     return PmdgEventResult(
         event=event_name,
         parameter=parameter,
         catalog=catalog_key,
         variant_source=source,
-        message=f"Event '{event_name}' sent successfully",
+        message=message,
         warning=_unassured_variant_warning(catalog_key, source),
     )

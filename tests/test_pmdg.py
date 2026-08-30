@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -742,6 +742,51 @@ class TestSendPmdgEventTool:
         assert result.variant_source == "name_match"
         assert result.warning is not None
         assert "pmdg_777" in result.warning
+
+    async def test_rotor_brake_event_message_does_not_overclaim_confirmation(
+        self, mock_simconnect
+    ):
+        """Phase 2 Task 3 residual: EVT_OH_ELEC_BATTERY_SWITCH resolves to
+        the rotor_brake method, which dispatches through
+        manager.mobiflight.set() -- MF.SimVars.Set.*, sent over the same
+        client-data command channel as the two sites Phase 1 already fixed
+        in tools/lvars.py and tools/events.py. Measured live against the
+        real WASM module after Task 3 made the response channel readable
+        (mobiflight_set_ack_probe.py): MF.LVars.List produces 1002
+        definition-0 responses, but an MF.SimVars.Set.* command -- even
+        though the write itself lands and reads back correctly -- produces
+        zero. So this path remains genuinely unconfirmed and must not claim
+        "successfully"."""
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        mock_simconnect["manager"]._mobiflight_available = True
+        mock_simconnect["manager"].mobiflight = MagicMock()
+
+        result = await send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH", variant="pmdg_777")
+
+        assert isinstance(result, PmdgEventResult)
+        mock_simconnect["manager"].mobiflight.set.assert_called_once_with(
+            "101 (>K:ROTOR_BRAKE)"
+        )
+        assert "successfully" not in result.message.lower()
+        assert "sent" in result.message.lower()
+
+    async def test_control_data_event_message_still_claims_success(self, mock_simconnect):
+        """Contrast case for the fix above: EVT_MCP_ALT_SET resolves to the
+        control_data method, which writes straight to the PMDG SDK's own
+        Control data area via send_control() -- a different mechanism from
+        the unread-by-design MobiFlight response channel that made the
+        rotor_brake wording dishonest. This must be unaffected by that fix;
+        pins the branch so the two methods cannot silently end up sharing
+        one message again."""
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000, variant="pmdg_777")
+
+        assert isinstance(result, PmdgEventResult)
+        assert "successfully" in result.message.lower()
 
 
 class TestUnassuredVariantWarning:
