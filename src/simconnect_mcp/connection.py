@@ -77,14 +77,18 @@ class SimConnectManager:
         # whole lifetime. See get_cached_pmdg_variant/set_cached_pmdg_variant
         # below -- a cache hit requires the *current* identity to match.
         self._pmdg_variant_cache: tuple[str | None, str | None, str] | None = None
-        # World facility lists (tools/facilities.py's _collect), keyed by
-        # FacilityKind.value ("airport"/"waypoint"/"ndb"/"vor"). Measured
-        # live, SubscribeToFacilities(AIRPORT) returns the whole world
-        # (85,249 airports) and goes quiet once complete rather than
-        # re-firing, so each kind is collected at most once per connection
-        # and served from here after that -- see get_cached_facilities/
-        # set_cached_facilities. Cleared on disconnect() like the two
-        # caches above.
+        # Facility lists (tools/facilities.py's _collect), keyed by
+        # FacilityKind.value. This dict is generic -- any kind string could
+        # be stored here -- but tools/facilities.py's _CACHEABLE_KINDS only
+        # ever populates "airport" in practice. Measured live: AIRPORT is
+        # genuinely the whole world (85,249 facilities, unrelated to the
+        # aircraft's position), but WAYPOINT/NDB/VOR are a "reality bubble"
+        # scoped to wherever the aircraft currently is (all within ~193nm
+        # of it) -- caching those would keep serving a stale position's
+        # facilities after a reposition or a flight, with no signal to the
+        # caller. See tools/facilities.py's module docstring for the full
+        # measurement and the policy this backs. Cleared on disconnect()
+        # like the two caches above.
         self._facility_cache: dict[str, list[dict[str, Any]]] = {}
         # Per-kind asyncio.Lock serializing facility collection. Without
         # this, a second caller's collector.reset(kind) can wipe the buffer
@@ -335,17 +339,28 @@ class SimConnectManager:
         self._pmdg_variant_cache = (title, model, variant)
 
     def get_cached_facilities(self, kind: str) -> list[dict[str, Any]] | None:
-        """Return the cached world list for one facility kind.
+        """Return the cached facility list for one kind, if this kind is
+        ever cached.
 
-        None on a cache miss: never collected yet this connection, or
-        cleared by a disconnect(). `kind` is a FacilityKind.value string
-        ("airport"/"waypoint"/"ndb"/"vor") rather than the enum itself, so
-        this module has no need to import simconnect_mcp.facilities.
+        None on a cache miss: never collected yet this connection, cleared
+        by a disconnect(), or (in practice, for "waypoint"/"ndb"/"vor")
+        deliberately never written by tools/facilities.py's
+        _CACHEABLE_KINDS -- see that module's docstring for why those three
+        must not be cached. This method itself has no opinion on which
+        kinds qualify; it just stores whatever the caller gives it. `kind`
+        is a FacilityKind.value string ("airport"/"waypoint"/"ndb"/"vor")
+        rather than the enum itself, so this module has no need to import
+        simconnect_mcp.facilities.
         """
         return self._facility_cache.get(kind)
 
     def set_cached_facilities(self, kind: str, entries: list[dict[str, Any]]) -> None:
-        """Record a completed facility collection for one kind."""
+        """Record a completed facility collection for one kind.
+
+        Generic by design -- see get_cached_facilities. The decision of
+        which kinds this is safe to call for belongs to the caller
+        (tools/facilities.py's _CACHEABLE_KINDS), not to this method.
+        """
         self._facility_cache[kind] = entries
 
     def facility_lock(self, kind: str) -> asyncio.Lock:

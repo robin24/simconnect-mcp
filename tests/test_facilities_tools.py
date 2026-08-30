@@ -160,9 +160,11 @@ async def test_missing_position_without_an_accessor_reports_a_clean_error(mock_s
 
 
 async def test_second_call_is_served_from_cache_without_resubscribing(facility_sim):
-    """Addendum point 1: the world list does not change during a session,
-    so a second call for the same kind must not re-subscribe or re-run the
-    filter's setup against fresh SimConnect traffic."""
+    """Addendum point 1, AIRPORT only: measured live, the airport list is
+    genuinely world-wide and does not change during a session, so a second
+    call must not re-subscribe or re-run the filter's setup against fresh
+    SimConnect traffic. (WAYPOINT/NDB/VOR are the opposite case -- see
+    test_non_airport_kinds_are_never_cached below.)"""
     from simconnect_mcp.tools.facilities import get_nearby_airports
 
     first = await get_nearby_airports(
@@ -194,6 +196,41 @@ async def test_cached_result_survives_pagination_and_radius_changes(facility_sim
     )
     assert facility_sim["sm"].dll.SubscribeToFacilities.call_count == 1
     assert "KPDX" not in [a["icao"] for a in narrow.results]
+
+
+@pytest.mark.parametrize("kind", [FacilityKind.WAYPOINT, FacilityKind.NDB, FacilityKind.VOR])
+async def test_non_airport_kinds_are_never_cached(facility_sim, kind):
+    """Correction to the addendum: measured live against the same running
+    sim, WAYPOINT/NDB/VOR are a position-scoped "reality bubble" (every
+    facility within ~193 nm of the aircraft), unlike AIRPORT's genuinely
+    world-wide list. Caching them would keep serving facilities from
+    wherever the aircraft *used to be* after a reposition (or just flying)
+    with no signal to the caller -- the same defect class as Phase 1's PMDG
+    variant cache bug. Fails against a version of _collect that caches
+    every kind uniformly (this test's first call would leave the second
+    served from cache, dropping SubscribeToFacilities.call_count to 1)."""
+    from simconnect_mcp.tools.facilities import get_facility_info
+
+    collector = facility_sim["sm"].facilities
+    entry = {
+        "icao": "TEST1", "kind": kind.value, "latitude": 33.7, "longitude": -84.1,
+        "altitude_ft": 0.0,
+    }
+
+    def _fake_subscribe(_hsim, _list_type, _request_id):
+        collector.handle(kind, _Header(), [entry])
+
+    facility_sim["sm"].dll.SubscribeToFacilities.side_effect = _fake_subscribe
+
+    first = await get_facility_info("TEST1", facility_type=kind.value)
+    second = await get_facility_info("TEST1", facility_type=kind.value)
+
+    assert first.facility["icao"] == "TEST1"
+    assert second.facility["icao"] == "TEST1"
+    assert facility_sim["sm"].dll.SubscribeToFacilities.call_count == 2, (
+        f"a {kind.value} lookup must re-collect on every call, never serve a cached result"
+    )
+    assert facility_sim["manager"].get_cached_facilities(kind.value) is None
 
 
 async def test_unsubscribes_after_a_complete_collection(facility_sim):
