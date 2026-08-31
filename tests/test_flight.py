@@ -436,8 +436,18 @@ async def test_a_cancelled_save_flight_leaves_the_lock_free(
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=2.0)
 
-    # Nothing left locked: a fresh, non-blocking acquire must succeed.
-    assert manager._sim_lock.acquire(blocking=False), (
+    # Nothing left locked. This is a bounded wait rather than a non-blocking
+    # acquire on purpose: cancelling an `await loop.run_in_executor(...)`
+    # cannot cancel the thread that is already running it. If the cancel
+    # lands mid-probe instead of during the sleep between probes, that
+    # thread still has to finish its read and leave `with self._sim_lock`
+    # before the lock frees -- measured at ~156ms with a deliberately
+    # stalled probe. Asserting on a non-blocking acquire made this test
+    # depend on which of the two the cancel happened to hit, which is
+    # exactly the kind of timing a loaded CI runner decides differently
+    # (observed failing on the Windows/3.10 job while 3.13 passed).
+    # A genuine leak never releases the lock at all and still fails here.
+    assert manager._sim_lock.acquire(timeout=5.0), (
         "a cancelled save_flight left SimConnectManager._sim_lock held"
     )
     manager._sim_lock.release()
