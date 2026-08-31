@@ -37,6 +37,64 @@ def reset_singleton():
     yield
 
 
+# --- PMDG gate ---
+#
+# test_live_pmdg.py's PMDG-specific tests need a real PMDG 737/777 loaded
+# (its client data area, or PMDG branding in TITLE) -- run against anything
+# else, e.g. the Cessna Citation Longitude this suite otherwise assumes,
+# they fail for a reason that has nothing to do with the code under test. A
+# red suite that means "wrong aircraft loaded" trains everyone to ignore
+# red exactly as effectively as a genuine regression would, so those tests
+# skip instead when the loaded aircraft is not recognizably a PMDG.
+#
+# Deliberately NOT built on the product code's own resolution
+# (tools.pmdg._detect_pmdg_variant / _probe_pmdg_variant): those are
+# exactly what test_probe_identifies_the_737_ng3_data_area and its
+# siblings exist to verify, so gating those tests' own skip decision on
+# that same logic would let a regression there silently skip the test
+# meant to catch it, instead of failing loudly. This gate is deliberately
+# simpler and independent of it: a plain substring check on TITLE.
+
+
+def _is_pmdg_title(title: str | None) -> bool:
+    """True if `title` looks like a PMDG aircraft.
+
+    A real PMDG 737/777 can carry NO "PMDG" branding in TITLE at all --
+    see test_live_pmdg.py's module docstring and CLAUDE.md's Known Sim
+    Behaviours for two live-verified examples. This plain check will miss
+    those and skip anyway. That is an accepted, deliberate limitation: this
+    gate's only job is avoiding false failures against an aircraft that was
+    never going to make these tests pass, and an occasional unnecessary
+    skip on an unbranded real PMDG is the safe direction to be wrong in --
+    unlike running (and failing) these tests against, say, a Citation.
+    """
+    return bool(title) and "pmdg" in title.lower()
+
+
+def _skip_unless_pmdg(title: str | None) -> None:
+    """Skip the calling test unless `title` looks like a PMDG aircraft.
+
+    Split out from require_pmdg below so the skip decision itself can be
+    exercised with a fake title in a plain, non-live unit test (see
+    test_pmdg_gate.py) -- proving a PMDG-looking title does NOT skip is
+    exactly what confirms this fix didn't quietly turn the four PMDG tests
+    into a permanent, silent no-op.
+    """
+    if not _is_pmdg_title(title):
+        pytest.skip(f"needs a PMDG aircraft; TITLE is {title!r}")
+
+
+@pytest.fixture(scope="session")
+def require_pmdg(live_manager):
+    """Skip the calling test unless the currently loaded aircraft is a PMDG.
+
+    Session-scoped and reads TITLE once, same as live_manager itself: this
+    whole suite already assumes the loaded aircraft does not change
+    mid-session (that's why live_manager is session-scoped too).
+    """
+    _skip_unless_pmdg(live_manager.accessor.read("TITLE"))
+
+
 # --- Restore fixtures ---
 #
 # These tests run against a real aircraft. Anything that writes a SimVar or
