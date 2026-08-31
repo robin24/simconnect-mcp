@@ -45,7 +45,7 @@ pytestmark = pytest.mark.live
 
 
 async def test_save_flight_writes_a_real_file(live_manager, tmp_path):
-    from simconnect_mcp.tools.flight import save_flight
+    from simconnect_mcp.tools.flight import _SIM_RECOVERY_PROBE_TIMEOUT_S, save_flight
 
     target = tmp_path / "simconnect_mcp_live_test.FLT"
 
@@ -59,21 +59,38 @@ async def test_save_flight_writes_a_real_file(live_manager, tmp_path):
 
     # The contract this call now makes good on: by the time it returns, the
     # sim is answering SimConnect again, not merely "the file is on disk".
-    # Measured live (repeatedly, see the task-9 fix brief): MSFS stays
-    # completely unresponsive for ~14s after FlightSave before this can be
-    # true, so a `duration_s` anywhere near the old (sub-second) file-poll
-    # time would mean the wait regressed back to returning too early. 5s is
-    # a conservative floor -- comfortably below the ~14s measured, but far
-    # enough above "returned immediately" to catch that regression without
-    # flaking on ordinary machine-speed variance.
     assert result.warning is None, (
         "the sim did not resume answering within the wait bound -- see "
         f"result.warning: {result.warning}"
     )
-    assert result.duration_s > 5.0, (
-        "save_flight returned too fast for the wait to have actually run -- "
-        f"got duration_s={result.duration_s}"
-    )
+
+    # Prove that contract directly, rather than trusting duration_s as a
+    # proxy for it. MSFS's actual post-FlightSave stall is measured (see
+    # CLAUDE.md's Known Sim Behaviours) to vary from 0.7s to 14.5s run to
+    # run on the same aircraft and session, for no identified cause -- a
+    # fast run legitimately produces a small duration_s with nothing wrong,
+    # which is exactly what happened here (0.56s) and is the sim's
+    # variance, not a defect in this call. Asserting a lower bound on that
+    # number just makes the test flaky against the sim's own behaviour.
+    #
+    # What actually matters -- the sim being usable again -- is checked by
+    # making our own independent SimVar read right here, immediately after
+    # save_flight returns, rather than trusting result.warning alone: a
+    # save_flight that short-circuited _wait_for_sim_responsive (e.g.
+    # skipped the wait but still left `warning` at its default None) would
+    # pass the assertion above with the sim still mid-stall, and only this
+    # read would catch it. The timeout is deliberately the same short
+    # _SIM_RECOVERY_PROBE_TIMEOUT_S (0.5s) the product code itself uses for
+    # one responsiveness probe -- not the generous DEFAULT_TIMEOUT (2.0s) a
+    # bare call would use -- because 2.0s is long enough to simply wait out
+    # the *shortest* measured stall (0.7s) and quietly succeed once it
+    # passes, which would defeat this check for exactly the fast-stall runs
+    # this project has actually seen. 0.5s is comfortably above a healthy
+    # round trip (well under 100ms, measured elsewhere in this project) so
+    # a correctly-behaving save_flight will not flake here, but short
+    # enough to still be waiting -- and therefore raise SimVarTimeoutError,
+    # failing this test -- if the sim is genuinely still mid-stall.
+    live_manager.accessor.read("PLANE_ALTITUDE", timeout=_SIM_RECOVERY_PROBE_TIMEOUT_S)
 
 
 async def test_save_flight_refuses_to_overwrite_an_existing_file_by_default(
