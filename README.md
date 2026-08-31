@@ -21,18 +21,30 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 ## Prerequisites
 
 - **Microsoft Flight Simulator** (MSFS 2020 or 2024) running on the same machine
-- **Python 3.10+**
-- **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
+- **[uv](https://docs.astral.sh/uv/)** — provides `uvx`, which fetches the server and its Python runtime for you
 - **MobiFlight WASM Module** (optional, for L-var support) — install in your MSFS Community folder. Download from [MobiFlight](https://www.mobiflight.com/)
 
 ## Installation
 
+Once [uv](https://docs.astral.sh/uv/) is installed, no separate install step is
+needed — `uvx` fetches and runs the server on demand:
+
 ```bash
-# Clone the repository
+uvx simconnect-mcp
+```
+
+That starts the server on stdio, which is what an MCP client does for you. Run
+it by hand only to check that it starts; press Ctrl+C to stop.
+
+To pin a version, use `uvx simconnect-mcp@0.2.0`.
+
+### From source (for development)
+
+```bash
 git clone https://github.com/robin24/simconnect-mcp.git
 cd simconnect-mcp
 
-# Install (creates the virtual environment and installs the dev group too)
+# Creates the virtual environment and installs the dev group too
 uv sync
 ```
 
@@ -43,13 +55,13 @@ uv sync
 **Via CLI:**
 
 ```bash
-claude mcp add --transport stdio simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+claude mcp add --transport stdio simconnect -- uvx simconnect-mcp
 ```
 
 Or to make it available across all projects:
 
 ```bash
-claude mcp add --transport stdio --scope user simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+claude mcp add --transport stdio --scope user simconnect -- uvx simconnect-mcp
 ```
 
 **Via JSON** (`~/.claude/settings.json` or project-level `.claude/settings.json`):
@@ -58,8 +70,8 @@ claude mcp add --transport stdio --scope user simconnect -- uv run --directory /
 {
   "mcpServers": {
     "simconnect": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/simconnect-mcp", "simconnect-mcp"]
+      "command": "uvx",
+      "args": ["simconnect-mcp"]
     }
   }
 }
@@ -70,7 +82,7 @@ claude mcp add --transport stdio --scope user simconnect -- uv run --directory /
 **Via CLI:**
 
 ```bash
-codex mcp add simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+codex mcp add simconnect -- uvx simconnect-mcp
 ```
 
 **Via JSON:**
@@ -79,8 +91,8 @@ codex mcp add simconnect -- uv run --directory /path/to/simconnect-mcp simconnec
 {
   "mcpServers": {
     "simconnect": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/simconnect-mcp", "simconnect-mcp"]
+      "command": "uvx",
+      "args": ["simconnect-mcp"]
     }
   }
 }
@@ -91,7 +103,7 @@ codex mcp add simconnect -- uv run --directory /path/to/simconnect-mcp simconnec
 **Via CLI:**
 
 ```bash
-gemini mcp add --transport stdio simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+gemini mcp add --transport stdio simconnect -- uvx simconnect-mcp
 ```
 
 **Via JSON** (`~/.gemini/settings.json`):
@@ -100,8 +112,8 @@ gemini mcp add --transport stdio simconnect -- uv run --directory /path/to/simco
 {
   "mcpServers": {
     "simconnect": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/simconnect-mcp", "simconnect-mcp"]
+      "command": "uvx",
+      "args": ["simconnect-mcp"]
     }
   }
 }
@@ -113,7 +125,9 @@ gemini mcp add --transport stdio simconnect -- uv run --directory /path/to/simco
 uv run mcp dev src/simconnect_mcp/server.py
 ```
 
-> **Note:** Replace `/path/to/simconnect-mcp` with the actual absolute path to your clone of this repository.
+> **Note:** To run a local checkout instead of the published package, replace
+> `uvx simconnect-mcp` with `uv run --directory /path/to/simconnect-mcp simconnect-mcp`,
+> using the absolute path to your clone.
 
 ## Tools (32)
 
