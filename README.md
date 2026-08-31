@@ -246,7 +246,15 @@ The catalog is sourced from both the SimConnect Python package and the [official
 
 ### Aircraft L-Var Catalogs
 
-L-var catalogs provide searchable, human-readable databases for specific aircraft add-ons. The server auto-detects the loaded aircraft from its `TITLE` and `ATC_MODEL` SimVars and searches the matching catalog. If neither matches a known catalog, `msfs_search_lvars` and `msfs_browse_lvar_catalog` search across all of them and say so, with a `catalog=<key>` argument to scope the search explicitly (call `msfs_browse_lvar_catalog` with no arguments to list the available catalog keys).
+L-var catalogs provide searchable, human-readable databases for specific aircraft add-ons. The server picks one in three steps, and tells you in the result `message` which step answered — the three carry very different confidence:
+
+1. **Probe the PMDG SDK client data area.** Authoritative, and independent of what the aircraft calls itself. This is the step that matters, because PMDG airframes do *not* identify themselves as PMDG: a real PMDG 737-800 reports `TITLE` as `737-800 PAX SSW TC`, with no vendor name anywhere in it. Matching titles alone never worked for them.
+2. **Match `title_pattern` against `TITLE`/`ATC_MODEL`.** The fallback, and the only mechanism available to a catalog you supply yourself.
+3. **Search every catalog and say so.** Results then carry a `Catalog` column so you can see which aircraft each row belongs to, rather than reading another aircraft's variables as if they were yours.
+
+Pass `catalog=<key>` to scope a search explicitly, or call `msfs_browse_lvar_catalog` with no arguments to list the available keys.
+
+> The obvious shortcut — broadening `title_pattern` to `737` — is deliberately **not** taken. It would match the iFly 737 MAX and Asobo's own 737 just as happily, and hand their users a PMDG catalog for an aircraft that isn't a PMDG. An honest "no catalog detected" beats a confidently wrong one.
 
 **Included catalogs:**
 
