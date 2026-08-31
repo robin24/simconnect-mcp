@@ -22,6 +22,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.pmdg_detect import detect_or_probe_pmdg_catalog
 from simconnect_mcp.simvar_access import (
     SimVarError,
     SimVarNotFoundError,
@@ -533,6 +534,61 @@ def _unknown_catalog_error(catalog: str, valid_keys: set[str]) -> ToolError:
     )
 
 
+async def _detect_lvar_catalog(explicit: str | None) -> tuple[str | None, str | None, bool]:
+    """Resolve which catalog an lvars.py tool should use.
+
+    Returns ``(catalog_key, source, ran_auto_detect)``. ``explicit`` wins
+    outright with no sim round trip at all and no source -- nothing was
+    detected, the caller said so directly.
+
+    Otherwise, PMDG's own authoritative client-data-area probe (and the
+    cheap TITLE/ATC_MODEL check that precedes it -- see
+    ``pmdg_detect.detect_or_probe_pmdg_catalog``) goes first, since it
+    confirms which SDK the loaded aircraft is actually running rather than
+    trusting what a title string happens to say. Every other catalog's own
+    ``title_pattern`` (``data.catalog.detect_catalog``) is the fallback --
+    the only mechanism available for a third-party catalog a user drops
+    into ``data/`` (e.g. a regenerated Fenix catalog; see CLAUDE.md).
+    ``(None, None, True)`` means auto-detection genuinely found nothing --
+    honest absence, not a silent guess.
+    """
+    if explicit is not None:
+        return explicit, None, False
+
+    from simconnect_mcp.data.catalog import detect_catalog
+
+    manager = SimConnectManager()
+    title, model = await manager.detect_aircraft_identity()
+
+    catalog_key, source = await detect_or_probe_pmdg_catalog()
+    if catalog_key is None:
+        catalog_key = detect_catalog(title, model)
+        if catalog_key is not None:
+            source = "title_match"
+
+    return catalog_key, source, True
+
+
+def _detected_catalog_message(catalog_key: str, source: str | None) -> str:
+    """Provenance line for a catalog resolved via auto-detection.
+
+    Only ever called when ``catalog`` was not passed explicitly (see
+    ``_detect_lvar_catalog``), so there is always something worth
+    disclosing: a live client-data-area probe response is a materially
+    stronger signal than a TITLE/ATC_MODEL text match (which "detected" --
+    PMDG's own fast title/model check -- and "title_match" -- every other
+    catalog's ``title_pattern`` -- both are, just against different pattern
+    tables), and a caller deciding how much to trust the result should be
+    told which one it got.
+    """
+    if source == "probed":
+        return (
+            f"Catalog '{catalog_key}' detected by probing the aircraft's PMDG SDK "
+            "client data area -- authoritative, independent of what TITLE/ATC_MODEL say."
+        )
+    return f"Catalog '{catalog_key}' matched the aircraft's TITLE/ATC_MODEL text."
+
+
 # list_lvars above deliberately has no response_format/markdown, unlike
 # search_lvars and browse_lvar_catalog below (both render LVAR_COLUMNS
 # through render_paginated_table). Adjudicated, not an oversight: its rows
@@ -548,6 +604,21 @@ LVAR_COLUMNS = [
     ("display_name", "Description"),
     ("category", "Category"),
     ("writable", "Writable"),
+]
+
+# Used instead of LVAR_COLUMNS whenever a row's own catalog cannot be taken
+# for granted: an unscoped ("all catalogs") search, or a panel guessed
+# across catalogs with no aircraft detected. F2 (catalog-detection-brief.md):
+# with the Fenix catalog removed, every bundled catalog is PMDG, so an
+# unrecognised aircraft's search used to return a table of 100% PMDG
+# variables that rendered identically to a confirmed, aircraft-specific
+# result -- nothing in the table itself said otherwise, only an
+# easy-to-miss italic footer. The JSON response_format already carries this
+# per row (search_catalog/get_panel_variables both add a "catalog" key to
+# every row); this just stops the markdown table from hiding it.
+LVAR_COLUMNS_WITH_CATALOG = [
+    ("catalog", "Catalog"),
+    *LVAR_COLUMNS,
 ]
 
 
@@ -596,28 +667,33 @@ async def search_lvars(
 ) -> SearchResult | ToolError:
     """Search known aircraft L-vars by keyword.
 
-    Searches the embedded L-var catalog for the current aircraft (auto-detected
-    from TITLE/ATC_MODEL), or every known aircraft catalog if none is loaded or
-    auto-detected. Results are paginated.
+    Searches the embedded L-var catalog for the current aircraft, or every
+    known aircraft catalog if none is loaded or auto-detected. Results are
+    paginated. Auto-detection tries, in order: PMDG's own client-data-area
+    probe (authoritative -- confirms which SDK the aircraft is actually
+    running, independent of what TITLE/ATC_MODEL say), every catalog's own
+    title_pattern matched against TITLE/ATC_MODEL (the only mechanism for a
+    third-party catalog dropped into data/), then honest absence.
 
     When no aircraft catalog could be auto-detected and 'catalog' was not
     given, this searches every catalog ('filters.catalog' reads "all") and
-    'message' explains how to scope the search instead.
+    'message' explains how to scope the search instead. Otherwise, 'message'
+    still discloses how the catalog was resolved -- a probed detection is a
+    materially stronger signal than a title-text match, and a caller
+    deciding how much to trust the result should be able to tell them apart.
+    When the search was not scoped to one confirmed catalog, the markdown
+    table also carries a 'Catalog' column per row -- with the Fenix catalog
+    removed, every bundled catalog is PMDG, so a table of PMDG variables
+    must not render as if it were confirmed for whatever aircraft is
+    actually loaded.
     """
-    from simconnect_mcp.data.catalog import detect_catalog, list_catalogs, search_catalog
+    from simconnect_mcp.data.catalog import list_catalogs, search_catalog
 
     valid_keys = {c["key"] for c in list_catalogs()}
     if catalog is not None and catalog not in valid_keys:
         return _unknown_catalog_error(catalog, valid_keys)
 
-    # Explicit catalog wins outright -- no need to touch the sim at all.
-    catalog_key = catalog
-    auto_detect_failed = False
-    if catalog_key is None:
-        manager = SimConnectManager()
-        title, model = await manager.detect_aircraft_identity()
-        catalog_key = detect_catalog(title, model)
-        auto_detect_failed = catalog_key is None
+    catalog_key, source, ran_auto_detect = await _detect_lvar_catalog(catalog)
 
     rows = search_catalog(
         keyword,
@@ -626,12 +702,13 @@ async def search_lvars(
         writable_only=writable_only,
         prefix=prefix,
     )
+    columns = LVAR_COLUMNS if catalog_key is not None else LVAR_COLUMNS_WITH_CATALOG
     result = build_search_result(
         rows,
         offset,
         limit,
         response_format,
-        LVAR_COLUMNS,
+        columns,
         title=f"L-vars matching '{keyword}'",
         query=keyword,
         filters={
@@ -641,8 +718,12 @@ async def search_lvars(
             "catalog": catalog_key or "all",
         },
     )
-    if auto_detect_failed:
-        result.message = _no_detection_message("this searched all catalogs", valid_keys)
+    if ran_auto_detect:
+        result.message = (
+            _detected_catalog_message(catalog_key, source)
+            if catalog_key is not None
+            else _no_detection_message("this searched all catalogs", valid_keys)
+        )
         if result.markdown is not None:
             result.markdown += f"\n\n_{result.message}_"
     return result
@@ -678,32 +759,26 @@ async def browse_lvar_catalog(
       * catalog only        -- the panels in that catalog
       * catalog+panel       -- the variables on that panel, with their valid values
 
-    With no 'catalog', the loaded aircraft is auto-detected from its TITLE
-    and ATC_MODEL; a successful detection acts as if that catalog had been
-    passed explicitly. When detection fails, 'catalog' comes back None,
-    'message' explains why, and (with 'panel' also given) the panel is
-    looked up across every catalog -- the first match is returned, but that
-    is a guess, not a detection, and 'message' says so.
+    With no 'catalog', the loaded aircraft is auto-detected: PMDG's own
+    client-data-area probe first (authoritative -- confirms which SDK is
+    actually running, independent of what TITLE/ATC_MODEL say), then every
+    catalog's own title_pattern matched against TITLE/ATC_MODEL (the only
+    mechanism for a third-party catalog dropped into data/). A successful
+    detection acts as if that catalog had been passed explicitly, and
+    'message' names which of the two resolved it -- a probed detection is a
+    materially stronger signal than a title-text match. When detection
+    fails entirely, 'catalog' comes back None, 'message' explains why, and
+    (with 'panel' also given) the panel is looked up across every catalog --
+    the first match is returned, but that is a guess, not a detection, and
+    'message' says so.
     """
-    from simconnect_mcp.data.catalog import (
-        detect_catalog,
-        get_panel_variables,
-        list_catalogs,
-        list_panels,
-    )
+    from simconnect_mcp.data.catalog import get_panel_variables, list_catalogs, list_panels
 
     valid_keys = {c["key"] for c in list_catalogs()}
     if catalog is not None and catalog not in valid_keys:
         return _unknown_catalog_error(catalog, valid_keys)
 
-    # Explicit catalog wins outright -- no need to touch the sim at all.
-    catalog_key = catalog
-    auto_detect_failed = False
-    if catalog_key is None:
-        manager = SimConnectManager()
-        title, model = await manager.detect_aircraft_identity()
-        catalog_key = detect_catalog(title, model)
-        auto_detect_failed = catalog_key is None
+    catalog_key, source, ran_auto_detect = await _detect_lvar_catalog(catalog)
 
     if panel:
         found = get_panel_variables(panel, catalog_key)
@@ -717,25 +792,32 @@ async def browse_lvar_catalog(
                 ),
             )
         rows, page = paginate(found["variables"], offset, limit)
+        # Same F2 rule as search_lvars: show the per-row catalog column only
+        # when catalog_key came back unresolved. get_panel_variables(panel,
+        # None) then returned the first matching panel from whichever
+        # catalog iterates first -- every row shares that one guessed
+        # catalog, so the column names it plainly instead of leaving it to
+        # the footer disclosure alone.
+        columns = LVAR_COLUMNS if catalog_key is not None else LVAR_COLUMNS_WITH_CATALOG
         result = CatalogBrowse(
             catalog=found["catalog"],
             panel=found["panel"],
             page=page,
             variables=None if response_format is ResponseFormat.MARKDOWN else rows,
             markdown=(
-                render_paginated_table(
-                    rows, page, LVAR_COLUMNS, title=f"Panel: {found['panel']}"
-                )
+                render_paginated_table(rows, page, columns, title=f"Panel: {found['panel']}")
                 if response_format is ResponseFormat.MARKDOWN
                 else None
             ),
         )
-        if auto_detect_failed:
-            # get_panel_variables(panel, None) above returned the first
-            # matching panel from whichever catalog iterates first -- a
-            # silent guess unless disclosed here.
-            result.message = _no_detection_message(
-                "this returned the first matching panel found across all catalogs", valid_keys
+        if ran_auto_detect:
+            result.message = (
+                _detected_catalog_message(catalog_key, source)
+                if catalog_key is not None
+                else _no_detection_message(
+                    "this returned the first matching panel found across all catalogs",
+                    valid_keys,
+                )
             )
             if result.markdown is not None:
                 result.markdown += f"\n\n_{result.message}_"
@@ -743,7 +825,7 @@ async def browse_lvar_catalog(
 
     if catalog_key:
         rows, page = paginate(list_panels(catalog_key), offset, limit)
-        return CatalogBrowse(
+        result = CatalogBrowse(
             catalog=catalog_key,
             page=page,
             panels=None if response_format is ResponseFormat.MARKDOWN else rows,
@@ -758,6 +840,11 @@ async def browse_lvar_catalog(
                 else None
             ),
         )
+        if ran_auto_detect:
+            result.message = _detected_catalog_message(catalog_key, source)
+            if result.markdown is not None:
+                result.markdown += f"\n\n_{result.message}_"
+        return result
 
     rows, page = paginate(list_catalogs(), offset, limit)
     result = CatalogBrowse(
@@ -780,7 +867,7 @@ async def browse_lvar_catalog(
             else None
         ),
     )
-    if auto_detect_failed:
+    if ran_auto_detect:
         result.message = _no_detection_message("every catalog is listed instead", valid_keys)
         if result.markdown is not None:
             result.markdown += f"\n\n_{result.message}_"

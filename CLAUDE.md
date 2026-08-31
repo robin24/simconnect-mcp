@@ -42,6 +42,7 @@ src/simconnect_mcp/
 ├── facilities.py          # Facility (*_LIST) message parsing and accumulation
 ├── pmdg.py                # PMDG 777 SDK structs, CDU rendering, data manager
 ├── pmdg_ng3.py            # PMDG 737 NG3 SDK structs, CDU rendering, data manager
+├── pmdg_detect.py         # PMDG variant detection/probe, shared by tools/pmdg.py and tools/lvars.py
 ├── tools/
 │   ├── __init__.py        # @handle_simconnect_errors, @require_connection decorators
 │   ├── connection_tools.py # connect_to_sim, disconnect_from_sim, get_connection_status
@@ -92,7 +93,9 @@ Measured against a live sim during this project. Each cost real investigation to
 
 ## Extending the Aircraft L-Var Catalog
 
-The catalog system provides searchable, human-readable L-var databases per aircraft. When `msfs_search_lvars("seatbelt")` is called, the server auto-detects the loaded aircraft from its `TITLE` SimVar and searches the matching catalog.
+The catalog system provides searchable, human-readable L-var databases per aircraft. When `msfs_search_lvars("seatbelt")` is called, the server auto-detects the loaded aircraft in two steps: PMDG's own client-data-area probe first (`pmdg_detect.detect_or_probe_pmdg_catalog` — the same authoritative probe `msfs_get_pmdg_var`/`msfs_get_pmdg_cdu` use, confirming which SDK is actually loaded regardless of what `TITLE`/`ATC_MODEL` say), then every catalog's own `title_pattern` matched against `TITLE`/`ATC_MODEL` as the fallback. The fallback is the *only* mechanism available to a third-party catalog dropped into `data/` (e.g. a regenerated Fenix catalog — see "Fenix A320/A321 Notes" below), since the probe only knows about PMDG. Both `msfs_search_lvars` and `msfs_browse_lvar_catalog` report which of the two resolved the catalog in `message`, so a caller can tell a live-confirmed detection apart from a plain text match — and when neither finds anything, the search spans every catalog and says so rather than guessing.
+
+A real, live-verified gap this two-step order fixes: a PMDG 737-800's `TITLE` can read `'737-800 PAX SSW TC'` — no "PMDG" substring at all — which fails every bundled catalog's `title_pattern` on its own. Before the probe was added to catalog auto-detection, `msfs_search_lvars` on that aircraft silently searched every bundled catalog (all PMDG) instead of scoping to the one actually loaded, with only an easy-to-miss footer note distinguishing the two.
 
 ### Adding a New Aircraft
 

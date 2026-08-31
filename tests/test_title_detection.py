@@ -20,6 +20,14 @@ Covers three defects:
    title/model matching fails -- only the loaded variant's area ever
    responds, which is authoritative where a title substring is not. See
    the "_resolve_pmdg_catalog probing" section below.
+4. catalog-detection-brief.md's live-verified defect: `search_lvars` and
+   `browse_lvar_catalog` never consulted that same probe at all -- only
+   `data.catalog.detect_catalog`'s plain title_pattern match, which fails
+   on both real, unbranded PMDG titles above ("777F" and "737-600 PAX TC"),
+   and on a real PMDG 737-800 ("737-800 PAX SSW TC"). `_detect_lvar_catalog`
+   (tools/lvars.py) now probes first, exactly like `_resolve_pmdg_catalog`,
+   and falls back to title_pattern matching only after that -- see the
+   "tools.lvars catalog auto-detection" section below.
 """
 
 from __future__ import annotations
@@ -30,6 +38,21 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from simconnect_mcp.connection import SimConnectManager
+
+
+@pytest.fixture(autouse=True)
+def _skip_pmdg_probe_wait():
+    """Every test below that reaches a failing PMDG probe (the fixture
+    aircraft matches no PMDG signal unless a test overrides TITLE/ATC_MODEL
+    or arms a responding data manager) would otherwise pay its up-to-0.3s
+    real wait. Patched globally for this file so that cost doesn't apply to
+    tests that aren't about the wait itself; a test that IS about the wait
+    (see the "_probe_pmdg_variant" section) re-patches the same target
+    locally, which nests harmlessly on top of this.
+    """
+    with patch("simconnect_mcp.pmdg_detect.asyncio.sleep", new=AsyncMock()):
+        yield
+
 
 # ---------------------------------------------------------------------------
 # SimConnectManager.detect_aircraft_title / detect_aircraft_identity
@@ -681,6 +704,189 @@ async def test_state_aircraft_reads_all_six_names_within_the_scaled_budget(mock_
     assert len(result["aircraft"]) == 6
     for key, entry in result["aircraft"].items():
         assert "error" not in entry, f"{key} fell off the batch budget: {entry}"
+
+
+# ---------------------------------------------------------------------------
+# tools.lvars._detect_lvar_catalog / search_lvars / browse_lvar_catalog
+#
+# catalog-detection-brief.md's live-verified defect: search_lvars and
+# browse_lvar_catalog only ever called data.catalog.detect_catalog, whose
+# plain title_pattern match ("PMDG 737" / "PMDG 777") cannot see a real,
+# unbranded PMDG -- confirmed live on a PMDG 737-800 at KBOS (TITLE=
+# '737-800 PAX SSW TC') and previously on a PMDG 737-600 (TITLE=
+# '737-600 PAX TC'). tools.pmdg._resolve_pmdg_catalog's client-data-area
+# probe already solves exactly this for the PMDG-specific tools; these
+# tests pin that tools/lvars.py's catalog auto-detection now consults it
+# too, via pmdg_detect.detect_or_probe_pmdg_catalog, before falling back to
+# title_pattern matching for third-party catalogs.
+# ---------------------------------------------------------------------------
+
+_UNBRANDED_PMDG_737_TITLES = ["737-800 PAX SSW TC", "737-600 PAX TC"]
+
+
+@pytest.mark.parametrize("title", _UNBRANDED_PMDG_737_TITLES)
+def test_detect_catalog_alone_still_misses_these_real_pmdg_737_titles(title):
+    """Pins the premise the tests below rely on: neither observed TITLE
+    carries a "PMDG" substring, so the plain title_pattern match that
+    search_lvars/browse_lvar_catalog used to depend on exclusively still
+    fails on its own. If this ever starts passing, the probe-based tests
+    below are no longer proving what they claim to."""
+    from simconnect_mcp.data.catalog import detect_catalog
+
+    assert detect_catalog(title) is None
+
+
+@pytest.mark.parametrize("title", _UNBRANDED_PMDG_737_TITLES)
+async def test_search_lvars_detects_an_unbranded_pmdg_737_via_the_probe(mock_simconnect, title):
+    """The live defect itself, reproduced with both real observed TITLE
+    strings. Fails against title-matching alone (confirmed to return None
+    for both, in the test above) -- only the client-data probe can tell
+    these apart from any other airframe with a similarly generic title.
+    Must resolve to pmdg_737 and say so, not fall through to "searched all
+    catalogs"."""
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.lvars import search_lvars
+
+    mock_simconnect["simvar_values"]["TITLE"] = title.encode("ascii")
+    mock_simconnect["simvar_values"]["ATC_MODEL"] = b"ATCCOM.AC_MODEL B736.0.text"
+    manager = mock_simconnect["manager"]
+    manager._title_cache = None
+
+    responded = PmdgNG3DataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg_ng3 = responded
+
+    result = await search_lvars("autopilot")
+
+    assert result.filters["catalog"] == "pmdg_737"
+    assert result.message is not None
+    assert "probing" in result.message
+
+
+async def test_browse_lvar_catalog_detects_an_unbranded_pmdg_737_via_the_probe(mock_simconnect):
+    """Same fix, other tool: browse_lvar_catalog shares _detect_lvar_catalog
+    with search_lvars, so the KBOS PMDG 737-800's exact TITLE must resolve
+    here too, not just in search_lvars."""
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.lvars import browse_lvar_catalog
+
+    mock_simconnect["simvar_values"]["TITLE"] = b"737-800 PAX SSW TC"
+    mock_simconnect["simvar_values"]["ATC_MODEL"] = b"ATCCOM.AC_MODEL B736.0.text"
+    manager = mock_simconnect["manager"]
+    manager._title_cache = None
+
+    responded = PmdgNG3DataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg_ng3 = responded
+
+    result = await browse_lvar_catalog()
+
+    assert result.catalog == "pmdg_737"
+    assert result.message is not None
+    assert "probing" in result.message
+
+
+async def test_detect_lvar_catalog_explicit_short_circuits_with_no_source(mock_simconnect):
+    """An explicit catalog needs no disclosure -- nothing was detected, the
+    caller said so directly -- and must not touch the sim at all."""
+    from simconnect_mcp.tools.lvars import _detect_lvar_catalog
+
+    catalog_key, source, ran_auto_detect = await _detect_lvar_catalog("pmdg_777")
+
+    assert (catalog_key, source, ran_auto_detect) == ("pmdg_777", None, False)
+    assert not mock_simconnect["accessor"].read.called
+
+
+async def test_detect_lvar_catalog_falls_back_to_title_pattern_when_pmdg_finds_nothing(
+    mock_simconnect,
+):
+    """The other bucket: a third-party catalog (e.g. a user-regenerated
+    Fenix catalog dropped into data/, per CLAUDE.md) carries no PMDG signal
+    at all, so neither the fast TITLE/ATC_MODEL check nor the client-data
+    probe can find it -- only its own title_pattern can, via
+    data.catalog.detect_catalog. No such catalog ships by default (the
+    bundled Fenix one was removed in favour of the HubHop client), so this
+    patches detect_catalog directly rather than depending on one existing."""
+    from simconnect_mcp.tools.lvars import _detect_lvar_catalog
+
+    with patch("simconnect_mcp.data.catalog.detect_catalog", return_value="fenix_a320"):
+        catalog_key, source, ran_auto_detect = await _detect_lvar_catalog(None)
+
+    assert (catalog_key, source, ran_auto_detect) == ("fenix_a320", "title_match", True)
+
+
+def test_detected_catalog_message_distinguishes_probed_from_title_match():
+    """Report provenance honestly (catalog-detection-brief.md): a live probe
+    response is a materially stronger signal than a plain text match, so
+    the two must not read identically."""
+    from simconnect_mcp.tools.lvars import _detected_catalog_message
+
+    probed = _detected_catalog_message("pmdg_737", "probed")
+    title_matched = _detected_catalog_message("pmdg_777", "detected")
+
+    assert "probing" in probed
+    assert "pmdg_737" in probed
+    assert "TITLE" in title_matched
+    assert "pmdg_777" in title_matched
+    assert probed != title_matched
+
+
+# ---------------------------------------------------------------------------
+# F2 (catalog-detection-brief.md): the fallback table must carry a per-row
+# catalog column whenever the search was not scoped to one confirmed
+# catalog -- with the Fenix catalog removed, every bundled catalog is PMDG,
+# so a table of PMDG variables on an unrecognised aircraft used to render
+# identically to a confirmed, aircraft-specific result. Only an
+# easy-to-miss italic footer said otherwise.
+# ---------------------------------------------------------------------------
+
+
+async def test_search_lvars_markdown_carries_catalog_column_when_undetected(mock_simconnect):
+    """'altitude' against the undetected default fixture aircraft spans
+    both bundled PMDG catalogs -- exactly the shape the brief measured live
+    on a Citation ("a clean table of AFS_* rows with nothing in the table
+    itself indicating they are for a different aircraft")."""
+    from simconnect_mcp.tools.lvars import search_lvars
+
+    result = await search_lvars("altitude")
+
+    assert result.filters["catalog"] == "all"
+    assert "Catalog" in result.markdown
+    assert "pmdg_737" in result.markdown
+    assert "pmdg_777" in result.markdown
+
+
+async def test_search_lvars_markdown_omits_catalog_column_when_explicit(mock_simconnect):
+    """No ambiguity to disclose: every row is already known to come from
+    exactly the catalog the caller asked for."""
+    from simconnect_mcp.tools.lvars import search_lvars
+
+    result = await search_lvars("altitude", catalog="pmdg_777")
+
+    assert "| Catalog |" not in result.markdown
+
+
+async def test_search_lvars_markdown_omits_catalog_column_when_probed(mock_simconnect):
+    """A probed (non-explicit but confirmed) detection is just as
+    unambiguous as an explicit one -- the column exists for when the
+    catalog is a guess, not whenever detection ran at all."""
+    from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
+    from simconnect_mcp.tools.lvars import search_lvars
+
+    mock_simconnect["simvar_values"]["TITLE"] = b"737-800 PAX SSW TC"
+    manager = mock_simconnect["manager"]
+    manager._title_cache = None
+    responded = PmdgNG3DataManager(sm=manager.sm)
+    responded.data_subscribed = True
+    responded._data_timestamp = time.time()
+    manager.pmdg_ng3 = responded
+
+    result = await search_lvars("altitude")
+
+    assert result.filters["catalog"] == "pmdg_737"
+    assert "| Catalog |" not in result.markdown
 
 
 if __name__ == "__main__":

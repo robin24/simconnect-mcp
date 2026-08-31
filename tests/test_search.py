@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from simconnect_mcp.data.simvar_catalog import search_catalog, suggest_names
@@ -9,6 +11,31 @@ from simconnect_mcp.tools.events import search_events
 from simconnect_mcp.tools.formatting import ResponseFormat
 from simconnect_mcp.tools.lvars import browse_lvar_catalog, search_lvars
 from simconnect_mcp.tools.simvars import search_simvars
+
+
+@pytest.fixture(autouse=True)
+def _skip_pmdg_probe():
+    """search_lvars/browse_lvar_catalog now consult
+    pmdg_detect.detect_or_probe_pmdg_catalog before falling back to
+    title_pattern matching (catalog-detection-brief.md, F1). None of this
+    file's tests exercise that probe's own behaviour -- test_title_detection.py
+    owns that -- so it is mocked out entirely here, rather than just patching
+    its internal asyncio.sleep: the real probe still submits real work to
+    the default asyncio thread-pool executor (subscribing/requesting on a
+    real PmdgDataManager/PmdgNG3DataManager) even when the wait between
+    polls is skipped, and doing that on every call in this file that omits
+    `catalog=` was measured adding enough background thread activity to
+    make an unrelated, tightly-margined real-time test elsewhere in the
+    suite (test_simvar_access.py's budget-exhaustion classification)
+    noticeably flakier. Mocking the whole function removes that work
+    instead of just its wait, matching what every test below already
+    assumes: this fixture aircraft ("Boeing 747-8i") is never a PMDG.
+    """
+    with patch(
+        "simconnect_mcp.tools.lvars.detect_or_probe_pmdg_catalog",
+        new=AsyncMock(return_value=(None, None)),
+    ):
+        yield
 
 
 @pytest.mark.asyncio

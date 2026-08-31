@@ -4,9 +4,15 @@ Dispatches to either the PMDG 777 SDK or the PMDG 737 NG3 SDK depending on
 which aircraft is currently loaded. Resolution tries, in order: an explicit
 ``variant`` argument, the ``TITLE``/``ATC_MODEL`` SimVars against each
 catalog's ``title_pattern``, a live probe of each SDK's client data area
-(see ``_probe_pmdg_variant``), a name lookup against both catalogs, and
-finally a guess -- see ``_resolve_pmdg_catalog`` for the full order and how
-``variant_source`` reports which one actually fired.
+(see ``pmdg_detect.probe_pmdg_variant``), a name lookup against both
+catalogs, and finally a guess -- see ``_resolve_pmdg_catalog`` for the full
+order and how ``variant_source`` reports which one actually fired.
+
+Variant detection and probing themselves live in ``simconnect_mcp.pmdg_detect``,
+not here -- ``tools/lvars.py``'s catalog auto-detection needs the exact same
+probe, and lifting the shared piece into a module neither tools package
+depends on keeps that a downward dependency for both, rather than one tool
+module reaching into another.
 """
 
 from __future__ import annotations
@@ -17,6 +23,9 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.pmdg_detect import detect_pmdg_variant as _detect_pmdg_variant
+from simconnect_mcp.pmdg_detect import get_or_create_pmdg_manager
+from simconnect_mcp.pmdg_detect import probe_pmdg_variant as _probe_pmdg_variant
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 from simconnect_mcp.tools.models import PmdgCduResult, PmdgEventResult, PmdgVarResult, ToolError
 
@@ -28,102 +37,14 @@ _PmdgVariant = Literal["pmdg_777", "pmdg_737"]
 
 # ---------------------------------------------------------------------------
 # Variant detection and manager dispatch
+#
+# _detect_pmdg_variant and _probe_pmdg_variant above are re-exported from
+# pmdg_detect under their historical names: existing tests import and patch
+# them at these names (simconnect_mcp.tools.pmdg._detect_pmdg_variant /
+# _probe_pmdg_variant), and _resolve_pmdg_catalog below calls them as module
+# globals, so patching either name here continues to intercept every caller
+# in this module exactly as before this file split.
 # ---------------------------------------------------------------------------
-
-
-async def _detect_pmdg_variant() -> str | None:
-    """Return ``"pmdg_777"`` or ``"pmdg_737"`` based on the loaded aircraft.
-
-    Checks both TITLE and ATC_MODEL against the PMDG catalogs' title
-    patterns -- some liveries carry the vendor name only in ATC_MODEL while
-    TITLE stays terse (e.g. a PMDG 777F's TITLE is just "777F"). Returns
-    None if neither candidate matches either catalog; callers must not
-    guess when this happens -- see ``_probe_pmdg_variant`` for the next
-    resolution step, and ``_resolve_pmdg_catalog``'s ``"fallback"`` source
-    for what happens if that also fails.
-    """
-    title, model = await SimConnectManager().detect_aircraft_identity()
-    for candidate in (title, model):
-        if not candidate:
-            continue
-        candidate_lower = candidate.lower()
-        if "pmdg 737" in candidate_lower or "pmdg b737" in candidate_lower:
-            return "pmdg_737"
-        if "pmdg 777" in candidate_lower or "pmdg b777" in candidate_lower:
-            return "pmdg_777"
-    return None
-
-
-# Tuning for _probe_pmdg_variant's wait loop. A real SimConnect client-data
-# round trip on the same machine completes in well under 100ms (live-verified
-# on a PMDG 737-600: PMDG_NG3_Data responded in 0.09s); this budget is
-# generous relative to that, while still bounding how much latency a
-# genuinely non-PMDG aircraft (neither area ever responds) adds to a call
-# that reaches the probe.
-_PROBE_POLL_INTERVAL_S = 0.05
-_PROBE_MAX_WAIT_S = 0.3
-
-
-async def _probe_pmdg_variant() -> str | None:
-    """Probe which PMDG client data area actually responds.
-
-    Reached only when TITLE/ATC_MODEL carry no PMDG branding at all --
-    live-verified on a PMDG 737-600 reporting TITLE='737-600 PAX TC',
-    ATC_MODEL='ATCCOM.AC_MODEL B736.0.text' (neither mentions PMDG or a
-    model number any catalog's title_pattern matches). Both PMDG SDKs
-    expose a dedicated SimConnect client data area (PMDG_777X_Data /
-    PMDG_NG3_Data) that only the actually-loaded variant ever answers --
-    unlike a title/model substring, a data area cannot respond on behalf of
-    an aircraft that is not loaded, which makes this authoritative where
-    title matching is not.
-
-    Requires EnableDataBroadcast=1 in the loaded aircraft's options.ini; if
-    neither area responds (that setting is off, or no PMDG aircraft is
-    loaded at all), this honestly returns None rather than guessing.
-
-    The result is cached on the connection (SimConnectManager.
-    get/set_cached_pmdg_variant), keyed to the aircraft identity
-    (TITLE/ATC_MODEL) it was found under -- the loaded aircraft CAN change
-    mid-connection with no reconnect, so this only skips a fresh round trip
-    when the identity still matches, not unconditionally for the
-    connection's whole lifetime. The identity lookup itself is cheap: it
-    goes through the same TTL-cached detect_aircraft_identity() that
-    _detect_pmdg_variant already called moments earlier in
-    _resolve_pmdg_catalog, so this is normally a cache hit, not a second
-    SimVar read.
-    """
-    manager = SimConnectManager()
-    title, model = await manager.detect_aircraft_identity()
-    cached = manager.get_cached_pmdg_variant(title, model)
-    if cached is not None:
-        return cached
-
-    managers: dict[str, PmdgDataManager | PmdgNG3DataManager] = {}
-    for key in ("pmdg_777", "pmdg_737"):
-        mgr, err = _ensure_pmdg_manager(key)
-        if err is not None:
-            # No client-data support at all (e.g. MobiFlight/WASM missing) --
-            # there is nothing to probe, and that is not itself a detection.
-            return None
-        managers[key] = mgr
-
-    def _subscribe_and_request() -> None:
-        for mgr in managers.values():
-            mgr.subscribe_data()
-            mgr.request_data()
-
-    await manager.run_sync(_subscribe_and_request)
-
-    elapsed = 0.0
-    while elapsed < _PROBE_MAX_WAIT_S:
-        for key, mgr in managers.items():
-            if mgr.data_age != float("inf"):
-                manager.set_cached_pmdg_variant(title, model, key)
-                return key
-        await asyncio.sleep(_PROBE_POLL_INTERVAL_S)
-        elapsed += _PROBE_POLL_INTERVAL_S
-
-    return None
 
 
 async def _resolve_pmdg_catalog(
@@ -216,11 +137,14 @@ def _ensure_pmdg_manager(
     """Get or create the right PMDG data manager for the variant.
 
     Returns ``(manager, error)``. The manager is lazily attached to the
-    SimConnect singleton.
+    SimConnect singleton via ``pmdg_detect.get_or_create_pmdg_manager``,
+    which reports unavailability as a plain ``None`` since it is also
+    consulted (via ``probe_pmdg_variant``) from contexts with no tool-facing
+    error to return. This wrapper adds the ``ToolError`` the PMDG tools
+    below need.
     """
-    sm_mgr = SimConnectManager()
-
-    if not hasattr(sm_mgr.sm, "register_client_data_handler"):
+    mgr = get_or_create_pmdg_manager(variant)
+    if mgr is None:
         # MOBIFLIGHT_NOT_AVAILABLE, not a separate MOBIFLIGHT_REQUIRED code --
         # this and the MobiFlightVariableRequests-based check in
         # tools/lvars.py/_require_mobiflight and tools/events.py both mean
@@ -232,22 +156,7 @@ def _ensure_pmdg_manager(
             message="PMDG SDK tools require SimConnectMobiFlight.",
             suggestion="Ensure the MobiFlight WASM module is installed.",
         )
-
-    if variant == "pmdg_737":
-        from simconnect_mcp.pmdg_ng3 import PmdgNG3DataManager
-        if sm_mgr.pmdg_ng3 is None:
-            sm_mgr.pmdg_ng3 = PmdgNG3DataManager(sm_mgr.sm)
-            sm_mgr.sm.register_client_data_handler(
-                sm_mgr.pmdg_ng3.client_data_handler
-            )
-        return sm_mgr.pmdg_ng3, None
-
-    # Default: PMDG 777
-    from simconnect_mcp.pmdg import PmdgDataManager
-    if sm_mgr.pmdg is None:
-        sm_mgr.pmdg = PmdgDataManager(sm_mgr.sm)
-        sm_mgr.sm.register_client_data_handler(sm_mgr.pmdg.client_data_handler)
-    return sm_mgr.pmdg, None
+    return mgr, None
 
 
 @handle_simconnect_errors
