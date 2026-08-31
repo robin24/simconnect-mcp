@@ -1,5 +1,9 @@
 # SimConnect MCP Server
 
+[![PyPI](https://img.shields.io/pypi/v/simconnect-mcp)](https://pypi.org/project/simconnect-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/simconnect-mcp)](https://pypi.org/project/simconnect-mcp/)
+[![License](https://img.shields.io/pypi/l/simconnect-mcp)](LICENSE.txt)
+
 <!-- mcp-name: io.github.robin24/simconnect-mcp -->
 
 An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that connects AI coding agents to Microsoft Flight Simulator via SimConnect. This server is built for **add-on development** — full read/write access to SimVars, L-vars, events, calculator code execution, and embedded documentation.
@@ -26,6 +30,10 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 
 ## Installation
 
+Published on PyPI as [**simconnect-mcp**](https://pypi.org/project/simconnect-mcp/),
+and listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as
+`io.github.robin24/simconnect-mcp`.
+
 Once [uv](https://docs.astral.sh/uv/) is installed, no separate install step is
 needed — `uvx` fetches and runs the server on demand:
 
@@ -36,7 +44,7 @@ uvx simconnect-mcp
 That starts the server on stdio, which is what an MCP client does for you. Run
 it by hand only to check that it starts; press Ctrl+C to stop.
 
-To pin a version, use `uvx simconnect-mcp@1.0.0`.
+To pin a version, use `uvx simconnect-mcp@1.0.1`.
 
 ### From source (for development)
 

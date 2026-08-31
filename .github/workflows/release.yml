@@ -27,7 +27,7 @@ jobs:
         run: uv sync --locked
 
       - name: Lint
-        run: uv run ruff check src tests scripts/set_version.py
+        run: uv run ruff check src tests scripts
 
       - name: Run mocked test suite
         run: uv run pytest -q

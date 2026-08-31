@@ -372,7 +372,9 @@ def _is_writable(field_name: str, field_type: str) -> bool:
     # Display format readouts
     if field_name.startswith("EFIS_Display"):
         return False
-    if field_name.startswith("FMC_") and field_type in ("unsigned char", "unsigned short", "short", "float", "char", "bool"):
+    if field_name.startswith("FMC_") and field_type in (
+        "unsigned char", "unsigned short", "short", "float", "char", "bool"
+    ):
         # FMC data is generally read-only
         if any(x in field_name for x in ("TakeoffFlaps", "V1", "VR", "V2", "ThrustRedAlt",
                                           "AccelerationAlt", "EOAccelerationAlt", "LandingFlaps",
@@ -427,12 +429,11 @@ def parse_data_struct(lines: list[str], struct_name: str) -> list[dict]:
     """Parse a PMDG_<X>_Data struct's fields."""
     in_struct = False
     current_section = "MISCELLANEOUS"
-    current_subsection = ""
     fields = []
     pending_comment_lines: list[str] = []
     struct_decl = f"struct {struct_name}"
 
-    for i, line in enumerate(lines):
+    for line in lines:
         stripped = line.strip()
 
         # Detect struct start
@@ -457,14 +458,11 @@ def parse_data_struct(lines: list[str], struct_name: str) -> list[dict]:
                 continue
 
             # Check for known panel headers (try longest match first)
-            matched = False
             for section_key, category in sorted(
                 _SECTION_TO_CATEGORY.items(), key=lambda x: -len(x[0])
             ):
                 if comment_text == section_key or comment_text.startswith(section_key):
                     current_section = category
-                    current_subsection = comment_text
-                    matched = True
                     break
 
             pending_comment_lines.append(comment_text)
@@ -635,11 +633,6 @@ def parse_events(lines: list[str]) -> list[dict]:
 # Catalog Building
 # ---------------------------------------------------------------------------
 
-def _build_event_lookup(events: list[dict]) -> dict[int, dict]:
-    """Build offset -> event lookup."""
-    return {e["offset"]: e for e in events if e.get("offset") is not None}
-
-
 def _match_events_to_fields(
     fields: list[dict], events: list[dict]
 ) -> dict[str, list[dict]]:
@@ -690,7 +683,6 @@ def build_catalog(
             "PMDG_777X_CDU_2",
         ]
     # Build event index
-    event_lookup = _build_event_lookup(events)
     field_event_map = _match_events_to_fields(fields, events)
 
     # Add event info to fields
@@ -1018,10 +1010,10 @@ def main():
         cat = var["category"]
         categories[cat] = categories.get(cat, 0) + 1
 
-    print(f"\nCatalog summary:")
+    print("\nCatalog summary:")
     print(f"  Total variables: {len(catalog['variables'])}")
     print(f"  Panels: {len(catalog['panels'])}")
-    print(f"\n  By category:")
+    print("\n  By category:")
     for cat, count in sorted(categories.items(), key=lambda x: -x[1]):
         print(f"    {cat}: {count}")
 
