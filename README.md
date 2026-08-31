@@ -36,7 +36,7 @@ uvx simconnect-mcp
 That starts the server on stdio, which is what an MCP client does for you. Run
 it by hand only to check that it starts; press Ctrl+C to stop.
 
-To pin a version, use `uvx simconnect-mcp@0.2.0`.
+To pin a version, use `uvx simconnect-mcp@1.0.0`.
 
 ### From source (for development)
 

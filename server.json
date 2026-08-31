@@ -7,12 +7,12 @@
     "url": "https://github.com/robin24/simconnect-mcp",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "1.0.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "simconnect-mcp",
-      "version": "0.2.0",
+      "version": "1.0.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
