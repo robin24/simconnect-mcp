@@ -17,12 +17,28 @@ pytestmark = pytest.mark.live
 
 
 async def test_catalog_event_fires(live_manager, restore_parking_brake):
-    """PARKING_BRAKES is in the library's static AircraftEvents catalog."""
+    """PARKING_BRAKES is in the library's static AircraftEvents catalog.
+
+    Also covers the L2 live-follow-up fix: the catalog branch now
+    correlates through the real dispatcher exactly like the mapped branch
+    (events.py's _fire()) instead of calling the found Event object
+    directly with no correlation at all, so the message must say SimConnect
+    *accepted* the packet -- never that the event "triggered successfully",
+    which live testing showed to be false for ENGINE_AUTO_START on a
+    Cessna Citation Longitude (see the live-follow-up report). PARKING_BRAKES
+    is used here rather than ENGINE_AUTO_START specifically because it is
+    already restored immediately by restore_parking_brake -- ENGINE_AUTO_START
+    was live-verified during that same follow-up to have a real but *delayed*
+    effect (well past this test's lifetime), which is unsafe to fire from an
+    unattended, automated suite.
+    """
     from simconnect_mcp.tools.events import trigger_event
 
     result = await trigger_event("PARKING_BRAKES")
     assert result.status == "ok"
     assert result.resolved_via == "catalog"
+    assert "successfully" not in result.message.lower()
+    assert "accepted the packet" in result.message.lower()
 
 
 async def test_negative_parameter_reaches_the_sim(live_manager, restore_vs_hold):

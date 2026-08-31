@@ -318,75 +318,103 @@ async def trigger_event(
 
     Resolves through the library's 994-event catalog first, then falls back to
     mapping the name directly, so third-party and newer MSFS events work too.
+    Either way, the event is sent through the same
+    MapClientEventToSimEvent + TransmitClientEvent pair, correlated by send ID
+    on a dispatcher-equipped connection (NAME_UNRECOGNIZED/ERROR mean the
+    event doesn't exist; other exceptions propagate as errors).
 
-    When using the mapping fallback on a dispatcher-equipped connection,
-    exceptions from SimConnect (NAME_UNRECOGNIZED, ERROR) are correlated back
-    to the map and send packets to detect non-existent events.
+    That correlation proves SimConnect accepted the packet -- not that the
+    aircraft acted on it. An aircraft with its own event system (PMDG, Fenix)
+    can silently ignore an event it received in favour of its own SDK; see
+    `message` and CLAUDE.md's "Known Sim Behaviours".
     """
     manager = SimConnectManager()
     name = name.strip().upper()
     payload = _to_dword(parameter) if parameter is not None else None
+    data = DWORD(payload if payload is not None else 0)
 
-    def _fire() -> str:
+    def _fire() -> tuple[str, bool | None]:
+        """Resolve and fire one event; return (resolved_via, accepted).
+
+        `resolved_via` is 'catalog' when `name` matched the SimConnect
+        library's static event list, 'mapped' when it had to be mapped
+        directly (third-party or newer MSFS events) -- purely about how the
+        NAME was resolved, independent of the confidence in what follows.
+
+        `accepted` mirrors the tri-state PmdgDataManager.send_control
+        (pmdg.py) returns, for the same reason: True means the dispatcher's
+        request registry correlated this call's send ID(s) (via
+        GetLastSentPacketID) and SimConnect raised no exception for them
+        within the wait window -- SimConnect *accepted the packet*, not that
+        the aircraft acted on it. None means no request registry was
+        available (the plain SimConnect fallback), so nothing here can tell
+        accepted from rejected. A correlated rejection does not come back as
+        False here -- it raises LookupError/RuntimeError below, exactly as
+        before this function grew a return value, since that already reaches
+        the caller as its own error path.
+        """
         event = manager.ae.find(name)
         if event is not None:
-            event(payload) if payload is not None else event()
-            return "catalog"
-
-        # Not in the static catalog -- map it directly.
-        # If the dispatcher's registry is available, correlate exceptions
-        # to detect non-existent events (MapClientEventToSimEvent succeeds
-        # for any string, so a non-None return proves nothing).
-        if hasattr(manager.sm, "registry"):
-            pending = PendingRequest(request_id=None)
-            manager.sm.registry.register(pending)
-
-            try:
-                # Hold the lock across both the map and send DLL calls.
-                # Either can independently raise an exception that correlates
-                # to its own send ID, so both must be bound before the
-                # dispatcher thread can deliver exceptions for them.
-                with manager.sm.registry.pending_lock:
-                    # Map the event name
-                    mapped = manager.sm.map_to_sim_event(name.encode("ascii"))
-                    if mapped is None:
-                        raise LookupError(name)
-                    map_send_id = DWORD(0)
-                    manager.sm.dll.GetLastSentPacketID(manager.sm.hSimConnect, map_send_id)
-                    manager.sm.registry.bind_send_id(pending, map_send_id.value, _locked=True)
-
-                    # Send the event
-                    manager.sm.send_event(mapped, DWORD(payload if payload is not None else 0))
-                    send_send_id = DWORD(0)
-                    manager.sm.dll.GetLastSentPacketID(manager.sm.hSimConnect, send_send_id)
-                    manager.sm.registry.bind_send_id(pending, send_send_id.value, _locked=True)
-
-                # Wait for an exception or success
-                if pending.done.wait(0.2) and pending.exception is not None:
-                    exc = pending.exception
-                    # Treat NAME_UNRECOGNIZED and ERROR as "event not found"
-                    if exc in (
-                        "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED",
-                        "SIMCONNECT_EXCEPTION_ERROR",
-                    ):
-                        raise LookupError(name)
-                    # Other exceptions should propagate
-                    raise RuntimeError(f"SimConnect exception: {exc}")
-            finally:
-                manager.sm.registry.discard(pending)
+            resolved_via = "catalog"
+            raw_name = event.deff
         else:
-            # Plain SimConnect without dispatcher registry: skip correlation
-            # and use the optimistic path (mapping may succeed or fail, but we
-            # have no exception correlation so we can't tell).
-            mapped = manager.sm.map_to_sim_event(name.encode("ascii"))
+            resolved_via = "mapped"
+            raw_name = name.encode("ascii")
+
+        if not hasattr(manager.sm, "registry"):
+            # Plain SimConnect fallback: no dispatcher, so no exception
+            # correlation is possible at all. Optimistic send, same as
+            # before this function correlated the catalog branch too.
+            mapped = manager.sm.map_to_sim_event(raw_name)
             if mapped is None:
                 raise LookupError(name)
-            manager.sm.send_event(mapped, DWORD(payload if payload is not None else 0))
+            manager.sm.send_event(mapped, data)
+            return resolved_via, None
 
-        return "mapped"
+        # Correlate exceptions on both the map and send packets
+        # (MapClientEventToSimEvent succeeds for any string, so a non-None
+        # return proves nothing on its own).
+        pending = PendingRequest(request_id=None)
+        manager.sm.registry.register(pending)
+        try:
+            # Hold the lock across both DLL calls. Either can independently
+            # raise an exception that correlates to its own send ID, so both
+            # must be bound before the dispatcher thread can deliver
+            # exceptions for them.
+            with manager.sm.registry.pending_lock:
+                mapped = manager.sm.map_to_sim_event(raw_name)
+                if mapped is None:
+                    raise LookupError(name)
+                map_send_id = DWORD(0)
+                manager.sm.dll.GetLastSentPacketID(manager.sm.hSimConnect, map_send_id)
+                manager.sm.registry.bind_send_id(pending, map_send_id.value, _locked=True)
+
+                manager.sm.send_event(mapped, data)
+                send_send_id = DWORD(0)
+                manager.sm.dll.GetLastSentPacketID(manager.sm.hSimConnect, send_send_id)
+                manager.sm.registry.bind_send_id(pending, send_send_id.value, _locked=True)
+
+            # Wait for an exception or success
+            if pending.done.wait(0.2) and pending.exception is not None:
+                exc = pending.exception
+                # Treat NAME_UNRECOGNIZED and ERROR as "event not found",
+                # whether the name came from the catalog or was mapped
+                # directly -- the live sim's own answer overrides what this
+                # server's static list thought it knew.
+                if exc in (
+                    "SIMCONNECT_EXCEPTION_NAME_UNRECOGNIZED",
+                    "SIMCONNECT_EXCEPTION_ERROR",
+                ):
+                    raise LookupError(name)
+                # Other exceptions should propagate
+                raise RuntimeError(f"SimConnect exception: {exc}")
+        finally:
+            manager.sm.registry.discard(pending)
+
+        return resolved_via, True
 
     try:
-        resolved_via = await manager.run_sync(_fire)
+        resolved_via, accepted = await manager.run_sync(_fire)
     except LookupError:
         return ToolError(
             error="EVENT_NOT_FOUND",
@@ -397,11 +425,30 @@ async def trigger_event(
             ),
         )
 
+    # Not "triggered successfully": accepted=True means SimConnect's own
+    # correlation saw no exception for this send -- it says nothing about
+    # whether the aircraft's own code acted on it, and CLAUDE.md's "Known Sim
+    # Behaviours" already records aircraft (PMDG) that ignore a default key
+    # event outright. accepted=None means no request registry was available
+    # (the plain SimConnect fallback) and nothing here can say even that
+    # much. Mirrors tools/pmdg.py's send_pmdg_event wording for the same
+    # tri-state, and tools/events.py's own trigger_custom_event below.
+    message = (
+        f"Event '{name}' sent; SimConnect accepted the packet, but that is "
+        "not confirmation the aircraft acted on it -- an aircraft with its "
+        "own event system (e.g. PMDG, Fenix) can silently ignore an event "
+        "it received."
+        if accepted
+        else f"Event '{name}' sent; delivery is not confirmed at all -- no "
+        "SimConnect request registry is available on this connection, so "
+        "not even acceptance by SimConnect itself could be checked."
+    )
+
     return EventResult(
         event=name,
         parameter=parameter,
         resolved_via=resolved_via,
-        message=f"Event '{name}' triggered successfully",
+        message=message,
     )
 
 

@@ -27,12 +27,17 @@ async def test_trigger_event_returns_a_model(mock_simconnect):
 
 @pytest.mark.asyncio
 async def test_trigger_event(mock_simconnect):
-    """Triggering an event succeeds."""
+    """Triggering an event succeeds.
+
+    The catalog branch now correlates through map_to_sim_event/send_event
+    like the mapped branch does (see events.py's _fire()), rather than
+    calling the found Event object directly -- so this asserts on the DLL
+    call, not on ae.find()'s returned mock being invoked."""
     result = await trigger_event("PARKING_BRAKES")
     assert result.status == "ok"
     assert result.event == "PARKING_BRAKES"
     mock_simconnect["ae"].find.assert_called_with("PARKING_BRAKES")
-    mock_simconnect["event"].assert_called_once()
+    mock_simconnect["sm"].send_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -41,7 +46,8 @@ async def test_trigger_event_with_parameter(mock_simconnect):
     result = await trigger_event("THROTTLE_SET", parameter=8192)
     assert result.status == "ok"
     assert result.parameter == 8192
-    mock_simconnect["event"].assert_called_once_with(8192)
+    sent = mock_simconnect["sm"].send_event.call_args.args[1]
+    assert sent.value == 8192
 
 
 @pytest.mark.asyncio
@@ -171,14 +177,15 @@ async def test_trigger_falls_back_to_map_to_sim_event(mock_simconnect):
 async def test_negative_parameter_is_sent_as_twos_complement(mock_simconnect):
     """AP_VS_VAR_SET_ENGLISH needs negative values; send_event takes a DWORD."""
     await trigger_event("AP_VS_VAR_SET_ENGLISH", parameter=-1800)
-    sent = mock_simconnect["event"].call_args.args[0]
-    assert sent == (-1800) & 0xFFFFFFFF
+    sent = mock_simconnect["sm"].send_event.call_args.args[1]
+    assert sent.value == (-1800) & 0xFFFFFFFF
 
 
 @pytest.mark.asyncio
 async def test_positive_parameter_is_unchanged(mock_simconnect):
     await trigger_event("HEADING_BUG_SET", parameter=270)
-    assert mock_simconnect["event"].call_args.args[0] == 270
+    sent = mock_simconnect["sm"].send_event.call_args.args[1]
+    assert sent.value == 270
 
 
 @pytest.mark.asyncio
