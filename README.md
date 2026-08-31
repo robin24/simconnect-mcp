@@ -405,4 +405,17 @@ Requires MSFS running with an aircraft loaded; a test whose connection attempt f
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Copyright (C) 2025-2026 Robin Kipp
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See [LICENSE.txt](LICENSE.txt) for the full text.
+
+This project is AGPL-3.0 because it depends on
+[Python-SimConnect](https://github.com/odwdinc/Python-SimConnect), which is
+itself AGPL-3.0 licensed.
+
+The vendored MobiFlight bridge in `src/simconnect_mcp/vendor/` is a separate
+work, MIT licensed by Koseng — see
+[`src/simconnect_mcp/vendor/MOBIFLIGHT_LICENSE`](src/simconnect_mcp/vendor/MOBIFLIGHT_LICENSE).
