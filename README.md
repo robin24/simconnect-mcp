@@ -1,5 +1,7 @@
 # SimConnect MCP Server
 
+<!-- mcp-name: io.github.robin24/simconnect-mcp -->
+
 An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that connects AI coding agents to Microsoft Flight Simulator via SimConnect. This server is built for **add-on development** — full read/write access to SimVars, L-vars, events, calculator code execution, and embedded documentation.
 
 ## What It Does
