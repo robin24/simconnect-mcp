@@ -115,6 +115,21 @@ class SimConnectManager:
         # Not cleared on disconnect for the same reason _facility_locks
         # isn't -- see the comment above.
         self._list_lvars_lock = asyncio.Lock()
+        # Serializes tools/flight.py's create_ai_object end to end (register
+        # -> AICreateSimulatedObject -> wait for ASSIGNED_OBJECT_ID ->
+        # discard). Same bug class as _list_lvars_lock above: create_ai_object
+        # correlates its reply against the single request id
+        # reserved_request_id() reserves for the "ai_object" key (ring=1, the
+        # default -- see that method's docstring), so two overlapping
+        # creations would both register a PendingRequest under that same id.
+        # RequestRegistry.register()'s plain dict assignment lets the second
+        # silently replace the first: whichever ASSIGNED_OBJECT_ID reply
+        # arrives would only ever reach the second call's waiter, leaving the
+        # first waiting on a reply that will never resolve -- reporting a
+        # real creation as object_id: None. One lock across the whole
+        # sequence rules this out. Not cleared on disconnect, for the same
+        # reason _list_lvars_lock isn't.
+        self._ai_object_lock = asyncio.Lock()
         # Small per-key rings of SimConnect request IDs reserved once and
         # reused for the whole connection, for the call sites that need a
         # request ID but never register a PendingRequest with the
@@ -417,12 +432,18 @@ class SimConnectManager:
         issued -- measured on real hardware at ~4.5ms per call after 600
         allocations, ~31ms after 2000, unbounded over a long-running server.
         That is precisely what RequestRegistry.acquire_request_id
-        (dispatch.py) was built to bound, and the two call sites that
-        reserve IDs here (tools/facilities.py's per-kind subscriptions,
-        tools/flight.py's AI object creation) cannot use it on their own
-        because neither registers a PendingRequest -- there is nothing to
-        discard() and so nothing that would ever return an ID to the
-        free-list.
+        (dispatch.py) was built to bound. tools/facilities.py's per-kind
+        subscriptions cannot use that pool on their own: FacilityCollector
+        correlates chunks itself (its own `_request_id` dict, not
+        RequestRegistry), so nothing ever calls register()/discard() for a
+        facility subscription and there would be nothing to return an ID to
+        the free-list. tools/flight.py's AI object creation DOES register a
+        PendingRequest and discard() it once done (with `recycle=False` --
+        see RequestRegistry.discard's docstring for why), but still reserves
+        here rather than calling acquire_request_id directly: the id must
+        stay stable across every create_ai_object call for the life of the
+        connection, not be handed back to the general pool the moment one
+        creation resolves.
 
         The `ring` IDs for a key are allocated once, on first use, and then
         rotated through: call N gets ids[N % ring]. `ring` is therefore the
@@ -439,8 +460,13 @@ class SimConnectManager:
         collections of its own kind before it can be mistaken for a current
         one -- the dispatch thread drains SimConnect's queue every 2ms and
         the shortest collection cycle is a 100ms poll interval, so even
-        ring=2 puts that far outside the plausible window; the default of 1
-        is for callers like AI object creation that correlate on nothing.
+        ring=2 puts that far outside the plausible window. The default of 1
+        is for a key with no such overlap risk: AI object creation serializes
+        every call through SimConnectManager.ai_object_lock() end to end
+        (register through discard), so only one creation is ever waiting on
+        "ai_object"'s reserved id at a time -- there is no previous
+        subscription's straggler to confuse with a current one, unlike
+        facilities' rotating kinds.
 
         Allocation goes through the registry's acquire_request_id so it
         happens under `pending_lock` -- new_request_id() mutates an Enum
@@ -476,6 +502,17 @@ class SimConnectManager:
         maintaining a dict.
         """
         return self._list_lvars_lock
+
+    def ai_object_lock(self) -> asyncio.Lock:
+        """Lock serializing tools/flight.py's create_ai_object end to end.
+
+        See the comment on `_ai_object_lock` above for why this exists --
+        same bug class as list_lvars_lock: create_ai_object correlates on
+        the single request id reserved_request_id() reserves for the
+        "ai_object" key (ring=1), so only one creation may be registered and
+        waiting on it at a time.
+        """
+        return self._ai_object_lock
 
     async def get_status(self) -> dict[str, Any]:
         """Return current connection status.

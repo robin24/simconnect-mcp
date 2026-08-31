@@ -4,7 +4,11 @@ import struct
 import threading
 from ctypes.wintypes import DWORD
 
-from SimConnect.Enum import SIMCONNECT_RECV_FACILITIES_LIST, SIMCONNECT_RECV_ID
+from SimConnect.Enum import (
+    SIMCONNECT_RECV_ASSIGNED_OBJECT_ID,
+    SIMCONNECT_RECV_FACILITIES_LIST,
+    SIMCONNECT_RECV_ID,
+)
 
 from simconnect_mcp.dispatch import (
     STRING256_SIZE,
@@ -248,6 +252,31 @@ def test_an_exception_resolved_request_returns_its_id():
     assert registry.acquire_request_id(allocate) == first
 
 
+def test_discard_recycle_false_never_returns_a_resolved_id_to_the_pool():
+    """tools/flight.py's create_ai_object correlates on a request id that
+    SimConnectManager.reserved_request_id() has permanently reserved for the
+    "ai_object" key and rotates through for the rest of the connection's
+    life -- unlike SimVarAccessor's per-call ids, which this free-list
+    exists to recycle. Letting a resolved ai_object request recycle its id
+    here anyway would let some unrelated SimVarAccessor read claim that
+    exact number via acquire_request_id() while "ai_object" is still
+    handing out the very same number on its own next call. recycle=False is
+    how a caller in that situation opts out, regardless of `resolved`."""
+    registry = RequestRegistry()
+    counter = iter(range(1, 100))
+
+    def allocate():
+        return next(counter)
+
+    reserved = registry.acquire_request_id(allocate)  # stands in for reserved_request_id
+    req = PendingRequest(request_id=reserved)
+    registry.register(req)
+    registry.resolve_data(reserved, 42.0)  # the sim answered -- would normally recycle
+    registry.discard(req, recycle=False)
+
+    assert registry.acquire_request_id(allocate) != reserved
+
+
 def test_late_delivery_after_a_timeout_cannot_reach_a_later_request():
     """The end-to-end race, as reproduced against real code: A times out, B
     acquires next, a late response for A's id must not land on B."""
@@ -410,6 +439,76 @@ def test_numeric_decode_is_unaffected_by_the_string_decode_change():
     dispatcher._on_simobject_data(data)
 
     assert pending.value == 35000.0
+
+
+# ---------------------------------------------------------------------------
+# my_dispatch_proc -- ASSIGNED_OBJECT_ID routing
+#
+# L1 (live-follow-up): create_ai_object needs SimConnect's own confirmation
+# that an AI object was actually created, not just accepted -- that
+# confirmation is this message, correlated back to the request id
+# tools/flight.py registered. The library's own branch (SimConnect.py)
+# instead stashes dwObjectID in os.environ["SIMCONNECT_OBJECT_ID"], a
+# process-global with no per-call correlation, so falling through to it
+# must never happen here.
+# ---------------------------------------------------------------------------
+
+
+def _assigned_object_id_message(request_id: int, object_id: int):
+    """Build a raw byte buffer shaped like a real ASSIGNED_OBJECT_ID
+    message: the 12-byte SIMCONNECT_RECV header (dwSize, dwVersion, dwID)
+    followed by dwRequestID + dwObjectID -- 20 bytes total, matching the
+    real SDK (see dispatch.py's inline comment on this branch)."""
+    raw = struct.pack(
+        "<IIIII",
+        0,  # dwSize -- unused by the code under test
+        0,  # dwVersion
+        SIMCONNECT_RECV_ID.SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID,
+        request_id,
+        object_id,
+    )
+    buf = ctypes.create_string_buffer(raw, len(raw))
+    ptr = ctypes.cast(
+        ctypes.addressof(buf), ctypes.POINTER(SIMCONNECT_RECV_ASSIGNED_OBJECT_ID)
+    )
+    return buf, ptr  # caller must keep `buf` alive as long as `ptr` is used
+
+
+def test_my_dispatch_proc_resolves_assigned_object_id():
+    """The actual integration point of the L1 fix: a real ASSIGNED_OBJECT_ID
+    message reaching my_dispatch_proc must resolve the matching
+    PendingRequest by request id, and must not fall through to the
+    library's own os.environ-stashing branch."""
+    import os
+
+    os.environ.pop("SIMCONNECT_OBJECT_ID", None)
+    dispatcher = _bare_dispatcher()
+    pending = PendingRequest(request_id=55)
+    dispatcher.registry.register(pending)
+    buf, ptr = _assigned_object_id_message(request_id=55, object_id=999)
+
+    dispatcher.my_dispatch_proc(ptr, len(buf.raw), None)
+
+    assert pending.done.wait(0.1)
+    assert pending.value == 999
+    assert pending.resolved is True
+    assert "SIMCONNECT_OBJECT_ID" not in os.environ, (
+        "fell through to the library's own branch instead of being resolved here"
+    )
+
+
+def test_my_dispatch_proc_ignores_an_unmatched_assigned_object_id():
+    """No PendingRequest registered for this request id (e.g. it already
+    timed out and was discarded) -- must not raise, and must not resolve
+    some other, unrelated request."""
+    dispatcher = _bare_dispatcher()
+    other = PendingRequest(request_id=1)
+    dispatcher.registry.register(other)
+    buf, ptr = _assigned_object_id_message(request_id=999, object_id=1)
+
+    dispatcher.my_dispatch_proc(ptr, len(buf.raw), None)  # must not raise
+
+    assert not other.done.is_set()
 
 
 # ---------------------------------------------------------------------------

@@ -479,12 +479,59 @@ async def test_create_ai_object_does_not_call_the_library_when_coordinates_are_i
     assert not mock_simconnect["sm"].dll.AICreateSimulatedObject.called
 
 
-async def test_create_ai_object_returns_a_model_on_success(mock_simconnect):
+async def test_create_ai_object_confirms_a_real_object_id_on_success(mock_simconnect):
+    """L1 fix: create_ai_object now consumes SimConnect's
+    ASSIGNED_OBJECT_ID reply instead of discarding it unread. The default
+    fixture's registry auto-resolves that reply immediately and cleanly
+    (conftest.py) -- the common/success case -- so a plain successful call
+    must come back with a real object_id and wording that says so, not the
+    old "accepted, not confirmed" hedge, which is now reserved for when
+    confirmation genuinely does not arrive (see the two tests below)."""
     result = await create_ai_object(title="Boeing 747-8i", latitude=47.6, longitude=-122.3)
     assert isinstance(result, AiObjectResult)
     assert result.status == "ok"
     assert result.title == "Boeing 747-8i"
+    assert result.object_id == mock_simconnect["mock_assigned_object_id"]
+    assert "confirming" in result.message.lower()
+    assert "silently" not in result.message.lower()
+
+
+async def test_create_ai_object_no_reply_leaves_object_id_none(mock_simconnect, monkeypatch):
+    """A title MSFS ignores (or any other reason no ASSIGNED_OBJECT_ID ever
+    arrives) must not invent an id or claim creation -- the whole point of
+    the L1 fix is staying honest rather than assuming success just because
+    one now COULD be reported. Timeout constants shrunk via monkeypatch so
+    this runs in milliseconds instead of the production wait."""
+    from simconnect_mcp.tools import flight as flight_module
+
+    monkeypatch.setattr(flight_module, "_AI_OBJECT_REPLY_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(flight_module, "_AI_OBJECT_POLL_INTERVAL_S", 0.01)
+    # Undo the default fixture's auto-resolve (conftest.py) so the
+    # ASSIGNED_OBJECT_ID wait genuinely times out, as it would live for a
+    # title matching no installed aircraft.
+    mock_simconnect["sm"].registry.register.side_effect = None
+
+    result = await create_ai_object(
+        title="Definitely Not An Installed Aircraft", latitude=47.6, longitude=-122.3
+    )
+
+    assert result.status == "ok"
+    assert result.object_id is None
     assert "silently" in result.message.lower()
+    assert "not confirmation" in result.message.lower()
+
+
+async def test_create_ai_object_without_a_registry_leaves_object_id_none(mock_simconnect):
+    """Plain SimConnect fallback: no dispatcher, so correlating
+    ASSIGNED_OBJECT_ID was never possible at all -- distinct from a timeout,
+    and worded differently (see create_ai_object's message-building)."""
+    delattr(mock_simconnect["sm"], "registry")
+
+    result = await create_ai_object(title="Boeing 747-8i", latitude=47.6, longitude=-122.3)
+
+    assert result.status == "ok"
+    assert result.object_id is None
+    assert "no request registry" in result.message.lower()
 
 
 async def test_create_ai_object_calls_the_dll_directly_not_the_wrapper(mock_simconnect):

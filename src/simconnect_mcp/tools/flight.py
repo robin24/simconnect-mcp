@@ -14,6 +14,7 @@ from typing import Annotated
 from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.dispatch import PendingRequest
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
 from simconnect_mcp.tools.models import AiObjectResult, FlightResult, ToolError
 
@@ -406,6 +407,47 @@ async def load_flight_plan(
     )
 
 
+# How long create_ai_object waits for SimConnect's
+# SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID reply before giving up and leaving
+# object_id as None. Measured live (MSFS 2024, Cessna Citation Longitude at
+# KATL): a title matching an installed aircraft got its reply in ~0.11s: a
+# bogus title never gets one at all, so that call always pays the full
+# timeout -- confirmed live at 5.108s elapsed against this exact bound.
+# 5s is generous relative to the ~0.11s measured success case (comparable
+# margin to tools/facilities.py's _COLLECT_TIMEOUT, chosen the same way),
+# without making a bogus-title call hang for long.
+_AI_OBJECT_REPLY_TIMEOUT_S = 5.0
+_AI_OBJECT_POLL_INTERVAL_S = 0.1
+
+
+async def _wait_for_assigned_object_id(pending: PendingRequest) -> int | None:
+    """Poll for dispatch.py's ASSIGNED_OBJECT_ID branch to resolve `pending`.
+
+    Bounded by _AI_OBJECT_REPLY_TIMEOUT_S. Polls with asyncio.sleep rather
+    than blocking synchronously (e.g. `pending.done.wait(...)` inside
+    run_sync): the reply is delivered by SimConnect's own dispatch thread,
+    not by anything this coroutine calls, so making the wait itself
+    synchronous would hold SimConnectManager._sim_lock for the whole
+    duration (see run_sync's docstring) and queue every other tool call on
+    the server behind it. Same shape, and the same reasoning, as
+    tools/facilities.py's _collect() poll loop and this module's own
+    _wait_for_sim_responsive.
+
+    Returns the object id once resolve_data() (dispatch.py's
+    ASSIGNED_OBJECT_ID branch) has actually run for this request; None if
+    the deadline passes first. `pending.resolved` is set only when the DLL
+    side is confirmed finished with this request's id (see PendingRequest's
+    docstring in dispatch.py), so this never invents an id from a
+    still-in-flight guess.
+    """
+    deadline = time.monotonic() + _AI_OBJECT_REPLY_TIMEOUT_S
+    while not pending.done.is_set():
+        if time.monotonic() >= deadline:
+            return None
+        await asyncio.sleep(_AI_OBJECT_POLL_INTERVAL_S)
+    return int(pending.value) if pending.resolved else None
+
+
 @handle_simconnect_errors
 @require_connection
 async def create_ai_object(
@@ -426,10 +468,16 @@ async def create_ai_object(
     """Spawn an AI aircraft or object at a position.
 
     Useful for building traffic or collision-avoidance test scenarios. The
-    title must match an installed aircraft exactly -- MSFS ignores the
-    request silently for an unmatched title, with no error at all, so a
-    successful call here confirms only that SimConnect *accepted* the
-    request, never that anything actually appeared in the sim.
+    title must match an installed aircraft exactly. When it does, SimConnect
+    confirms the object was actually created with an ASSIGNED_OBJECT_ID
+    reply, and `object_id` on the result carries it -- also the id
+    SimConnect_AIRemoveObject would need to remove it again. When the title
+    matches nothing installed, MSFS ignores the request silently: no error,
+    no reply, so `object_id` stays null. Treat that null as "not confirmed
+    to exist," not as a definite failure of this call -- a request registry
+    being briefly slow to answer, or a connection with none at all (the
+    plain SimConnect fallback), leaves the same null for a different reason;
+    see `message` for which applies.
     """
     # ge=/le= above is enforced by FastMCP's schema validation for real MCP
     # calls, but a direct Python call (as tests do) bypasses that entirely --
@@ -450,55 +498,105 @@ async def create_ai_object(
 
     manager = SimConnectManager()
 
-    def _create() -> bool:
-        from SimConnect.Enum import SIMCONNECT_DATA_INITPOSITION
+    # Serializes register -> create -> wait -> discard end to end: this
+    # correlates on the single request id reserved_request_id() reserves for
+    # the "ai_object" key (ring=1), so two overlapping creations must not
+    # both be registered against it at once -- see ai_object_lock's
+    # docstring (connection.py).
+    async with manager.ai_object_lock():
 
-        # Not manager.sm.createSimulatedObject(): that wrapper (SimConnect.py
-        # in the installed library) builds this exact DLL call but discards
-        # the HRESULT SimConnect_AICreateSimulatedObject returns -- so a call
-        # MSFS rejected outright (stale handle, E_INVALIDARG, a connection
-        # dropped between ensure_connected and here) looked identical to one
-        # it accepted, and this tool reported success for a request that
-        # never left. SimConnect_AICreateSimulatedObject's restype is HRESULT
-        # (Attributes.py in the same package) and IsHR is the library's own
-        # helper for reading one. Same wrapper defect, same fix, as
-        # tools/utilities.py's send_sim_text -- see the extended comment
-        # there for the general rule.
-        init_pos = SIMCONNECT_DATA_INITPOSITION()
-        init_pos.Altitude = altitude_ft
-        init_pos.Latitude = latitude
-        init_pos.Longitude = longitude
-        init_pos.Pitch = 0
-        init_pos.Bank = 0
-        init_pos.Heading = heading
-        init_pos.OnGround = 1 if on_ground else 0
-        init_pos.Airspeed = airspeed
-        hr = manager.sm.dll.AICreateSimulatedObject(
-            manager.sm.hSimConnect,
-            title.encode(),
-            init_pos,
-            # Reserved once per connection rather than allocated per call:
-            # new_request_id() rebuilds an Enum from every prior member on
-            # every call and never reclaims one. Nothing here correlates on
-            # this ID -- the ASSIGNED_OBJECT_ID reply is not consumed by
-            # this server -- so one stable ID is enough, unlike the rotating
-            # set tools/facilities.py needs. See connection.py's
-            # reserved_request_id.
-            manager.reserved_request_id("ai_object"),
-        )
-        return bool(manager.sm.IsHR(hr, 0))
+        def _create() -> tuple[bool, PendingRequest | None]:
+            from SimConnect.Enum import SIMCONNECT_DATA_INITPOSITION
 
-    if not await manager.run_sync(_create):
-        return ToolError(
-            error="AI_OBJECT_FAILED",
-            message=f"MSFS rejected the request to create AI object '{title}'.",
-            suggestion="Check the sim is running and not mid-load, then "
-                       "reconnect with msfs_connect and try again.",
+            # Not manager.sm.createSimulatedObject(): that wrapper
+            # (SimConnect.py in the installed library) builds this exact DLL
+            # call but discards the HRESULT
+            # SimConnect_AICreateSimulatedObject returns -- so a call MSFS
+            # rejected outright (stale handle, E_INVALIDARG, a connection
+            # dropped between ensure_connected and here) looked identical to
+            # one it accepted, and this tool reported success for a request
+            # that never left. SimConnect_AICreateSimulatedObject's restype
+            # is HRESULT (Attributes.py in the same package) and IsHR is the
+            # library's own helper for reading one. Same wrapper defect,
+            # same fix, as tools/utilities.py's send_sim_text -- see the
+            # extended comment there for the general rule.
+            init_pos = SIMCONNECT_DATA_INITPOSITION()
+            init_pos.Altitude = altitude_ft
+            init_pos.Latitude = latitude
+            init_pos.Longitude = longitude
+            init_pos.Pitch = 0
+            init_pos.Bank = 0
+            init_pos.Heading = heading
+            init_pos.OnGround = 1 if on_ground else 0
+            init_pos.Airspeed = airspeed
+
+            # Reserved once per connection rather than allocated per call --
+            # see connection.py's reserved_request_id. Registered against
+            # the dispatcher's request registry *before* the DLL call, the
+            # same ordering tools/facilities.py's _subscribe uses for its
+            # own collector, so a reply that somehow arrived before this
+            # function returned would still be correlated correctly.
+            request_id = manager.reserved_request_id("ai_object")
+            registry = getattr(manager.sm, "registry", None)
+            pending = (
+                PendingRequest(request_id=request_id) if registry is not None else None
+            )
+            if pending is not None:
+                registry.register(pending)
+
+            hr = manager.sm.dll.AICreateSimulatedObject(
+                manager.sm.hSimConnect, title.encode(), init_pos, request_id,
+            )
+            return bool(manager.sm.IsHR(hr, 0)), pending
+
+        accepted, pending = await manager.run_sync(_create)
+
+        if not accepted:
+            if pending is not None:
+                # Nothing is coming: SimConnect rejected the call outright,
+                # so dispatch.py's ASSIGNED_OBJECT_ID branch will never fire
+                # for this request id. recycle=False -- see
+                # RequestRegistry.discard's docstring -- keeps this id
+                # reserved for "ai_object" rather than leaking it into the
+                # general SimVarAccessor pool.
+                manager.sm.registry.discard(pending, recycle=False)
+            return ToolError(
+                error="AI_OBJECT_FAILED",
+                message=f"MSFS rejected the request to create AI object '{title}'.",
+                suggestion="Check the sim is running and not mid-load, then "
+                           "reconnect with msfs_connect and try again.",
+            )
+
+        object_id: int | None = None
+        if pending is not None:
+            try:
+                object_id = await _wait_for_assigned_object_id(pending)
+            finally:
+                manager.sm.registry.discard(pending, recycle=False)
+
+    if object_id is not None:
+        message = (
+            f"Created AI object '{title}' -- MSFS assigned it object ID "
+            f"{object_id}, confirming the object actually exists, not just "
+            "that SimConnect accepted the request."
         )
+    elif pending is not None:
+        message = (
+            f"Requested AI object '{title}'. SimConnect accepted the "
+            f"request, but no confirmation arrived within "
+            f"{_AI_OBJECT_REPLY_TIMEOUT_S:.0f}s. MSFS ignores this request "
+            "silently if the title does not match an installed aircraft, so "
+            "this is not confirmation the object exists."
+        )
+    else:
+        message = (
+            f"Requested AI object '{title}'. SimConnect accepted the "
+            "request, but MSFS ignores it silently if the title does not "
+            "match an installed aircraft, and this connection has no "
+            "request registry to confirm creation either way."
+        )
+
     return AiObjectResult(
         title=title, latitude=latitude, longitude=longitude,
-        message=f"Requested AI object '{title}'. SimConnect accepted the "
-                "request, but MSFS ignores it silently if the title does "
-                "not match an installed aircraft, so this is not "
-                "confirmation the object exists.",
+        object_id=object_id, message=message,
     )

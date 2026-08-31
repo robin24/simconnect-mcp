@@ -41,6 +41,7 @@ from typing import Any
 from SimConnect.Enum import (
     SIMCONNECT_EXCEPTION,
     SIMCONNECT_RECV,
+    SIMCONNECT_RECV_ASSIGNED_OBJECT_ID,
     SIMCONNECT_RECV_ID,
     SIMCONNECT_RECV_SIMOBJECT_DATA,
 )
@@ -205,7 +206,7 @@ class RequestRegistry:
         req.done.set()
         return True
 
-    def discard(self, req: PendingRequest) -> None:
+    def discard(self, req: PendingRequest, *, recycle: bool = True) -> None:
         """Stop tracking a request, freeing its ID for reuse IF SAFE.
 
         A request's ID is only added back to the free-list when `resolved`
@@ -223,11 +224,27 @@ class RequestRegistry:
         another request. This costs one permanently-unused ID per timeout,
         bounded by how often timeouts occur (rare: a paused/hung sim), not
         by read count -- the hot, successful-read path is unaffected.
+
+        `recycle=False` is for a caller whose `request_id` was never drawn
+        from *this* free-list to begin with -- e.g. tools/flight.py's
+        create_ai_object, which correlates on a number
+        SimConnectManager.reserved_request_id() has permanently reserved for
+        the "ai_object" key and rotates through for the rest of the
+        connection's life (see that method's docstring). If a resolved
+        request like that were allowed to recycle here, the ID would enter
+        the *general* pool that acquire_request_id() hands out to ordinary
+        SimVarAccessor reads -- while "ai_object" goes on handing out that
+        exact same number on its own next call. Two independent waiters
+        would then both be keyed on one ID, with SimConnect's replies
+        landing on whichever happens to be registered at delivery time: the
+        same class of race this whole recycle-only-if-resolved scheme
+        exists to prevent, just entered through a different door. Default
+        True preserves today's behaviour for every other caller.
         """
         with self.pending_lock:
             if req.request_id is not None:
                 self._by_request.pop(req.request_id, None)
-                if req.resolved:
+                if req.resolved and recycle:
                     self._free_request_ids.append(req.request_id)
             for send_id in req.send_ids:
                 self._by_send.pop(send_id, None)
@@ -330,6 +347,34 @@ class SimConnectDispatcher(SimConnectMobiFlight):
                 )
             if not self.registry.resolve_exception(exc.dwSendID, name):
                 log.debug("Unmatched SimConnect exception: %s (sendID=%s)", name, exc.dwSendID)
+            return
+
+        if dwID == SIMCONNECT_RECV_ID.SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID:
+            # The library's own branch (SimConnect.py) stashes dwObjectID in
+            # os.environ["SIMCONNECT_OBJECT_ID"] -- process-global mutable
+            # state with no per-call correlation, so a second concurrent
+            # AICreateSimulatedObject would clobber the first's answer. Not
+            # a stdout print like the branches above, but still not
+            # something to let run: resolve it through the registry instead,
+            # exactly like SIMOBJECT_DATA, so tools/flight.py's
+            # create_ai_object can correlate the reply to its own call.
+            #
+            # Unlike RecvException (see this module's docstring),
+            # SIMCONNECT_RECV_ASSIGNED_OBJECT_ID's installed binding is
+            # correctly shaped -- verified against the SDK: the base
+            # SIMCONNECT_RECV header is 3 DWORDs (12 bytes) and this adds
+            # exactly dwRequestID + dwObjectID (2 more), with no bogus extra
+            # constants folded into _fields_ the way the exception struct
+            # had. 20 bytes total, matching the real wire format, so it is
+            # used directly rather than redeclared.
+            assigned = ctypes.cast(
+                pData, ctypes.POINTER(SIMCONNECT_RECV_ASSIGNED_OBJECT_ID)
+            ).contents
+            if not self.registry.resolve_data(assigned.dwRequestID, assigned.dwObjectID):
+                log.debug(
+                    "Unmatched ASSIGNED_OBJECT_ID for request %s (objectID=%s)",
+                    assigned.dwRequestID, assigned.dwObjectID,
+                )
             return
 
         if dwID == SIMCONNECT_RECV_ID.SIMCONNECT_RECV_ID_SYSTEM_STATE:

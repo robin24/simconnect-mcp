@@ -456,11 +456,27 @@ class AiObjectResult(OkModel):
     SimConnect_AICreateSimulatedObject's HRESULT is checked, so a rejected
     packet returns a ToolError rather than this model. But MSFS accepts a
     title that matches no installed aircraft without any error -- the
-    object is simply never created -- so this confirms the request was
-    accepted, never that anything actually appeared in the sim.
+    object is simply never created -- so acceptance alone never confirmed
+    anything actually appeared in the sim.
+
+    `object_id` closes that gap when it can: it is SimConnect's own
+    SIMCONNECT_RECV_ID_ASSIGNED_OBJECT_ID reply, correlated back to this
+    call's request id, and only ever arrives for an object MSFS actually
+    created -- unlike the initial HRESULT, which just means the request was
+    queued. See `message` for which case applies.
     """
 
     title: str
     latitude: float
     longitude: float
+    object_id: int | None = Field(
+        None,
+        description="SimConnect's assigned object id, present only when MSFS "
+        "confirmed the object was actually created. Null covers three distinct "
+        "cases collapsed into one honest 'no confirmation' answer: the reply "
+        "had not arrived when this call gave up waiting, the title matched no "
+        "installed aircraft (MSFS then never sends a reply at all), or this "
+        "connection has no request registry to correlate one with (the plain "
+        "SimConnect fallback). See `message` for which of the three applies.",
+    )
     message: str

@@ -27,6 +27,37 @@ def mock_simconnect():
     mock_sm.paused = False
     mock_sm.running = True
 
+    # trigger_event's catalog/mapped branches, PmdgDataManager.send_control,
+    # and create_ai_object all correlate a PendingRequest against
+    # mock_sm.registry -- either by request id (resolved by resolve_data(),
+    # as SIMOBJECT_DATA/ASSIGNED_OBJECT_ID would be) or by send id (resolved
+    # by resolve_exception(), as a SimConnect exception would be). Nothing
+    # else here simulates the dispatch thread that would normally deliver
+    # either, so left unconfigured, every one of those calls would genuinely
+    # block for its full real wait window on every single test that reaches
+    # it -- up to 0.2s for the send-id pattern, or create_ai_object's
+    # multi-second reply timeout for the request-id one. Auto-resolving
+    # here, immediately and without an exception, matches the common/success
+    # case for both patterns and keeps the default fixture fast. A test that
+    # specifically wants rejection, a timeout, or "no registry available"
+    # replaces mock_sm.registry (or deletes the attribute) itself, exactly
+    # as the correlation-focused tests in test_events.py/test_pmdg.py/
+    # test_pmdg_ng3.py/test_flight.py already do -- that replacement fully
+    # shadows the side effects below for those tests.
+    MOCK_ASSIGNED_OBJECT_ID = 4242
+
+    def _auto_register(req):
+        if req.request_id is not None:
+            req.value = MOCK_ASSIGNED_OBJECT_ID
+            req.resolved = True
+            req.done.set()
+
+    def _auto_bind_send_id(req, send_id, _locked=False):
+        req.done.set()
+
+    mock_sm.registry.register.side_effect = _auto_register
+    mock_sm.registry.bind_send_id.side_effect = _auto_bind_send_id
+
     mock_aq = MagicMock()
     mock_ae = MagicMock()
 
@@ -54,7 +85,15 @@ def mock_simconnect():
     mock_aq.get.side_effect = lambda key: simvar_values.get(key.split(":")[0])
     mock_aq.set.return_value = None
 
-    # Mock event find
+    # Mock event find. Kept as `.return_value` (not `.side_effect`) so tests
+    # can keep overriding it with `mock_simconnect["ae"].find.return_value =
+    # None` to force the mapped fallback -- an established pattern across
+    # several existing tests, which a side_effect would silently shadow.
+    # `.deff` (events.py's trigger_event reads it off a found Event to get
+    # the raw name for map_to_sim_event) is left as a plain, unconfigured
+    # mock attribute: map_to_sim_event is itself fully mocked and does
+    # nothing with its argument beyond returning a truthy stand-in, so no
+    # test needs `.deff` to equal any particular bytes.
     mock_event = MagicMock()
     mock_ae.find.return_value = mock_event
 
@@ -175,4 +214,5 @@ def mock_simconnect():
             "simvar_values": simvar_values,
             "accessor": mock_accessor,
             "lvar_values": lvar_values,
+            "mock_assigned_object_id": MOCK_ASSIGNED_OBJECT_ID,
         }
