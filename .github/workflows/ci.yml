@@ -32,7 +32,7 @@ jobs:
         run: uv sync --locked
 
       - name: Lint
-        run: uv run ruff check src tests
+        run: uv run ruff check src tests scripts/set_version.py
 
       - name: Run mocked test suite
         # pyproject sets addopts = "-m 'not live'", so the 28 live tests that

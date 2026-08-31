@@ -419,6 +419,36 @@ uv run pytest -m live
 
 Requires MSFS running with an aircraft loaded; a test whose connection attempt fails is skipped rather than failed (see `tests/live/conftest.py`'s `live_manager` fixture). `tests/live/test_live_pmdg.py`'s tests need a real PMDG 737/777 loaded and skip — rather than fail — when the loaded aircraft doesn't look like one (see that file's gate in `tests/live/conftest.py`).
 
+## Releasing
+
+Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml).
+Pushing a `v*` tag runs the mocked test suite, rewrites the version in
+`pyproject.toml` and `server.json` to the tag minus its `v`, publishes to PyPI,
+publishes to the MCP Registry, and commits the version bump back to `main`.
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+### One-time setup
+
+Both publishing steps use OIDC, so there are no tokens to store. PyPI needs a
+trusted publisher configured once, via the PyPI web UI — this cannot be done
+from the CLI:
+
+1. Go to <https://pypi.org/manage/account/publishing/>.
+2. Add a **pending publisher** (or, once the project exists, a publisher under
+   the project's settings) with:
+   - **PyPI Project Name:** `simconnect-mcp`
+   - **Owner:** `robin24`
+   - **Repository name:** `simconnect-mcp`
+   - **Workflow name:** `release.yml`
+   - **Environment name:** leave blank
+3. Leave the MCP Registry alone — `mcp-publisher login github-oidc` authorises
+   itself from the workflow's OIDC token, and the server name
+   `io.github.robin24/simconnect-mcp` already matches the repository owner.
+
 ## License
 
 Copyright (C) 2025-2026 Robin Kipp
