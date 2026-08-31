@@ -147,4 +147,4 @@ Increment a counter:
 - Always specify units for A: variables
 - L: variables don't use units
 - The calculator runs synchronously in the sim's gauge update loop
-- Use `execute_calculator_code()` to run RPN from the MCP server
+- Use `msfs_execute_calculator_code()` to run RPN from the MCP server

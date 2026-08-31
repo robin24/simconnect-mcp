@@ -4,21 +4,21 @@ SimVars are the primary way to read (and sometimes write) the state of the aircr
 
 ## Reading SimVars
 
-Use `get_simvar(name, unit)` to read a variable. The unit parameter is optional — if omitted, the default unit is used.
+Use `msfs_get_simvar(name, unit)` to read a variable. The unit parameter is optional — if omitted, the default unit is used.
 
 ```
-get_simvar("PLANE_ALTITUDE", "feet")      → 35000.0
-get_simvar("PLANE_ALTITUDE", "meters")    → 10668.0
-get_simvar("AIRSPEED_INDICATED", "knots") → 250.0
+msfs_get_simvar("PLANE_ALTITUDE", "feet")      → 35000.0
+msfs_get_simvar("PLANE_ALTITUDE", "meters")    → 10668.0
+msfs_get_simvar("AIRSPEED_INDICATED", "knots") → 250.0
 ```
 
 ## Writing SimVars
 
-Only SimVars marked as **settable** can be written. Use `set_simvar(name, value, unit)`.
+Use `msfs_set_simvar(name, value, unit)` to write to a variable. The catalog's **settable** flag is advisory only — it has false negatives, meaning some variables marked read-only will accept writes in the real sim. The tool always attempts the write and reports whether it succeeded.
 
 ```
-set_simvar("PLANE_LATITUDE", 47.6062, "degrees")
-set_simvar("AUTOPILOT_HEADING_LOCK_DIR", 270, "degrees")
+msfs_set_simvar("PLANE_LATITUDE", 47.6062, "degrees")
+msfs_set_simvar("AUTOPILOT_HEADING_LOCK_DIR", 270, "degrees")
 ```
 
 ## Indexed SimVars
@@ -26,8 +26,8 @@ set_simvar("AUTOPILOT_HEADING_LOCK_DIR", 270, "degrees")
 Engine and other multi-instance variables use an index (starting at 1):
 
 ```
-get_simvar("ENG_N1_RPM", index=1)   → Engine 1 N1
-get_simvar("ENG_N1_RPM", index=2)   → Engine 2 N1
+msfs_get_simvar("ENG_N1_RPM", index=1)   → Engine 1 N1
+msfs_get_simvar("ENG_N1_RPM", index=2)   → Engine 2 N1
 ```
 
 ## Aircraft Position

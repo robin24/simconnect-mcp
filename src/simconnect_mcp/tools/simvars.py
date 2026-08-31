@@ -3,391 +3,453 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import re
 import time
-from pathlib import Path
-from typing import Any
+from typing import Annotated
+
+from pydantic import Field
 
 from simconnect_mcp.connection import SimConnectManager
+from simconnect_mcp.data.simvar_catalog import (
+    load_catalog,
+    lookup,
+    resolve_unit,
+    search_catalog,
+    suggest_names,
+)
+from simconnect_mcp.simvar_access import (
+    SimVarBatchTimeoutError,
+    SimVarError,
+    SimVarNotFoundError,
+    SimVarNotSettableError,
+    SimVarTimeoutError,
+    UnitMismatchError,
+)
 from simconnect_mcp.tools import handle_simconnect_errors, require_connection
+from simconnect_mcp.tools.formatting import (
+    DEFAULT_LIMIT,
+    ResponseFormat,
+    build_search_result,
+)
+from simconnect_mcp.tools.models import (
+    CategoryList,
+    SearchResult,
+    SimVarBulkResult,
+    SimVarValue,
+    SimVarWriteResult,
+    ToolError,
+    WatchResult,
+    WatchSample,
+    error_from,
+)
 
-# --- SimVar catalog (loaded once from embedded JSON-like data) ---
-
-_SIMVAR_CATALOG: dict[str, list[dict]] | None = None
-_FLAT_SIMVARS: list[dict] | None = None
-
-
-def _load_catalog() -> dict[str, list[dict]]:
-    """Load SimVar catalog from bundled JSON, SimConnect package, or builtin fallback."""
-    global _SIMVAR_CATALOG, _FLAT_SIMVARS
-    if _SIMVAR_CATALOG is not None:
-        return _SIMVAR_CATALOG
-
-    catalog: dict[str, list[dict]] = {}
-
-    # 1. Try bundled JSON catalog (comprehensive, ~850 vars)
-    json_path = Path(__file__).parent.parent / "data" / "simvars_catalog.json"
-    if json_path.exists():
-        try:
-            raw = json.loads(json_path.read_text(encoding="utf-8"))
-            for category_name, vars_list in raw.items():
-                entries = []
-                for v in vars_list:
-                    entries.append({
-                        "name": v["name"],
-                        "category": category_name,
-                        "description": v.get("description", ""),
-                        "units": v.get("unit", ""),
-                        "settable": v.get("settable", False),
-                    })
-                if entries:
-                    catalog[category_name] = entries
-        except Exception:
-            catalog = {}
-
-    # 2. Fallback: try SimConnect package's AircraftRequests data
-    if not catalog:
-        try:
-            from SimConnect.RequestList import AircraftRequests
-            import re as _re
-
-            # Parse the inner class list dicts without instantiating (needs no connection)
-            import inspect
-            source = inspect.getsource(AircraftRequests)
-            for match in _re.finditer(
-                r'"(\w[\w:]*)":\s*\["([^"]*)",\s*b\'([^\']*)\',\s*b\'([^\']*)\',\s*\'([YN])\'\]',
-                source,
-            ):
-                name, desc, _simvar, unit, settable = match.groups()
-                cat = "SimConnect"
-                entry = {
-                    "name": name,
-                    "category": cat,
-                    "description": desc,
-                    "units": unit,
-                    "settable": settable == "Y",
-                }
-                catalog.setdefault(cat, []).append(entry)
-        except Exception:
-            pass
-
-    # 3. Last resort: minimal builtin catalog
-    if not catalog:
-        catalog = _builtin_catalog()
-
-    _SIMVAR_CATALOG = catalog
-    _FLAT_SIMVARS = [v for cats in catalog.values() for v in cats]
-    return catalog
+# get_simvar_bulk's list is caller-supplied and otherwise uncapped; without a
+# limit, a large enough list makes read_many hold _sim_lock for the whole
+# batch's total timeout budget (see SimVarAccessor.read_many). 100 keeps a
+# single call well within a couple of seconds even in the worst case.
+MAX_BULK_VARIABLES = 100
 
 
-def _builtin_catalog() -> dict[str, list[dict]]:
-    """Minimal built-in SimVar catalog for common variables."""
-    return {
-        "Aircraft Position": [
-            {"name": "PLANE_LATITUDE", "category": "Aircraft Position", "units": "degrees", "settable": True, "description": "Latitude of aircraft"},
-            {"name": "PLANE_LONGITUDE", "category": "Aircraft Position", "units": "degrees", "settable": True, "description": "Longitude of aircraft"},
-            {"name": "PLANE_ALTITUDE", "category": "Aircraft Position", "units": "feet", "settable": True, "description": "Altitude of aircraft"},
-            {"name": "PLANE_HEADING_DEGREES_TRUE", "category": "Aircraft Position", "units": "degrees", "settable": False, "description": "Heading relative to true north"},
-            {"name": "PLANE_HEADING_DEGREES_MAGNETIC", "category": "Aircraft Position", "units": "degrees", "settable": False, "description": "Heading relative to magnetic north"},
-            {"name": "GROUND_ALTITUDE", "category": "Aircraft Position", "units": "feet", "settable": False, "description": "Altitude of ground below aircraft"},
-            {"name": "SIM_ON_GROUND", "category": "Aircraft Position", "units": "bool", "settable": False, "description": "Whether aircraft is on the ground"},
-        ],
-        "Aircraft Speed": [
-            {"name": "AIRSPEED_INDICATED", "category": "Aircraft Speed", "units": "knots", "settable": False, "description": "Indicated airspeed"},
-            {"name": "AIRSPEED_TRUE", "category": "Aircraft Speed", "units": "knots", "settable": False, "description": "True airspeed"},
-            {"name": "GROUND_VELOCITY", "category": "Aircraft Speed", "units": "knots", "settable": False, "description": "Ground speed"},
-            {"name": "VERTICAL_SPEED", "category": "Aircraft Speed", "units": "feet per minute", "settable": False, "description": "Vertical speed"},
-        ],
-        "Aircraft Controls": [
-            {"name": "ELEVATOR_POSITION", "category": "Aircraft Controls", "units": "position", "settable": True, "description": "Elevator position"},
-            {"name": "AILERON_POSITION", "category": "Aircraft Controls", "units": "position", "settable": True, "description": "Aileron position"},
-            {"name": "RUDDER_POSITION", "category": "Aircraft Controls", "units": "position", "settable": True, "description": "Rudder position"},
-            {"name": "FLAPS_HANDLE_INDEX", "category": "Aircraft Controls", "units": "number", "settable": True, "description": "Flaps handle position index"},
-            {"name": "GEAR_HANDLE_POSITION", "category": "Aircraft Controls", "units": "bool", "settable": True, "description": "Landing gear handle position"},
-            {"name": "SPOILERS_HANDLE_POSITION", "category": "Aircraft Controls", "units": "percent", "settable": True, "description": "Spoilers handle position"},
-        ],
-        "Aircraft Engine": [
-            {"name": "GENERAL_ENG_THROTTLE_LEVER_POSITION:index", "category": "Aircraft Engine", "units": "percent", "settable": True, "description": "Throttle lever position (indexed by engine)"},
-            {"name": "ENG_N1_RPM:index", "category": "Aircraft Engine", "units": "percent", "settable": False, "description": "Engine N1 RPM percentage"},
-            {"name": "ENG_N2_RPM:index", "category": "Aircraft Engine", "units": "percent", "settable": False, "description": "Engine N2 RPM percentage"},
-            {"name": "FUEL_TOTAL_QUANTITY", "category": "Aircraft Engine", "units": "gallons", "settable": False, "description": "Total fuel quantity"},
-            {"name": "FUEL_TOTAL_QUANTITY_WEIGHT", "category": "Aircraft Engine", "units": "pounds", "settable": False, "description": "Total fuel weight"},
-        ],
-        "Aircraft Electrical": [
-            {"name": "ELECTRICAL_MASTER_BATTERY", "category": "Aircraft Electrical", "units": "bool", "settable": False, "description": "Master battery switch"},
-            {"name": "ELECTRICAL_AVIONICS_BUS_VOLTAGE", "category": "Aircraft Electrical", "units": "volts", "settable": False, "description": "Avionics bus voltage"},
-            {"name": "GENERAL_ENG_GENERATOR_ACTIVE:index", "category": "Aircraft Electrical", "units": "bool", "settable": False, "description": "Generator active (indexed)"},
-        ],
-        "Autopilot": [
-            {"name": "AUTOPILOT_MASTER", "category": "Autopilot", "units": "bool", "settable": False, "description": "Autopilot master switch"},
-            {"name": "AUTOPILOT_HEADING_LOCK_DIR", "category": "Autopilot", "units": "degrees", "settable": True, "description": "Autopilot heading bug direction"},
-            {"name": "AUTOPILOT_ALTITUDE_LOCK_VAR", "category": "Autopilot", "units": "feet", "settable": True, "description": "Autopilot target altitude"},
-            {"name": "AUTOPILOT_VERTICAL_HOLD_VAR", "category": "Autopilot", "units": "feet per minute", "settable": True, "description": "Autopilot target vertical speed"},
-            {"name": "AUTOPILOT_AIRSPEED_HOLD_VAR", "category": "Autopilot", "units": "knots", "settable": True, "description": "Autopilot target airspeed"},
-        ],
-        "Environment": [
-            {"name": "AMBIENT_TEMPERATURE", "category": "Environment", "units": "celsius", "settable": False, "description": "Outside air temperature"},
-            {"name": "AMBIENT_WIND_VELOCITY", "category": "Environment", "units": "knots", "settable": False, "description": "Wind speed"},
-            {"name": "AMBIENT_WIND_DIRECTION", "category": "Environment", "units": "degrees", "settable": False, "description": "Wind direction"},
-            {"name": "BAROMETER_PRESSURE", "category": "Environment", "units": "millibars", "settable": False, "description": "Barometric pressure"},
-            {"name": "SEA_LEVEL_PRESSURE", "category": "Environment", "units": "millibars", "settable": False, "description": "Sea level pressure"},
-        ],
-        "Miscellaneous": [
-            {"name": "TITLE", "category": "Miscellaneous", "units": "string", "settable": False, "description": "Aircraft title"},
-            {"name": "ATC_TYPE", "category": "Miscellaneous", "units": "string", "settable": False, "description": "ATC aircraft type"},
-            {"name": "ATC_ID", "category": "Miscellaneous", "units": "string", "settable": False, "description": "ATC aircraft ID"},
-            {"name": "SIMULATION_RATE", "category": "Miscellaneous", "units": "number", "settable": False, "description": "Current simulation rate"},
-            {"name": "ABSOLUTE_TIME", "category": "Miscellaneous", "units": "seconds", "settable": False, "description": "Absolute simulation time"},
-            {"name": "ZULU_TIME", "category": "Miscellaneous", "units": "seconds", "settable": False, "description": "Zulu time of day"},
-            {"name": "LOCAL_TIME", "category": "Miscellaneous", "units": "seconds", "settable": False, "description": "Local time of day"},
-        ],
-    }
+def _disambiguate_not_found(name: str, unit: str | None) -> ToolError | None:
+    """Tell a bad unit apart from a bad name.
+
+    SimConnect raises the same NAME_UNRECOGNIZED for an unknown variable and
+    for a known variable with an invalid unit (verified against a live sim),
+    so the exception alone cannot distinguish them. The catalog can: if we
+    know this variable and the caller supplied a unit, the name is fine and
+    the unit is what was rejected.
+
+    Returns a UNIT_MISMATCH envelope, or None to fall through to
+    SIMVAR_NOT_FOUND. `unit` must be truthy -- with no caller unit we used
+    the catalog's own, so a failure there is a genuine name problem.
+    """
+    if not unit or lookup(name) is None:
+        return None
+    return ToolError(
+        error="UNIT_MISMATCH",
+        message=f"SimConnect rejected unit '{unit}' for SimVar '{name}'.",
+        suggestion=(
+            f"'{name}' is measured in '{resolve_unit(name, None)}'. Omit the unit "
+            "argument to use that, or pass a compatible SimConnect unit."
+        ),
+    )
 
 
-def _search_catalog(keyword: str, category: str | None = None) -> list[dict]:
-    """Search the SimVar catalog by keyword, optionally filtered by category."""
-    _load_catalog()
-    assert _FLAT_SIMVARS is not None
+def _simvar_error_envelope(e: SimVarError, name: str, unit: str | None) -> ToolError:
+    """Diagnose a SimVarError the same way for every SimVar-reading tool.
 
-    keyword_lower = keyword.lower()
-    results = []
-    for var in _FLAT_SIMVARS:
-        if category and var.get("category", "").lower() != category.lower():
-            continue
-        searchable = f"{var.get('name', '')} {var.get('description', '')}".lower()
-        if keyword_lower in searchable:
-            results.append(var)
-    return results[:50]  # Cap results
+    Before this, three call sites gave three different diagnoses for the
+    identical underlying failure (a bad unit on an otherwise valid,
+    known variable): get_simvar correctly reported UNIT_MISMATCH naming the
+    real unit; watch_simvar reported the unrelated SIMVAR_NOT_READABLE with
+    "check the name" -- wrong advice, since the name was fine; and
+    get_simvar_bulk surfaced read_many's raw SimVarNotFoundError message
+    ("SimConnect does not recognise SimVar ..."), which is actively
+    misleading when the unit, not the name, was the problem. get_simvar,
+    watch_simvar and get_simvar_bulk all route through this now, so one
+    situation gets one diagnosis everywhere.
 
-
-def _fuzzy_suggest(name: str) -> list[str]:
-    """Return up to 5 similar SimVar names for typo suggestions."""
-    _load_catalog()
-    assert _FLAT_SIMVARS is not None
-
-    name_lower = name.lower().replace(" ", "_")
-    suggestions = []
-    for var in _FLAT_SIMVARS:
-        var_name = var["name"].lower()
-        # Simple substring match for suggestions
-        if name_lower[:4] in var_name or var_name[:4] in name_lower:
-            suggestions.append(var["name"])
-            if len(suggestions) >= 5:
-                break
-    return suggestions
+    The catch-all also now delegates to error_from (models.py) instead of
+    keeping a second, separately-maintained "SIMVAR_ERROR" code: a bare
+    SimVarError used to be diagnosed as SIMVAR_ERROR here but SIMCONNECT_ERROR
+    by error_from's own fallback (reached whenever get_simvar/set_simvar let a
+    bare SimVarError fall through to the decorator) -- the same situation,
+    two different codes depending on which tool happened to see it.
+    """
+    if isinstance(e, SimVarNotFoundError):
+        mismatch = _disambiguate_not_found(name, unit)
+        if mismatch is not None:
+            return mismatch
+        return ToolError(
+            error="SIMVAR_NOT_FOUND",
+            message=f"SimConnect does not recognise SimVar '{name}'",
+            suggestion="Use msfs_search_simvars to find the correct name.",
+            suggestions=suggest_names(name) or None,
+        )
+    if isinstance(e, UnitMismatchError):
+        return ToolError(
+            error="UNIT_MISMATCH",
+            message=str(e),
+            suggestion=(
+                f"Check the units for '{name}' with msfs_search_simvars, "
+                "or omit the unit argument to use the catalog default."
+            ),
+        )
+    # SimVarTimeoutError (and anything else, including a bare SimVarError)
+    # falls through to error_from: its SIM_TIMEOUT mapping in models.py's
+    # _ERROR_CODES is already word-for-word what a bespoke branch here would
+    # return, so a separate branch would be pure duplication -- exactly the
+    # kind of two-copies-of-one-fact drift risk this function exists to
+    # remove for the bare-SimVarError case below.
+    return error_from(e)
 
 
 @handle_simconnect_errors
-@require_connection
-async def get_simvar(name: str, unit: str | None = None, index: int | None = None) -> dict:
-    """Read a SimVar value by name.
+@require_connection(needs_accessor=True)
+async def get_simvar(
+    name: Annotated[
+        str,
+        Field(description="SimVar name, e.g. 'PLANE_ALTITUDE' or 'AIRSPEED_INDICATED'",
+              min_length=1, max_length=128),
+    ],
+    unit: Annotated[
+        str | None,
+        Field(description="Unit to read in, e.g. 'feet', 'meters', 'knots'. "
+                          "Defaults to the catalog unit for this variable."),
+    ] = None,
+    index: Annotated[
+        int | None,
+        Field(description="Index for indexed SimVars such as engine number. "
+                          "Index 0 is valid.", ge=0, le=64),
+    ] = None,
+) -> SimVarValue | ToolError:
+    """Read a SimVar value by name, in the requested unit.
 
-    Args:
-        name: SimVar name (e.g., 'PLANE_LATITUDE', 'AIRSPEED_INDICATED')
-        unit: Optional unit override (e.g., 'degrees', 'knots', 'feet')
-        index: Optional index for indexed SimVars (e.g., engine number 1-4)
-
-    Returns:
-        Dict with the variable name, value, and unit.
+    Returns the value together with the unit it was actually read in.
+    Use msfs_search_simvars first if you are unsure of the exact name or units.
     """
     manager = SimConnectManager()
-
-    def _read() -> Any:
-        # Build the request key
-        key = name
-        if index is not None:
-            key = f"{name}:{index}"
-
-        # Try via AircraftRequests first
-        try:
-            value = manager.aq.get(key)
-            if value is not None:
-                return value
-        except Exception:
-            pass
-
-        # Fallback: direct SimConnect data request
-        from SimConnect.Constants import DATATYPE_FLOAT64
-        req_name = key.replace(":", "_")
-        manager.sm.add_to_data_definition(
-            manager.sm.new_data_definition(), key, None, DATATYPE_FLOAT64
+    resolved_unit = resolve_unit(name, unit)
+    try:
+        value = await manager.run_sync(
+            lambda: manager.accessor.read(name, unit=unit, index=index)
         )
-        return None
-
-    value = await manager.run_sync(_read)
-
-    if value is None:
-        suggestions = _fuzzy_suggest(name)
-        result: dict[str, Any] = {
-            "status": "error",
-            "error": "SIMVAR_NOT_FOUND",
-            "message": f"Could not read SimVar '{name}'",
-        }
-        if suggestions:
-            result["suggestions"] = suggestions
-        return result
-
-    return {
-        "status": "ok",
-        "name": name,
-        "value": value,
-        "unit": unit or "default",
-        "index": index,
-    }
+    except SimVarError as e:
+        return _simvar_error_envelope(e, name, unit)
+    return SimVarValue(name=name, value=value, unit=resolved_unit, index=index)
 
 
 @handle_simconnect_errors
-@require_connection
-async def set_simvar(name: str, value: float, unit: str | None = None, index: int | None = None) -> dict:
+@require_connection(needs_accessor=True)
+async def set_simvar(
+    name: Annotated[str, Field(description="SimVar name; must be settable",
+                               min_length=1, max_length=128)],
+    value: Annotated[float, Field(description="Value to write")],
+    unit: Annotated[
+        str | None,
+        Field(description="Unit the value is expressed in. Defaults to the catalog unit."),
+    ] = None,
+    index: Annotated[
+        int | None, Field(description="Index for indexed SimVars. Index 0 is valid.",
+                          ge=0, le=64)
+    ] = None,
+) -> SimVarWriteResult | ToolError:
     """Write a value to a settable SimVar.
 
-    Args:
-        name: SimVar name (must be settable)
-        value: Value to write
-        unit: Optional unit (e.g., 'degrees', 'feet')
-        index: Optional index for indexed SimVars
-
-    Returns:
-        Confirmation dict.
+    Fails with a specific error if the sim rejects the write, rather than
+    reporting success. Check the 'settable' flag with msfs_search_simvars first.
     """
     manager = SimConnectManager()
+    resolved_unit = resolve_unit(name, unit)
+    try:
+        # verify=True re-reads after the write. SimConnect does NOT raise for a
+        # write to a read-only variable -- it silently ignores it -- so read-back
+        # is the only way to tell the caller whether the value actually landed.
+        verified = await manager.run_sync(
+            lambda: manager.accessor.write(
+                name, value, unit=unit, index=index, verify=True
+            )
+        )
+    except SimVarNotSettableError as e:
+        return ToolError(
+            error="SIMVAR_NOT_SETTABLE",
+            message=str(e),
+            suggestion=(
+                f"'{name}' appears to be read-only. Look for an event that changes it "
+                "with msfs_search_events, or an aircraft-specific L-var with "
+                "msfs_search_lvars. "
+                "Note the catalog's 'settable' flag is unreliable, so a variable it "
+                "marks read-only may still accept writes."
+            ),
+        )
+    except SimVarError as e:
+        return _simvar_error_envelope(e, name, unit)
 
-    def _write() -> bool:
-        key = name
-        if index is not None:
-            key = f"{name}:{index}"
-        try:
-            manager.aq.set(key, value)
-            return True
-        except Exception as e:
-            raise RuntimeError(f"Failed to set SimVar '{name}': {e}") from e
+    warning = None
+    if verified is False:
+        warning = (
+            f"The write was sent but '{name}' did not change. SimConnect does not "
+            "reject writes to read-only variables, so this usually means the "
+            "variable is not settable. It can also mean the sim immediately "
+            "overrode the value."
+        )
+    return SimVarWriteResult(
+        name=name,
+        value_set=value,
+        unit=resolved_unit,
+        index=index,
+        verified=verified,
+        warning=warning,
+    )
 
-    success = await manager.run_sync(_write)
 
-    return {
-        "status": "ok",
-        "name": name,
-        "value_set": value,
-        "unit": unit or "default",
-        "index": index,
-    }
+# Maps read_many()'s per-entry error_type string back to the exception class,
+# so a bulk entry's failure can be diagnosed through the same
+# _simvar_error_envelope logic get_simvar uses. read_many only hands back the
+# class *name* (it isolates failures into plain dicts, not exception
+# instances), so this is the inverse of `type(e).__name__`.
+_ERROR_TYPE_MAP: dict[str, type[SimVarError]] = {
+    "SimVarNotFoundError": SimVarNotFoundError,
+    "UnitMismatchError": UnitMismatchError,
+    "SimVarTimeoutError": SimVarTimeoutError,
+    "SimVarBatchTimeoutError": SimVarBatchTimeoutError,
+    "SimVarNotSettableError": SimVarNotSettableError,
+}
+
+
+def diagnose_bulk_entries(
+    results: dict[str, dict], caller_units: dict[str, str | None] | None = None
+) -> tuple[int, int]:
+    """Diagnose every failed entry of a read_many result, in place.
+
+    Returns (ok_count, error_count).
+
+    read_many isolates failures into plain dicts carrying a raw exception
+    message and the exception's class *name*, so without this an entry
+    reaches the agent as an undiagnosed string with no error code and no
+    suggestion. get_simvar_bulk did this inline while get_aircraft_snapshot
+    did not, so the same failure was actionable through one tool and opaque
+    through the other; both call this now.
+
+    `caller_units` maps the same keys read_many produces to the unit the
+    caller actually asked for -- the distinction _disambiguate_not_found
+    needs to tell a bad unit apart from a bad name, which read_many's
+    already-resolved unit cannot supply.
+    """
+    errors = 0
+    for key, entry in results.items():
+        error_type = entry.get("error_type")
+        if error_type is None:
+            continue
+        errors += 1
+        name = key.split(":", 1)[0]
+        exc_cls = _ERROR_TYPE_MAP.get(error_type, SimVarError)
+        unit = caller_units.get(key) if caller_units else None
+        envelope = _simvar_error_envelope(exc_cls(entry["error"]), name, unit)
+        entry["error"] = envelope.message
+        entry["error_code"] = envelope.error
+        entry["suggestion"] = envelope.suggestion
+        if envelope.suggestions:
+            entry["suggestions"] = envelope.suggestions
+    return len(results) - errors, errors
 
 
 @handle_simconnect_errors
-@require_connection
-async def get_simvar_bulk(variables: list[dict]) -> dict:
-    """Read multiple SimVars at once.
+@require_connection(needs_accessor=True)
+async def get_simvar_bulk(
+    variables: Annotated[
+        list[dict],
+        Field(description="Variables to read. Each dict takes 'name' and optional "
+                          "'unit' and 'index'. Example: "
+                          '[{"name": "PLANE_LATITUDE"}, '
+                          '{"name": "ENG_N1_RPM", "index": 1, "unit": "percent"}]. '
+                          f"At most {MAX_BULK_VARIABLES} entries per call."),
+    ],
+) -> SimVarBulkResult | ToolError:
+    """Read several SimVars in one call.
 
-    Args:
-        variables: List of dicts, each with 'name' and optional 'unit', 'index'.
-                   Example: [{"name": "PLANE_LATITUDE"}, {"name": "AIRSPEED_INDICATED", "unit": "knots"}]
-
-    Returns:
-        Dict with results for each variable.
+    Results are keyed by 'NAME' or 'NAME:index'. A failure on one variable
+    does not abort the others -- that entry carries an 'error' instead.
     """
+    # Deliberately no min_length/max_length on the Field above: FastMCP
+    # validates a tool's arguments against its Pydantic-derived schema
+    # BEFORE the function body runs, so a schema-level max_length here would
+    # reject an over-limit call with a generic framework validation error
+    # and this handler -- and its friendly, actionable TOO_MANY_VARIABLES
+    # ToolError below -- would never run for a real MCP caller (confirmed
+    # against the installed mcp SDK's FuncMetadata.call_fn_with_arg_validation,
+    # which calls arg_model.model_validate(...) ahead of invoking the tool).
+    # Only a direct Python call (as tests do) would ever reach it, silently
+    # testing a path real callers can't take. The runtime check below is the
+    # only enforcement, so it stays reachable and keeps its own error shape.
+    if len(variables) > MAX_BULK_VARIABLES:
+        return ToolError(
+            error="TOO_MANY_VARIABLES",
+            message=(
+                f"Requested {len(variables)} variables; msfs_get_simvars_bulk accepts at "
+                f"most {MAX_BULK_VARIABLES} per call."
+            ),
+            suggestion=f"Split the request into batches of {MAX_BULK_VARIABLES} or fewer.",
+        )
+
     manager = SimConnectManager()
-    results = {}
+    # read_many only sees the resolved unit, not whether the caller supplied
+    # one -- and that distinction is exactly what _disambiguate_not_found
+    # (via _simvar_error_envelope) needs to tell a bad unit apart from a bad
+    # name. Keep the caller-supplied unit per key so a failed entry can be
+    # diagnosed after the fact.
+    caller_units: dict[str, str | None] = {}
+    requests = []
+    for var in variables:
+        name = var["name"]
+        unit = var.get("unit")
+        index = var.get("index")  # index 0 must survive
+        key = name if index is None else f"{name}:{index}"
+        caller_units[key] = unit
+        requests.append((name, unit, index))
 
-    def _read_all() -> dict:
-        out = {}
-        for var in variables:
-            var_name = var["name"]
-            idx = var.get("index")
-            key = f"{var_name}:{idx}" if idx else var_name
-            try:
-                val = manager.aq.get(key)
-                out[var_name] = {"value": val, "unit": var.get("unit", "default")}
-            except Exception as e:
-                out[var_name] = {"error": str(e)}
-        return out
+    # No timeout argument: read_many sizes the batch budget from the number
+    # of requests itself (see SimVarAccessor.read_many). It used to take a
+    # TOTAL budget defaulting to one variable's worth, so this call -- for
+    # up to MAX_BULK_VARIABLES variables -- ran on a single read's budget.
+    results = await manager.run_sync(lambda: manager.accessor.read_many(requests))
 
-    results = await manager.run_sync(_read_all)
-    return {"status": "ok", "variables": results}
+    ok_count, error_count = diagnose_bulk_entries(results, caller_units)
+
+    return SimVarBulkResult(
+        count=len(results),
+        ok_count=ok_count,
+        error_count=error_count,
+        variables=results,
+    )
+
+
+SIMVAR_COLUMNS = [
+    ("name", "Name"),
+    ("units", "Units"),
+    ("settable", "Settable"),
+    ("category", "Category"),
+    ("description", "Description"),
+]
 
 
 @handle_simconnect_errors
-async def search_simvars(keyword: str, category: str | None = None) -> dict:
-    """Search SimVars by keyword, optionally filtered by category.
+async def search_simvars(
+    keyword: Annotated[str, Field(description="Search term, e.g. 'altitude', 'engine'",
+                                  min_length=1, max_length=100)],
+    category: Annotated[
+        str | None, Field(description="Restrict to one category, e.g. 'Aircraft Position'")
+    ] = None,
+    limit: Annotated[int, Field(description="Maximum results", ge=1, le=200)] = DEFAULT_LIMIT,
+    offset: Annotated[int, Field(description="Results to skip, for paging", ge=0)] = 0,
+    response_format: Annotated[
+        ResponseFormat, Field(description="'markdown' for a compact table, 'json' for rows")
+    ] = ResponseFormat.MARKDOWN,
+) -> SearchResult | ToolError:
+    """Search the SimVar catalog by keyword.
 
-    Args:
-        keyword: Search term (e.g., 'altitude', 'engine', 'heading')
-        category: Optional category filter (e.g., 'Aircraft Position')
-
-    Returns:
-        Dict with matching SimVars.
+    Returns each variable's units and whether it is settable, so you can call
+    msfs_get_simvar or msfs_set_simvar with the right arguments. Results are
+    paginated.
     """
-    results = _search_catalog(keyword, category)
-    return {
-        "status": "ok",
-        "count": len(results),
-        "results": results,
-        "keyword": keyword,
-        "category": category,
-    }
+    rows = search_catalog(keyword, category)
+    return build_search_result(
+        rows, offset, limit, response_format, SIMVAR_COLUMNS,
+        title=f"SimVars matching '{keyword}'",
+        query=keyword, filters={"category": category},
+    )
 
 
 @handle_simconnect_errors
-async def list_simvar_categories() -> dict:
-    """List all SimVar categories with variable counts.
+async def list_simvar_categories() -> CategoryList | ToolError:
+    """List every SimVar category with its variable count.
 
-    Returns:
-        Dict mapping category names to their variable count.
+    Use this to discover category names for the 'category' filter on
+    msfs_search_simvars.
     """
-    catalog = _load_catalog()
-    categories = {name: len(vars_) for name, vars_ in catalog.items()}
-    return {
-        "status": "ok",
-        "categories": categories,
-        "total_variables": sum(categories.values()),
-    }
+    catalog = load_catalog()
+    categories = {name: len(entries) for name, entries in catalog.items()}
+    return CategoryList(categories=categories, total_variables=sum(categories.values()))
 
 
 @handle_simconnect_errors
-@require_connection
+@require_connection(needs_accessor=True)
 async def watch_simvar(
-    name: str,
-    unit: str | None = None,
-    index: int | None = None,
-    interval_ms: int = 500,
-    duration_s: int = 5,
-) -> dict:
-    """Monitor a SimVar over time, returning a time-series for debugging.
+    name: Annotated[
+        str, Field(description="SimVar name to watch", min_length=1, max_length=128)
+    ],
+    unit: Annotated[
+        str | None,
+        Field(description="Unit to read in. Defaults to the catalog unit."),
+    ] = None,
+    index: Annotated[
+        int | None,
+        Field(description="Index for indexed SimVars. Index 0 is valid.", ge=0, le=64),
+    ] = None,
+    interval_ms: Annotated[
+        int, Field(description="Polling interval in milliseconds", ge=50, le=10000)
+    ] = 500,
+    duration_s: Annotated[
+        int, Field(description="Total sampling duration in seconds", ge=1, le=30)
+    ] = 5,
+) -> WatchResult | ToolError:
+    """Sample a SimVar over time, returning a time series for debugging.
 
-    Args:
-        name: SimVar name to watch
-        unit: Optional unit override
-        index: Optional index for indexed SimVars
-        interval_ms: Polling interval in milliseconds (default 500)
-        duration_s: Total duration in seconds (default 5, max 30)
-
-    Returns:
-        Time-series of values with timestamps.
+    Fails fast if the first read raises, rather than looping for the full
+    duration on a name or unit that will never work.
     """
     duration_s = min(duration_s, 30)
     interval_s = max(interval_ms / 1000.0, 0.05)
     manager = SimConnectManager()
+    resolved_unit = resolve_unit(name, unit)
 
     samples: list[dict] = []
+    errors = 0
     start = time.monotonic()
 
     while (time.monotonic() - start) < duration_s:
-        def _read() -> Any:
-            key = f"{name}:{index}" if index else name
-            return manager.aq.get(key)
-
-        value = await manager.run_sync(_read)
-        samples.append({
-            "t": round(time.monotonic() - start, 3),
-            "value": value,
-        })
+        try:
+            value = await manager.run_sync(
+                lambda: manager.accessor.read(name, unit=unit, index=index)
+            )
+            samples.append({"t": round(time.monotonic() - start, 3), "value": value})
+        except SimVarError as e:
+            errors += 1
+            if not samples:
+                # Fail fast on a name/unit that will never work, diagnosed
+                # the same way get_simvar diagnoses it. This used to always
+                # report SIMVAR_NOT_READABLE with "check the name" -- wrong
+                # advice for e.g. a bad unit on an otherwise valid, known
+                # variable, where the name was never the problem.
+                return _simvar_error_envelope(e, name, unit)
         await asyncio.sleep(interval_s)
 
-    return {
-        "status": "ok",
-        "name": name,
-        "unit": unit or "default",
-        "samples": samples,
-        "duration_s": duration_s,
-        "interval_ms": interval_ms,
-    }
+    return WatchResult(
+        name=name,
+        unit=resolved_unit,
+        index=index,
+        samples=[WatchSample(**s) for s in samples],
+        sample_count=len(samples),
+        error_count=errors,
+        duration_s=duration_s,
+        interval_ms=interval_ms,
+    )

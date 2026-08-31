@@ -1,3 +1,10 @@
+# Vendored from Koseng/MSFSPythonSimConnectMobiFlightExtension.
+# Local changes:
+#   * per-call logging demoted from INFO to DEBUG (a single L-var read
+#     otherwise emits four INFO lines).
+#   * response-channel strings (definition ID 0) are routed to registered
+#     handlers instead of being logged as "DefinitionID not found" and
+#     dropped -- this is what makes MF.LVars.List usable.
 import logging
 import struct
 from time import sleep
@@ -31,12 +38,13 @@ class MobiFlightVariableRequests:
         self.DATA_STRING_SIZE = 256
         self.DATA_STRING_OFFSET = 0
         self.DATA_STRING_DEFINITION_ID = 0
+        self.response_handlers = []
         self.sm.register_client_data_handler(self.client_data_callback_handler)
         self.initialize_client_data_areas()
 
 
     def add_to_client_data_definition(self, definition_id, offset, size):
-        logging.info("add_to_client_data_definition definition_id=%s, offset=%s, size=%s", definition_id, offset, size)
+        logging.debug("add_to_client_data_definition definition_id=%s, offset=%s, size=%s", definition_id, offset, size)
         self.sm.dll.AddToClientDataDefinition(
             self.sm.hSimConnect,
             definition_id, 
@@ -47,7 +55,7 @@ class MobiFlightVariableRequests:
 
     
     def subscribe_to_data_change(self, data_area_id, request_id, definition_id):
-        logging.info("subscribe_to_data_change data_area_id=%s, request_id=%s, definition_id=%s", data_area_id, request_id, definition_id)
+        logging.debug("subscribe_to_data_change data_area_id=%s, request_id=%s, definition_id=%s", data_area_id, request_id, definition_id)
         self.sm.dll.RequestClientData(
             self.sm.hSimConnect,
             data_area_id,
@@ -61,7 +69,7 @@ class MobiFlightVariableRequests:
 
 
     def send_data(self, data_area_id, definition_id, size, dataBytes):
-        logging.info("send_data data_area_id=%s, definition_id=%s, size=%s, dataBytes=%s", data_area_id, definition_id, size, dataBytes)
+        logging.debug("send_data data_area_id=%s, definition_id=%s, size=%s, dataBytes=%s", data_area_id, definition_id, size, dataBytes)
         self.sm.dll.SetClientData(
             self.sm.hSimConnect,
             data_area_id, 
@@ -73,7 +81,7 @@ class MobiFlightVariableRequests:
 
 
     def send_command(self, command):
-        logging.info("send_command command=%s", command)
+        logging.debug("send_command command=%s", command)
         data_byte_array = bytearray(command, "ascii")
         data_byte_array.extend(bytearray(self.DATA_STRING_SIZE - len(data_byte_array)))  # extend to fix DATA_STRING_SIZE
         self.send_data(self.CLIENT_DATA_AREA_CMD, self.DATA_STRING_DEFINITION_ID, self.DATA_STRING_SIZE, bytes(data_byte_array))
@@ -95,8 +103,24 @@ class MobiFlightVariableRequests:
         self.subscribe_to_data_change(self.CLIENT_DATA_AREA_RESPONSE, self.DATA_STRING_DEFINITION_ID, self.DATA_STRING_DEFINITION_ID)
 
 
+    def add_response_handler(self, handler):
+        """Register a callback for strings from the WASM response channel."""
+        if handler not in self.response_handlers:
+            self.response_handlers.append(handler)
+
+    def remove_response_handler(self, handler):
+        if handler in self.response_handlers:
+            self.response_handlers.remove(handler)
+
     # simconnect library callback
     def client_data_callback_handler(self, client_data):
+        # Definition 0 is the response channel: a 256-byte ASCII string.
+        # Variable definition IDs start at 1, so this never matched sim_vars
+        # and every response was previously logged away.
+        if client_data.dwDefineID == self.DATA_STRING_DEFINITION_ID:
+            self._deliver_response(client_data)
+            return
+
         if client_data.dwDefineID in self.sim_vars:
             data_bytes = struct.pack("I", client_data.dwData[0])
             float_data = struct.unpack('<f', data_bytes)[0]   # unpack delivers a tuple -> [0]
@@ -109,6 +133,33 @@ class MobiFlightVariableRequests:
             logging.debug("client_data_callback_handler %s, raw=%s", sim_var, float_value)
         else:
             logging.warning("client_data_callback_handler DefinitionID %s not found!", client_data.dwDefineID)
+
+    def _deliver_response(self, client_data):
+        """Decode the response string and fan it out to handlers.
+
+        dwData is a c_ulong*8192 ctypes array; slicing it directly (rather
+        than materialising the whole thing into a Python list first) avoids
+        allocating 8192 ints per message just to keep the first 64 -- this
+        runs on the dispatch thread once per response, and a single
+        MF.LVars.List produces over a thousand of them.
+        """
+        try:
+            words = client_data.dwData[: self.DATA_STRING_SIZE // 4]
+            raw = struct.pack(f"<{len(words)}I", *words)
+            text = raw.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
+        except Exception:
+            logging.debug("Could not decode WASM response payload", exc_info=True)
+            return
+
+        if not text:
+            return
+        logging.debug("WASM response: %s", text)
+        for handler in list(self.response_handlers):
+            try:
+                handler(text)
+            except Exception:
+                # One bad handler must not kill the dispatch thread.
+                logging.debug("Response handler raised", exc_info=True)
 
 
     def get(self, variableString):

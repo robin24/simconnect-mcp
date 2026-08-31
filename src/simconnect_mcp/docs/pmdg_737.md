@@ -61,10 +61,20 @@ The NG3 CDU character set adds up/down arrows the 777 does not have:
 
 ## Auto-Detection
 
-`get_pmdg_var`, `get_pmdg_cdu`, and `send_pmdg_event` auto-detect the loaded
-aircraft from the `TITLE` SimVar. Pass `variant="pmdg_737"` to force the NG3
-SDK, or `variant="pmdg_777"` for the 777. When detection fails, the event/var
-name is looked up in both catalogs and the first match wins.
+`msfs_get_pmdg_var`, `msfs_get_pmdg_cdu`, and `msfs_send_pmdg_event` auto-detect the loaded
+aircraft from the `TITLE` and `ATC_MODEL` SimVars (some liveries carry PMDG
+branding in `ATC_MODEL` while `TITLE` is terse, e.g. a freighter's `TITLE` is
+just "777F"). Pass `variant="pmdg_737"` to force the NG3 SDK, or
+`variant="pmdg_777"` for the 777. When TITLE/ATC_MODEL detection fails, each
+SDK's client data area is probed directly -- only the actually-loaded variant
+ever responds, which is authoritative even when the title/model carry no PMDG
+branding at all (live-verified: a PMDG 737-600 reports TITLE='737-600 PAX TC',
+matching no catalog's pattern). If the probe also finds nothing responding,
+the event/var name is looked up in both catalogs and the first match wins; if
+that also fails, the 777 catalog is used as a last-resort default. Every
+response carries a `variant_source` field (`"explicit"`, `"detected"`,
+`"probed"`, `"name_match"`, or `"fallback"`) so a caller can tell a real
+detection from a guess.
 
 ## Regenerating the Catalog
 

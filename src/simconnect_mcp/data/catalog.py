@@ -19,35 +19,54 @@ _TITLE_PATTERNS: dict[str, str] = {}
 
 
 def _load_all_catalogs() -> None:
-    """Load all JSON catalog files from the data directory."""
+    """Load aircraft L-var catalogs from the data directory.
+
+    `data/*.json` also matches simvars_catalog.json, which uses an unrelated
+    schema.  An aircraft catalog is identified by having both a non-empty
+    `title_pattern` and a non-empty `variables` list.
+    """
     if _catalogs:
         return
 
-    for path in DATA_DIR.glob("*.json"):
+    for path in sorted(DATA_DIR.glob("*.json")):
         try:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
-            key = path.stem  # e.g., "fenix_a320"
-            _catalogs[key] = data
-
-            # Register title pattern for auto-detection
-            pattern = data.get("title_pattern", "")
-            if pattern:
-                _TITLE_PATTERNS[pattern.lower()] = key
-
-            logger.info("Loaded L-var catalog: %s (%d variables)",
-                        key, len(data.get("variables", [])))
         except Exception as e:
             logger.warning("Failed to load catalog %s: %s", path, e)
+            continue
+
+        if not isinstance(data, dict):
+            continue
+        pattern = data.get("title_pattern", "")
+        variables = data.get("variables", [])
+        if not pattern or not variables:
+            logger.debug("Skipping %s: not an aircraft L-var catalog", path.name)
+            continue
+
+        key = path.stem
+        _catalogs[key] = data
+        _TITLE_PATTERNS[pattern.lower()] = key
+        logger.info("Loaded L-var catalog: %s (%d variables)", key, len(variables))
 
 
-def detect_catalog(aircraft_title: str) -> str | None:
-    """Detect which catalog matches the given aircraft title."""
+def detect_catalog(title: str | None, model: str | None = None) -> str | None:
+    """Detect which catalog matches the given aircraft TITLE or ATC_MODEL.
+
+    Checked in order: title, then model. Some add-ons set a terse TITLE
+    (e.g. a PMDG 777F's TITLE is "777F", which matches nothing) but carry
+    their vendor branding in ATC_MODEL instead, so both are checked against
+    every catalog's title_pattern before giving up. `model` is optional so
+    existing single-argument callers keep working unchanged.
+    """
     _load_all_catalogs()
-    title_lower = aircraft_title.lower()
-    for pattern, key in _TITLE_PATTERNS.items():
-        if pattern in title_lower:
-            return key
+    for candidate in (title, model):
+        if not candidate:
+            continue
+        candidate_lower = candidate.lower()
+        for pattern, key in _TITLE_PATTERNS.items():
+            if pattern in candidate_lower:
+                return key
     return None
 
 
@@ -90,6 +109,7 @@ def search_catalog(
 
     Returns:
         List of matching variable dicts, each with an added 'catalog' field.
+        Uncapped -- callers paginate.
     """
     _load_all_catalogs()
     results = []
@@ -152,9 +172,6 @@ def search_catalog(
             if matched:
                 result = {**var, "catalog": cat_key}
                 results.append(result)
-
-            if len(results) >= 50:
-                return results
 
     return results
 

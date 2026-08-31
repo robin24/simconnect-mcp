@@ -4,40 +4,32 @@ from __future__ import annotations
 
 import ctypes
 import time
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from simconnect_mcp.pmdg_ng3 import (
-    CDU_COLUMNS,
     CDU_COLOR_AMBER,
     CDU_COLOR_CYAN,
-    CDU_COLOR_GREEN,
-    CDU_COLOR_MAGENTA,
-    CDU_COLOR_NAMES,
-    CDU_COLOR_RED,
-    CDU_COLOR_WHITE,
+    CDU_COLUMNS,
     CDU_FLAG_REVERSE,
     CDU_FLAG_SMALL_FONT,
-    CDU_FLAG_UNUSED,
     CDU_ROWS,
-    CDU_Grid,
-    CDU_Row,
     PMDG_NG3_CDU_DEFINITIONS,
     PMDG_NG3_CDU_IDS,
     PMDG_NG3_CDU_NAMES,
+    PMDG_NG3_DATA_NAME,
+    THIRD_PARTY_EVENT_ID_MIN,
+    CDU_Grid,
+    CDU_Row,
     PMDG_NG3_CDU_Cell,
     PMDG_NG3_CDU_Screen,
-    PMDG_NG3_DATA_DEFINITION,
-    PMDG_NG3_DATA_ID,
-    PMDG_NG3_DATA_NAME,
     PMDG_NG3_DataStruct,
     PmdgNG3DataManager,
-    THIRD_PARTY_EVENT_ID_MIN,
     render_cdu_grid,
     render_cdu_text,
     resolve_pmdg_event,
 )
-
 
 # ---------------------------------------------------------------------------
 # CDU Cell struct
@@ -376,3 +368,202 @@ class TestCatalogDetection:
         from simconnect_mcp.data.catalog import detect_catalog
         assert detect_catalog("PMDG 777-300ER") == "pmdg_777"
         assert detect_catalog("PMDG 737-800") == "pmdg_737"
+
+
+# ---------------------------------------------------------------------------
+# tools.pmdg tool-layer functions, dispatched to the NG3 (737) variant
+#
+# Phase 1 Task 7 converts these from dict returns to Pydantic models. See
+# test_pmdg.py's equivalent section (777) for the same coverage on that
+# variant; these confirm the NG3 dispatch branch (a different catalog, a
+# narrower CDU range, and NG3's own resolve_pmdg_event import) behaves the
+# same way rather than assuming the 777 tests exercise both.
+# ---------------------------------------------------------------------------
+
+class TestGetPmdgVarToolNG3:
+    async def test_returns_a_model_with_explicit_variant(self, mock_simconnect):
+        from simconnect_mcp.pmdg_ng3 import PMDG_NG3_DataStruct, PmdgNG3DataManager
+        from simconnect_mcp.tools.models import PmdgVarResult
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgNG3DataManager(sm=manager.sm)
+        pmdg.data_subscribed = True
+        pmdg._data_struct = PMDG_NG3_DataStruct()
+        pmdg._data_struct.FCTL_YawDamper_Sw = True
+        pmdg._data_timestamp = time.time()
+        manager.pmdg_ng3 = pmdg
+
+        result = await get_pmdg_var("FCTL_YawDamper_Sw", variant="pmdg_737")
+
+        assert isinstance(result, PmdgVarResult)
+        assert result.name == "FCTL_YawDamper_Sw"
+        assert result.value is True
+        assert result.catalog == "pmdg_737"
+        assert result.variant_source == "explicit"
+
+    async def test_boolean_field_survives_as_a_bool_not_a_float(self, mock_simconnect):
+        """Regression, NG3 dispatch branch: see the identical 777 test in
+        test_pmdg.py for the full reasoning. PmdgVarResult.value used to be
+        typed float|int|str|None with no bool in the union, silently turning
+        a ctypes.c_bool field's True/False into 1.0/0.0."""
+        from simconnect_mcp.pmdg_ng3 import PMDG_NG3_DataStruct, PmdgNG3DataManager
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgNG3DataManager(sm=manager.sm)
+        pmdg.data_subscribed = True
+        pmdg._data_struct = PMDG_NG3_DataStruct()
+        pmdg._data_struct.FCTL_YawDamper_Sw = False
+        pmdg._data_timestamp = time.time()
+        manager.pmdg_ng3 = pmdg
+
+        off = await get_pmdg_var("FCTL_YawDamper_Sw", variant="pmdg_737")
+        assert off.value is False
+        assert type(off.value) is bool
+
+    async def test_reports_no_data_when_area_never_responds(self, mock_simconnect):
+        """asyncio.sleep is patched to a no-op so this exercises the real
+        20-iteration wait loop without taking two real seconds."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import get_pmdg_var
+
+        with patch("simconnect_mcp.tools.pmdg.asyncio.sleep", new=AsyncMock()):
+            result = await get_pmdg_var("FCTL_YawDamper_Sw", variant="pmdg_737")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "NO_DATA"
+
+
+class TestGetPmdgCduToolNG3:
+    async def test_returns_a_model_when_powered(self, mock_simconnect):
+        from simconnect_mcp.pmdg_ng3 import PMDG_NG3_CDU_Screen, PmdgNG3DataManager
+        from simconnect_mcp.tools.models import PmdgCduResult
+        from simconnect_mcp.tools.pmdg import get_pmdg_cdu
+
+        manager = mock_simconnect["manager"]
+        pmdg = PmdgNG3DataManager(sm=manager.sm)
+        screen = PMDG_NG3_CDU_Screen()
+        screen.Powered = True
+        screen.Cells[0][0].Symbol = ord("B")
+        pmdg.cdu_subscribed[1] = True
+        pmdg._cdu_screens[1] = screen
+        pmdg._cdu_timestamps[1] = time.time()
+        manager.pmdg_ng3 = pmdg
+
+        result = await get_pmdg_cdu(cdu=1, variant="pmdg_737")
+
+        assert isinstance(result, PmdgCduResult)
+        assert result.powered is True
+        assert result.cdu_name == "Right (F/O)"
+        assert result.rows is not None and result.rows[0][0] == "B"
+        assert result.catalog == "pmdg_737"
+        assert result.variant_source == "explicit"
+
+    async def test_rejects_cdu_index_2_which_only_777_has(self, mock_simconnect):
+        """NG3 only has 2 CDUs (0, 1); the 777's third index must be rejected
+        for this variant even though the shared Field bound allows up to 2."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import get_pmdg_cdu
+
+        result = await get_pmdg_cdu(cdu=2, variant="pmdg_737")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "INVALID_CDU"
+
+
+class TestSendPmdgEventToolNG3:
+    async def test_wraps_unknown_event_as_pmdg_event_not_found(self, mock_simconnect):
+        """Preserved Phase 0 behaviour, verified on the NG3 dispatch branch
+        (its own resolve_pmdg_event import) too, not just the 777's."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event("EVT_NONEXISTENT_NG3", variant="pmdg_737")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "PMDG_EVENT_NOT_FOUND"
+
+    async def test_returns_a_model_on_success(self, mock_simconnect):
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event(
+            "EVT_OH_PRESS_FLT_ALT_SET", parameter=12000, variant="pmdg_737"
+        )
+
+        assert isinstance(result, PmdgEventResult)
+        assert result.event == "EVT_OH_PRESS_FLT_ALT_SET"
+        assert result.parameter == 12000
+        assert result.catalog == "pmdg_737"
+        assert result.variant_source == "explicit"
+
+    async def test_control_data_event_message_says_accepted_not_successfully(
+        self, mock_simconnect
+    ):
+        """NG3 counterpart of TestSendPmdgEventTool's test of the same name
+        (test_pmdg.py) -- PmdgNG3DataManager.send_control (pmdg_ng3.py)
+        carries the identical correlation fix as PmdgDataManager's, and this
+        exercises that copy directly rather than assuming the two files
+        stayed in sync because they look alike."""
+        import threading
+
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        class MockRegistry:
+            def __init__(self):
+                self.pending_lock = threading.Lock()
+
+            def register(self, req):
+                pass
+
+            def bind_send_id(self, req, send_id, _locked=False):
+                req.done.set()  # no exception -- SimConnect accepted it
+
+            def discard(self, req):
+                pass
+
+        mock_simconnect["sm"].registry = MockRegistry()
+
+        result = await send_pmdg_event(
+            "EVT_OH_PRESS_FLT_ALT_SET", parameter=12000, variant="pmdg_737"
+        )
+
+        assert isinstance(result, PmdgEventResult)
+        assert "successfully" not in result.message.lower()
+        assert "accepted" in result.message.lower()
+
+    async def test_control_data_event_rejected_by_simconnect_is_an_error(
+        self, mock_simconnect
+    ):
+        """NG3 counterpart of the rejection case in test_pmdg.py."""
+        import threading
+
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        class MockRegistry:
+            def __init__(self):
+                self.pending_lock = threading.Lock()
+
+            def register(self, req):
+                pass
+
+            def bind_send_id(self, req, send_id, _locked=False):
+                req.exception = "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS"
+                req.done.set()
+
+            def discard(self, req):
+                pass
+
+        mock_simconnect["sm"].registry = MockRegistry()
+
+        result = await send_pmdg_event(
+            "EVT_OH_PRESS_FLT_ALT_SET", parameter=12000, variant="pmdg_737"
+        )
+
+        assert isinstance(result, ToolError)
+        assert result.error == "PMDG_CONTROL_REJECTED"
+        assert "SIMCONNECT_EXCEPTION_OUT_OF_BOUNDS" in result.message
+        assert result.suggestion

@@ -13,6 +13,8 @@ The MCP server ships two kinds of variable catalogs:
 
 Aircraft catalogs are auto-discovered on startup -- drop a `.json` file into the `data/` directory and it's live.
 
+> **No Fenix catalog ships.** A prior `fenix_a320.json` (1,433 plain L-vars, hand-curated) was removed in favor of HubHop's own broader, community-maintained `FenixSim` coverage (2,273 presets and growing, vs. a bundled snapshot that could only go stale). To get it back, follow Option A below with `--vendor FenixSim` in place of `PMDG` (see the `--vendor FenixSim` examples further down, under "Updating an Existing Catalog", for the exact syntax) and drop the result into `data/` -- it is auto-discovered the same as any other catalog, with no code change. Or skip the file entirely and search HubHop live via `msfs_search_hubhop(vendor="FenixSim")`.
+
 ## Quick Start: Adding a New Aircraft
 
 ### Option A: Generate from HubHop (recommended)
@@ -103,12 +105,12 @@ Not every aircraft has HubHop coverage. Here are other ways to find L-var names:
 With MSFS running and the aircraft loaded:
 
 ```
-list_lvars          -- enumerate all registered L-vars
-search_lvars("ap")  -- search by keyword
-list_lvar_panels    -- list panels from the loaded catalog
+msfs_list_lvars()                 -- enumerate registered L-vars (capped at 1000 names; see below)
+msfs_search_lvars("ap")           -- search by keyword
+msfs_browse_lvar_catalog()        -- list panels in the loaded aircraft's catalog
 ```
 
-This uses the MobiFlight WASM module to read the sim's internal variable table at runtime.
+This uses the MobiFlight WASM module to read the sim's internal variable table at runtime. The module caps `msfs_list_lvars()` at 1000 names and still reports the list as complete when it truncates — a busy add-on setup (GSX and similar) can crowd the aircraft's own variables out of the response entirely. Watch for `truncated: true` in the result, and don't treat a live listing as a guaranteed inventory: `msfs_get_lvar` can still read a name that never appeared in it.
 
 ### 2. MobiFlight Connector
 
@@ -175,7 +177,7 @@ Each catalog file follows this structure:
 The pattern must be a substring that uniquely identifies the aircraft when matched against the `TITLE` SimVar. To find the right value:
 
 1. Load the aircraft in MSFS
-2. Run `get_simvar("TITLE")`
+2. Run `msfs_get_simvar("TITLE")`
 3. Pick a substring unique to that aircraft (e.g. `"Fenix"`, `"PMDG 737"`, `"FlyByWire"`)
 
 If two catalogs match the same title, only the first match is used.
@@ -193,7 +195,7 @@ If two catalogs match the same title, only the first match is used.
 
 - Mark a variable `writable: true` only if writing to it actually does something in the sim.
 - For aircraft with prefix conventions (like Fenix), the prefix is a reliable guide: `S_`, `A_`, `E_` are writable; `N_`, `I_`, `B_` are read-only.
-- When in doubt, leave `writable` as `false`. The user can always try writing via `set_lvar` regardless.
+- When in doubt, leave `writable` as `false`. The user can always try writing via `msfs_set_lvar` regardless.
 
 ### The `values` field
 
@@ -210,7 +212,7 @@ Don't add `values` for continuous ranges (volumes, positions, counters) -- the n
 
 - A catalog with 200 well-categorized, accurately-described variables is more useful than one with 2,000 unlabeled names.
 - After generating from HubHop, review the output. Fix display names that are just abbreviations. Add `values` maps for important switches.
-- The Fenix A320 catalog (`fenix_a320.json`) is a good reference for what a polished catalog looks like.
+- The PMDG 737 NG3 catalog (`pmdg_737.json`) is a good reference for what a polished catalog looks like.
 
 ### Testing after changes
 

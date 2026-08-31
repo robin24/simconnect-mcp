@@ -33,14 +33,14 @@ MobiFlight creates L-vars (like `switch_01_a`) as **read-only annunciator output
 
 **Direct-set events** (MCP value setters like `EVT_MCP_ALT_SET`) write to the `PMDG_777X_Control` data area with the event ID and value:
 ```
-send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000)
+msfs_send_pmdg_event("EVT_MCP_ALT_SET", parameter=5000)
 ```
 
-The `send_pmdg_event` tool handles both methods automatically:
+The `msfs_send_pmdg_event` tool handles both methods automatically:
 ```
-send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")   # ROTOR_BRAKE
-send_pmdg_event("EVT_CDU_L_L1")                  # ROTOR_BRAKE
-send_pmdg_event("EVT_MCP_ALT_SET", parameter=35000)  # Control data area
+msfs_send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")   # ROTOR_BRAKE
+msfs_send_pmdg_event("EVT_CDU_L_L1")                  # ROTOR_BRAKE
+msfs_send_pmdg_event("EVT_MCP_ALT_SET", parameter=35000)  # Control data area
 ```
 
 The `ROTOR_BRAKE` carrier pattern is the community-standard method (via MobiFlight HubHop) for controlling PMDG aircraft from external tools. Direct-set events bypass this and use the native PMDG SDK Control data area.
@@ -67,11 +67,11 @@ The simconnect-mcp server provides three PMDG-specific tools:
 
 | Tool | Purpose | Example |
 |------|---------|---------|
-| `get_pmdg_var(name)` | Read any SDK data field | `get_pmdg_var("MCP_Heading")` → 360 |
-| `get_pmdg_cdu(cdu)` | Read CDU screen as text + structured grid | `get_pmdg_cdu(0)` → 14 rows of 24 chars with colors |
-| `send_pmdg_event(event_name, parameter)` | Send control events | `send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")` |
+| `msfs_get_pmdg_var(name)` | Read any SDK data field | `msfs_get_pmdg_var("MCP_Heading")` → 360 |
+| `msfs_get_pmdg_cdu(cdu)` | Read CDU screen as text + structured grid | `msfs_get_pmdg_cdu(0)` → 14 rows of 24 chars with colors |
+| `msfs_send_pmdg_event(event_name, parameter)` | Send control events | `msfs_send_pmdg_event("EVT_OH_ELEC_BATTERY_SWITCH")` |
 
-Use `search_lvars()` to discover available variables and events from the PMDG 777 catalog.
+Use `msfs_search_lvars()` to discover available variables and events from the PMDG 777 catalog.
 
 ### Binary Layout Note
 

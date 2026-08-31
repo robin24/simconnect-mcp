@@ -16,14 +16,11 @@ If the connection drops, wait a few seconds before retrying. The sim may be shut
 
 ## Data Requests
 
-### Do: Use AircraftRequests with caching
-```python
-aq = AircraftRequests(sm, _time=2000)  # Cache for 2 seconds
-value = aq.get("PLANE_ALTITUDE")  # Returns cached value if recent
-```
+### Do: Let the server manage data definitions
+`msfs_get_simvar`/`msfs_set_simvar` are backed by `SimVarAccessor`, which builds a SimConnect data definition for each (name, unit, index) combination the first time it's needed and reuses it afterward — this is automatic and not something a caller configures. There is no separate value-level cache: every call is a fresh read from (or write to) the sim, which is what makes an accurate `unit`, a variable outside the bundled catalog, a string variable, and an honest failure on a rejected write all possible. (If you've seen older SimConnect examples reach for `AircraftRequests(sm, _time=2000)` — a fixed table of ~828 variables, each bound to one hardcoded unit, that silently returns a stale cached value — this server does not use that mechanism.)
 
 ### Do: Batch related reads
-Use `get_simvar_bulk()` to read multiple variables at once rather than making many individual calls.
+Use `msfs_get_simvars_bulk()` to read multiple variables at once rather than making many individual calls.
 
 ### Don't: Poll at high frequency
 Reading SimVars too frequently wastes CPU. For most development purposes, 1-2 Hz is sufficient.
@@ -49,10 +46,10 @@ value = await asyncio.run_in_executor(None, lambda: aq.get("PLANE_ALTITUDE"))
 ## SimVar Gotchas
 
 ### Units matter
-`get_simvar("PLANE_ALTITUDE", "feet")` and `get_simvar("PLANE_ALTITUDE", "meters")` return different numbers. Always specify the unit you want.
+`msfs_get_simvar("PLANE_ALTITUDE", "feet")` and `msfs_get_simvar("PLANE_ALTITUDE", "meters")` return different numbers. Always specify the unit you want.
 
 ### Indexed variables start at 1
-Engine 1 is index 1, not 0: `get_simvar("ENG_N1_RPM", index=1)`
+Engine 1 is index 1, not 0: `msfs_get_simvar("ENG_N1_RPM", index=1)`
 
 ### Some SimVars need power
 Avionics variables may return 0 or None if the electrical system isn't powered.
@@ -68,8 +65,8 @@ Some SimVars marked as settable may be overridden by the sim's flight model or a
 ### Use events for actions, SimVars for state
 Read the current state with SimVars, change it with events:
 ```
-# Wrong: set_simvar("AUTOPILOT_MASTER", 1)  — may not work
-# Right: trigger_event("AP_MASTER")           — toggles the AP
+# Wrong: msfs_set_simvar("AUTOPILOT_MASTER", 1)  — may not work
+# Right: msfs_trigger_event("AP_MASTER")           — toggles the AP
 ```
 
 ### Parameter ranges vary
@@ -81,7 +78,16 @@ Read the current state with SimVars, change it with events:
 ## L-Var Best Practices
 
 ### Discover before assuming
-Use `list_lvars()` to see what's available. Don't guess L-var names.
+Use `msfs_search_lvars()` or `msfs_browse_lvar_catalog()` to look names up in
+the bundled catalogs, or `msfs_list_lvars()` to ask the MobiFlight WASM
+module directly. Don't guess L-var names.
+
+`msfs_list_lvars()` is capped at 1000 names by the WASM module itself,
+which still reports the list as complete when it truncates -- a busy
+add-on setup (GSX and similar) can crowd an aircraft's own variables out of
+the response entirely (watch for `truncated: true`). Treat any one source,
+catalog or live listing, as a starting point rather than a guaranteed
+inventory: a name missing from it may still exist on the aircraft.
 
 ### Rate-limit L-var reads
 Each MobiFlight L-var read goes through WASM — slower than native SimVars.
@@ -94,20 +100,19 @@ Always verify `mobiflight_available` before attempting L-var operations.
 ### Use the SimConnect MCP server for rapid iteration
 1. Start MSFS with your aircraft
 2. Connect the MCP server
-3. Use `get_simvar` / `get_lvar` to inspect live state
-4. Use `trigger_event` / `set_lvar` to test interactions
-5. Use `watch_simvar` to monitor behavior over time
+3. Use `msfs_get_simvar` / `msfs_get_lvar` to inspect live state
+4. Use `msfs_trigger_event` / `msfs_set_lvar` to test interactions
+5. Use `msfs_watch_simvar` to monitor behavior over time
 
 ### Teleport for scenario testing
-Use `set_aircraft_position()` to quickly set up test scenarios (approach, cruise, etc.).
+Use `msfs_set_aircraft_position()` to quickly set up test scenarios (approach, cruise, etc.).
 
-### Use `send_sim_text()` for visual feedback
+### Use `msfs_send_sim_text()` for visual feedback
 Display debug messages in the sim to confirm your add-on is responding.
 
 ## Performance
 
 - Limit SimVar polling to what you need
-- Use `AircraftRequests` caching (`_time` parameter)
-- Batch reads with `get_simvar_bulk()`
-- Don't enumerate all L-vars repeatedly — cache the list
+- Batch reads with `msfs_get_simvars_bulk()`
+- `msfs_list_lvars()` is capped at 1000 names by the WASM module and can be crowded out by other add-ons (see "Discover before assuming" above) — don't rely on repeated calls to build a definitive inventory. Use `msfs_get_lvar` for a name you already know, and the bundled catalogs (`msfs_search_lvars`, `msfs_browse_lvar_catalog`) as the more stable reference
 - Calculator code runs in the sim's gauge loop — keep it short

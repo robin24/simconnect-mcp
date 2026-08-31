@@ -1,11 +1,13 @@
 """Tests for the HubHop API client (no network calls)."""
 
+
 import json
+import threading
+import time
 
 import pytest
 
-from simconnect_mcp.data.hubhop import HubHopClient
-
+from simconnect_mcp.data.hubhop import _CACHE_TTL_S, HubHopClient
 
 # -- Fixtures --
 
@@ -61,10 +63,34 @@ SAMPLE_PRESETS = [
 @pytest.fixture
 def client():
     c = HubHopClient(cache=False)
-    # Inject sample data instead of fetching
+    # Inject sample data instead of fetching. _cache_time must be set
+    # alongside _cache: fetch_all's TTL check treats a missing timestamp as
+    # an expired cache (real code always sets both together in the same
+    # fetch; only a direct injection like this one could otherwise pull
+    # them apart), and every test below relies on fetch_presets never
+    # reaching the network.
     c._cache = SAMPLE_PRESETS
+    c._cache_time = time.monotonic()
     c._use_cache = True
     return c
+
+
+class _FakeResponse:
+    """Minimal stand-in for the context manager urllib.request.urlopen
+    returns, for tests that need fetch_all's real caching logic to run
+    rather than mocking fetch_all itself away."""
+
+    def __init__(self, payload: bytes) -> None:
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return self._payload
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *exc_info: object) -> bool:
+        return False
 
 
 # -- Tests --
@@ -225,6 +251,108 @@ class TestListMethods:
         assert "Engines" in sys_names
         assert "Autopilot" in sys_names
         assert "EFIS" in sys_names
+
+
+class TestCaching:
+    """fetch_all's in-memory cache: the lock that serializes concurrent
+    cold-cache callers, TTL expiry, and force_refresh. Added for Task 5's
+    review (Important-1, and the TTL/refresh adjudication) -- the earlier
+    version of fetch_all had no lock and cached forever."""
+
+    def test_concurrent_cold_cache_calls_fetch_only_once(self, monkeypatch):
+        """Two threads racing on a cold cache must not both pay for the
+        full fetch. fetch_all's self._lock serializes the whole
+        check-fetch-populate sequence, so the thread that loses the race
+        blocks until the winner finishes, then sees the now-warm cache
+        instead of fetching again."""
+        client = HubHopClient()
+        call_count = 0
+        count_lock = threading.Lock()
+        start_barrier = threading.Barrier(2)
+
+        def fake_urlopen(req, timeout=None):
+            nonlocal call_count
+            with count_lock:
+                call_count += 1
+            time.sleep(0.1)  # long enough that the second thread must wait, not race
+            return _FakeResponse(json.dumps(SAMPLE_PRESETS).encode())
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+        results: list[list[dict]] = []
+        results_lock = threading.Lock()
+
+        def worker():
+            start_barrier.wait(timeout=5)
+            data = client.fetch_all()
+            with results_lock:
+                results.append(data)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        assert call_count == 1, "both threads should share one fetch, not race into two"
+        assert len(results) == 2
+        assert results[0] == SAMPLE_PRESETS
+        assert results[1] == SAMPLE_PRESETS
+
+    def test_cache_is_reused_within_ttl(self, monkeypatch):
+        client = HubHopClient()
+        calls = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(timeout)
+            return _FakeResponse(json.dumps(SAMPLE_PRESETS).encode())
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+        first = client.fetch_all()
+        second = client.fetch_all()
+        assert len(calls) == 1
+        assert first == second == SAMPLE_PRESETS
+
+    def test_cache_refetches_after_ttl_expires(self, monkeypatch):
+        client = HubHopClient()
+        calls = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(timeout)
+            return _FakeResponse(json.dumps(SAMPLE_PRESETS).encode())
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+        client.fetch_all()
+        assert len(calls) == 1
+
+        # Simulate the TTL having elapsed without actually sleeping for it.
+        client._cache_time = time.monotonic() - _CACHE_TTL_S - 1
+        client.fetch_all()
+        assert len(calls) == 2, "an expired cache should trigger a re-fetch"
+
+    def test_force_refresh_bypasses_cache_but_repopulates_it(self, monkeypatch):
+        client = HubHopClient()
+        calls = []
+
+        def fake_urlopen(req, timeout=None):
+            calls.append(timeout)
+            return _FakeResponse(json.dumps(SAMPLE_PRESETS).encode())
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+        client.fetch_all()
+        assert len(calls) == 1
+
+        client.fetch_all(force_refresh=True)
+        assert len(calls) == 2, "force_refresh should bypass a still-fresh cache"
+
+        client.fetch_all()
+        assert len(calls) == 2, (
+            "force_refresh must not disable caching -- this call should reuse "
+            "what it just repopulated"
+        )
 
 
 class TestDisplayName:

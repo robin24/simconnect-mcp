@@ -52,14 +52,13 @@ SimConnect uses a request/response model. You define what data you want (a "data
 
 ## Python SimConnect Library
 
-This server uses the `SimConnect` Python package which wraps the native SimConnect DLL:
+This server uses the `SimConnect` Python package, which wraps the native SimConnect DLL, for its connection and event handling:
 
-- `SimConnect()` — opens connection
-- `AircraftRequests(sm)` — simplified SimVar read/write interface
+- `SimConnect()` — opens the connection; this server takes over its dispatch loop (see `SimConnectDispatcher`) so it can correlate responses and keep the library's `print()`-based branches out of the stdio stream
 - `AircraftEvents(sm)` — event triggering interface
-- `FacilitiesRequests(sm)` — airport/navaid data
+- `AircraftRequests(sm)` / `FacilitiesRequests(sm)` — present on the connection for compatibility, but not used for SimVar or facility access (see below)
 
-The `AircraftRequests` object caches values for a configurable time (`_time` parameter in ms) to avoid hammering the sim with requests.
+SimVar reads and writes do **not** go through `AircraftRequests`. That class binds a fixed table of ~828 variables to one hardcoded unit each, caches values for a configurable time (`_time` parameter in ms), and has no way to report a rejected write. This server's own `SimVarAccessor` builds SimConnect data definitions directly instead, which is what makes an accurate `unit`, a variable outside that fixed table, a string variable, and an honest write failure all possible. Facility lookups (airports, waypoints, NDBs, VORs) similarly bypass `FacilitiesRequests` — its `get()` returns `None` and its results only reach `dump()`, which prints to stdout and would corrupt this server's JSON-RPC stream — in favor of parsing the underlying `*_LIST` messages directly.
 
 ## Thread Safety
 

@@ -16,18 +16,34 @@ L-vars are NOT accessible through the standard SimConnect API. They require the 
 
 ### Reading
 ```python
-get_lvar("A32NX_EFIS_L_OPTION")  # Returns numeric value
+msfs_get_lvar("A32NX_EFIS_L_OPTION")  # Returns numeric value
 ```
 
 ### Writing
 ```python
-set_lvar("A32NX_EFIS_L_OPTION", 1)  # Set to 1
+msfs_set_lvar("A32NX_EFIS_L_OPTION", 1)  # Set to 1
 ```
 
 ### Discovering
+`msfs_list_lvars()` asks the MobiFlight WASM module to enumerate the
+variables the loaded aircraft has registered. The module caps its reply at
+1000 names and still reports the list as complete when it does — on an
+aircraft sharing the sim with add-ons like GSX, those 1000 names can be
+entirely someone else's, crowding the aircraft's own out (the response
+sets `truncated: true` when this happens). The bundled catalogs are a
+useful complement, not just a fallback:
+
 ```python
-list_lvars()  # Returns ALL active L-var names on current aircraft
+msfs_list_lvars()                        # live enumeration, capped at 1000 names
+msfs_search_lvars("seatbelt")            # keyword search, auto-detects the aircraft
+msfs_browse_lvar_catalog()               # the catalogs that ship with this server
+msfs_browse_lvar_catalog(catalog="pmdg_737", panel="COMMUNICATION")
 ```
+
+A catalog covers the variables that were catalogued for that aircraft, not
+necessarily everything it registers, and a live listing can be truncated
+by the cap above — either way, a name absent from both may still exist:
+`msfs_get_lvar` will read any name you can supply.
 
 ## Naming Conventions
 
@@ -72,7 +88,7 @@ L-vars can also be read/written via RPN calculator code:
 
 ## Tips
 
-1. **Use `list_lvars()` first** — discover what variables are available before trying to read specific ones
+1. **Look the name up first** — `msfs_search_lvars()`, `msfs_browse_lvar_catalog()`, or `msfs_list_lvars()` (capped at 1000 names, see "Discovering" above) for the variables the loaded aircraft has registered
 2. **L-var names are case-sensitive** — match the exact casing
 3. **Values are always numeric** (float) — booleans are 0/1, enums are integers
 4. **L-vars only exist while the aircraft is loaded** — they disappear when changing aircraft
