@@ -238,3 +238,38 @@ skip -- rather than fail -- when the loaded aircraft doesn't look like one
 whole suite the same way.
 
 The live suite under `tests/live/` is marked `@pytest.mark.live` and deselected by default (`pyproject.toml`'s `addopts = "-m 'not live'"`), so it never runs on a machine without MSFS — including CI. It requires MSFS running with an aircraft loaded; a connection failure is skipped rather than failed, but some files assume a specific aircraft is loaded (check that file's own module docstring before running it against an arbitrary airframe).
+
+## Releasing
+
+Pushing a `v*` tag is the whole release. `.github/workflows/release.yml` runs
+the mocked suite on Windows, rewrites the version from the tag (minus its `v`)
+into `pyproject.toml` and `server.json` via `scripts/set_version.py`, builds,
+publishes to PyPI, publishes to the MCP Registry, and commits the bump back to
+`main` in a separate job.
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+Notes for anyone changing this:
+
+- **Do not hand-edit the version in more than one place.** `pyproject.toml` is
+  authoritative; `src/simconnect_mcp/__init__.py` resolves its own version from
+  installed metadata, and `server.json` is rewritten by the release. Tests in
+  `tests/test_packaging.py` fail if these drift apart.
+- **`scripts/set_version.py` is unit-tested and pins its writes to LF** so it
+  produces identical bytes on the Linux runner and a Windows checkout. It is
+  covered by CI's lint step for the same reason: a bug there ships a wrong
+  version number to PyPI.
+- **Both publish steps authenticate via OIDC, not stored tokens** — hence
+  `id-token: write` on the `publish` job. PyPI additionally requires a trusted
+  publisher registered once through the PyPI web UI (project `simconnect-mcp`,
+  owner `robin24`, repo `simconnect-mcp`, workflow `release.yml`, no
+  environment). Without it, `uv publish` fails with an authentication error.
+- **The registry verifies PyPI ownership by finding `mcp-name:
+  io.github.robin24/simconnect-mcp` in the package description**, which is
+  `README.md`. Removing that marker from the README breaks registry publishing
+  even though nothing else notices.
+- **CI must stay on `windows-latest`** — `dispatch.py` and `facilities.py`
+  import `ctypes.wintypes` at module level, which does not import on Linux.

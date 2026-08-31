@@ -1,5 +1,7 @@
 # SimConnect MCP Server
 
+<!-- mcp-name: io.github.robin24/simconnect-mcp -->
+
 An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that connects AI coding agents to Microsoft Flight Simulator via SimConnect. This server is built for **add-on development** — full read/write access to SimVars, L-vars, events, calculator code execution, and embedded documentation.
 
 ## What It Does
@@ -19,18 +21,30 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 ## Prerequisites
 
 - **Microsoft Flight Simulator** (MSFS 2020 or 2024) running on the same machine
-- **Python 3.10+**
-- **[uv](https://docs.astral.sh/uv/)** (recommended) or pip
+- **[uv](https://docs.astral.sh/uv/)** — provides `uvx`, which fetches the server and its Python runtime for you
 - **MobiFlight WASM Module** (optional, for L-var support) — install in your MSFS Community folder. Download from [MobiFlight](https://www.mobiflight.com/)
 
 ## Installation
 
+Once [uv](https://docs.astral.sh/uv/) is installed, no separate install step is
+needed — `uvx` fetches and runs the server on demand:
+
 ```bash
-# Clone the repository
+uvx simconnect-mcp
+```
+
+That starts the server on stdio, which is what an MCP client does for you. Run
+it by hand only to check that it starts; press Ctrl+C to stop.
+
+To pin a version, use `uvx simconnect-mcp@1.0.0`.
+
+### From source (for development)
+
+```bash
 git clone https://github.com/robin24/simconnect-mcp.git
 cd simconnect-mcp
 
-# Install (creates the virtual environment and installs the dev group too)
+# Creates the virtual environment and installs the dev group too
 uv sync
 ```
 
@@ -41,13 +55,13 @@ uv sync
 **Via CLI:**
 
 ```bash
-claude mcp add --transport stdio simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+claude mcp add --transport stdio simconnect -- uvx simconnect-mcp
 ```
 
 Or to make it available across all projects:
 
 ```bash
-claude mcp add --transport stdio --scope user simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+claude mcp add --transport stdio --scope user simconnect -- uvx simconnect-mcp
 ```
 
 **Via JSON** (`~/.claude/settings.json` or project-level `.claude/settings.json`):
@@ -56,8 +70,8 @@ claude mcp add --transport stdio --scope user simconnect -- uv run --directory /
 {
   "mcpServers": {
     "simconnect": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/simconnect-mcp", "simconnect-mcp"]
+      "command": "uvx",
+      "args": ["simconnect-mcp"]
     }
   }
 }
@@ -68,7 +82,7 @@ claude mcp add --transport stdio --scope user simconnect -- uv run --directory /
 **Via CLI:**
 
 ```bash
-codex mcp add simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+codex mcp add simconnect -- uvx simconnect-mcp
 ```
 
 **Via JSON:**
@@ -77,8 +91,8 @@ codex mcp add simconnect -- uv run --directory /path/to/simconnect-mcp simconnec
 {
   "mcpServers": {
     "simconnect": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/simconnect-mcp", "simconnect-mcp"]
+      "command": "uvx",
+      "args": ["simconnect-mcp"]
     }
   }
 }
@@ -89,7 +103,7 @@ codex mcp add simconnect -- uv run --directory /path/to/simconnect-mcp simconnec
 **Via CLI:**
 
 ```bash
-gemini mcp add --transport stdio simconnect -- uv run --directory /path/to/simconnect-mcp simconnect-mcp
+gemini mcp add --transport stdio simconnect -- uvx simconnect-mcp
 ```
 
 **Via JSON** (`~/.gemini/settings.json`):
@@ -98,8 +112,8 @@ gemini mcp add --transport stdio simconnect -- uv run --directory /path/to/simco
 {
   "mcpServers": {
     "simconnect": {
-      "command": "uv",
-      "args": ["run", "--directory", "/path/to/simconnect-mcp", "simconnect-mcp"]
+      "command": "uvx",
+      "args": ["simconnect-mcp"]
     }
   }
 }
@@ -111,7 +125,9 @@ gemini mcp add --transport stdio simconnect -- uv run --directory /path/to/simco
 uv run mcp dev src/simconnect_mcp/server.py
 ```
 
-> **Note:** Replace `/path/to/simconnect-mcp` with the actual absolute path to your clone of this repository.
+> **Note:** To run a local checkout instead of the published package, replace
+> `uvx simconnect-mcp` with `uv run --directory /path/to/simconnect-mcp simconnect-mcp`,
+> using the absolute path to your clone.
 
 ## Tools (32)
 
@@ -405,4 +421,17 @@ Requires MSFS running with an aircraft loaded; a test whose connection attempt f
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Copyright (C) 2025-2026 Robin Kipp
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See [LICENSE.txt](LICENSE.txt) for the full text.
+
+This project is AGPL-3.0 because it depends on
+[Python-SimConnect](https://github.com/odwdinc/Python-SimConnect), which is
+itself AGPL-3.0 licensed.
+
+The vendored MobiFlight bridge in `src/simconnect_mcp/vendor/` is a separate
+work, MIT licensed by Koseng — see
+[`src/simconnect_mcp/vendor/MOBIFLIGHT_LICENSE`](src/simconnect_mcp/vendor/MOBIFLIGHT_LICENSE).

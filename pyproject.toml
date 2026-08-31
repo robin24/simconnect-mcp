@@ -4,18 +4,53 @@ build-backend = "hatchling.build"
 
 [project]
 name = "simconnect-mcp"
-version = "0.2.0"
+version = "1.0.0"
 description = "MCP server for MSFS SimConnect — add-on development companion"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Robin Kipp", email = "robin@robin-kipp.net" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "msfs",
+    "flight-simulator",
+    "simconnect",
+    "flightsim",
+    "mobiflight",
+    "pmdg",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Games/Entertainment :: Simulation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
-    "mcp[cli]>=1.26,<2",
+    "mcp>=1.26,<2",
     "SimConnect>=0.4.26",
 ]
 
+[project.urls]
+Homepage = "https://github.com/robin24/simconnect-mcp"
+Repository = "https://github.com/robin24/simconnect-mcp"
+Issues = "https://github.com/robin24/simconnect-mcp/issues"
+
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "mcp[cli]>=1.26,<2",
+    "tomli>=2.0; python_version < '3.11'",
+]
 
 [project.scripts]
 simconnect-mcp = "simconnect_mcp.server:main"
@@ -35,6 +70,15 @@ addopts = "-m 'not live'"
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Vendored code is byte-faithful to upstream apart from two documented local
+# changes (see vendor/mobiflight_variable_requests.py's header). Linting it
+# would invite reformatting that a re-sync from upstream then silently reverts.
+extend-exclude = ["src/simconnect_mcp/vendor"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# These lines are prompt prose inside template strings, sent verbatim to the
+# model. Wrapping one would change the prompt text, not just its formatting.
+"src/simconnect_mcp/prompts/templates.py" = ["E501"]

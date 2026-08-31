@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: uv run ruff check src tests scripts/set_version.py
+
+      - name: Run mocked test suite
+        run: uv run pytest -q
+
+  publish:
+    name: Publish to PyPI and the MCP Registry
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      # PyPI trusted publishing and `mcp-publisher login github-oidc` both
+      # mint short-lived OIDC tokens; neither uses a stored secret.
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout the tagged commit
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Derive the version from the tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Set the version in pyproject.toml and server.json
+        run: python scripts/set_version.py "$VERSION"
+
+      - name: Build the distributions
+        # Pure-Python py3-none-any wheel, so building on Linux is fine even
+        # though the package only runs on Windows.
+        run: uv build
+
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to the MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to the MCP Registry
+        run: ./mcp-publisher publish
+
+  sync-version:
+    name: Commit the version bump back to main
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+
+      - name: Derive the version from the tag
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Set the version in pyproject.toml and server.json
+        run: python scripts/set_version.py "$VERSION"
+
+      - name: Sync the lockfile
+        run: uv lock
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml server.json uv.lock
+          if git diff --staged --quiet; then
+            echo "main is already at $VERSION; nothing to commit"
+          else
+            git commit -m "chore: set version to $VERSION"
+            git push origin HEAD:main
+          fi

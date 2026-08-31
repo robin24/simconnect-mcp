@@ -227,7 +227,7 @@ class TestMergeCatalog:
             "panels": {"ENGINES": ["S_ENG_MODE"]},
         }
         presets = client.fetch_presets(vendor="FenixSim")
-        merged = client.merge_catalog(presets, existing)
+        client.merge_catalog(presets, existing)
         assert len(existing["variables"]) == 1  # original unchanged
 
 

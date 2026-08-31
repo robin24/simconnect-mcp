@@ -845,31 +845,35 @@ wheels = [
 
 [[package]]
 name = "simconnect-mcp"
-version = "0.2.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "mcp", extra = ["cli"] },
+    { name = "mcp" },
     { name = "simconnect" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "mcp", extra = ["cli"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", extras = ["cli"], specifier = ">=1.26,<2" },
+    { name = "mcp", specifier = ">=1.26,<2" },
     { name = "simconnect", specifier = ">=0.4.26" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "mcp", extras = ["cli"], specifier = ">=1.26,<2" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.23" },
     { name = "ruff", specifier = ">=0.6" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
 ]
 
 [[package]]
