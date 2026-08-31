@@ -1,26 +1,19 @@
-"""Live tests for save_flight and create_ai_object against a running MSFS.
+"""Live tests for create_ai_object against a running MSFS.
 
 load_flight and load_flight_plan are not exercised live: loading a flight or
 flight plan discards the current aircraft/session state, which is exactly
 the setup this live suite depends on for every other test file. Both stay
 covered by mocks in tests/test_flight.py -- see task-6-addendum.md.
 
-save_flight writing to a temp path is not disruptive: it only reads the
-current state and writes a file, it does not change anything in the sim.
-This also exercises the actual FlightSave / flight_to_dic race described in
-the addendum against real MSFS timing, not just a mocked one.
-
-Task 9 live verification found a second, more serious defect on top of that
-race: FlightSave writes its file in a fraction of a second, but MSFS then
-stops answering SimConnect entirely for ~14s while it finishes the save
-(flightsave_stall_probe.py, in the task-9 fix brief's directory). The old
-save_flight returned as soon as the file existed, so the file-write tests
-below used to leave the sim frozen for whatever ran next -- confirmed by
-bisection to be the sole cause of three failures elsewhere in the live
-suite. save_flight now waits (bounded) for the sim to answer again before
-returning, so no test here needs its own tolerance for that stall -- and
-test_save_flight_writes_a_real_file asserts on it directly, rather than
-only on other files passing as a side effect.
+save_flight's three live tests (writes a real file; refuses to overwrite by
+default; overwrites when asked) were removed in the 2026-08-29 live-suite
+trim: the overwrite-guard logic is pure Python, fully exercised by mocks in
+tests/test_flight.py, and the rest of what those tests checked was MSFS's
+own save-then-stall timing (see CLAUDE.md's Known Sim Behaviours), which
+varies run to run (0.7s-14.5s measured) and is the sim's behaviour, not
+this project's code. See
+.superpowers/sdd/2026-08-29-mcp-modernization-phase2-capability/
+live-trim-report.md for the full reasoning.
 
 create_ai_object was excluded from this file entirely for the same reason
 as load_flight/load_flight_plan: a spawned AI aircraft used to be visible
@@ -42,86 +35,6 @@ from __future__ import annotations
 import pytest
 
 pytestmark = pytest.mark.live
-
-
-async def test_save_flight_writes_a_real_file(live_manager, tmp_path):
-    from simconnect_mcp.tools.flight import _SIM_RECOVERY_PROBE_TIMEOUT_S, save_flight
-
-    target = tmp_path / "simconnect_mcp_live_test.FLT"
-
-    result = await save_flight(
-        str(target), title="simconnect-mcp live test", description="Task 6 live check"
-    )
-
-    assert result.status == "ok", getattr(result, "message", result)
-    assert target.exists()
-    assert target.stat().st_size > 0
-
-    # The contract this call now makes good on: by the time it returns, the
-    # sim is answering SimConnect again, not merely "the file is on disk".
-    assert result.warning is None, (
-        "the sim did not resume answering within the wait bound -- see "
-        f"result.warning: {result.warning}"
-    )
-
-    # Prove that contract directly, rather than trusting duration_s as a
-    # proxy for it. MSFS's actual post-FlightSave stall is measured (see
-    # CLAUDE.md's Known Sim Behaviours) to vary from 0.7s to 14.5s run to
-    # run on the same aircraft and session, for no identified cause -- a
-    # fast run legitimately produces a small duration_s with nothing wrong,
-    # which is exactly what happened here (0.56s) and is the sim's
-    # variance, not a defect in this call. Asserting a lower bound on that
-    # number just makes the test flaky against the sim's own behaviour.
-    #
-    # What actually matters -- the sim being usable again -- is checked by
-    # making our own independent SimVar read right here, immediately after
-    # save_flight returns, rather than trusting result.warning alone: a
-    # save_flight that short-circuited _wait_for_sim_responsive (e.g.
-    # skipped the wait but still left `warning` at its default None) would
-    # pass the assertion above with the sim still mid-stall, and only this
-    # read would catch it. The timeout is deliberately the same short
-    # _SIM_RECOVERY_PROBE_TIMEOUT_S (0.5s) the product code itself uses for
-    # one responsiveness probe -- not the generous DEFAULT_TIMEOUT (2.0s) a
-    # bare call would use -- because 2.0s is long enough to simply wait out
-    # the *shortest* measured stall (0.7s) and quietly succeed once it
-    # passes, which would defeat this check for exactly the fast-stall runs
-    # this project has actually seen. 0.5s is comfortably above a healthy
-    # round trip (well under 100ms, measured elsewhere in this project) so
-    # a correctly-behaving save_flight will not flake here, but short
-    # enough to still be waiting -- and therefore raise SimVarTimeoutError,
-    # failing this test -- if the sim is genuinely still mid-stall.
-    live_manager.accessor.read("PLANE_ALTITUDE", timeout=_SIM_RECOVERY_PROBE_TIMEOUT_S)
-
-
-async def test_save_flight_refuses_to_overwrite_an_existing_file_by_default(
-    live_manager, tmp_path
-):
-    from simconnect_mcp.tools.flight import save_flight
-
-    target = tmp_path / "simconnect_mcp_live_test_overwrite.FLT"
-
-    first = await save_flight(str(target), title="T1", description="D1")
-    assert first.status == "ok", getattr(first, "message", first)
-    assert first.warning is None
-
-    second = await save_flight(str(target), title="T2", description="D2")
-    assert second.error == "ALREADY_EXISTS"
-
-
-async def test_save_flight_overwrites_when_asked(live_manager, tmp_path):
-    from simconnect_mcp.tools.flight import save_flight
-
-    target = tmp_path / "simconnect_mcp_live_test_replace.FLT"
-
-    first = await save_flight(str(target), title="T1", description="D1")
-    assert first.status == "ok", getattr(first, "message", first)
-    assert first.warning is None
-    first_mtime = target.stat().st_mtime
-
-    second = await save_flight(str(target), title="T2", description="D2", overwrite=True)
-    assert second.status == "ok", getattr(second, "message", second)
-    assert second.warning is None
-    assert target.stat().st_mtime >= first_mtime
 
 
 # --- create_ai_object (L1 live-follow-up) ---

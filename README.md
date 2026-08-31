@@ -220,7 +220,7 @@ Unlike every other tool, these two reach HubHop's HTTP API rather than the simul
 | `msfs_load_flight_plan` | write | Load a `.PLN` flight plan into the aircraft's GPS/FMS, replacing whatever plan is currently active |
 | `msfs_create_ai_object` | write | Spawn an AI aircraft or object at a position — reports whether SimConnect accepted the request, which is not the same as the object existing (MSFS ignores an unmatched title silently) |
 
-These wrap the underlying SimConnect flight/scenario file operations for scripting test setups (e.g. "load this approach", "save the current state", "spawn traffic nearby") rather than driving them by hand in the sim's own UI. **Live, end-to-end confirmation against MSFS is still pending** as of this writing: the most recent live run against this group returned inconclusive results from an unhealthy sim session (unrelated pre-existing failures elsewhere in the same run), and a clean re-run has not yet been reported. What's above describes what each tool does — it is not a claim that this group has been confirmed working end-to-end against MSFS. See [Running the live tests](#running-the-live-tests) below.
+These wrap the underlying SimConnect flight/scenario file operations for scripting test setups (e.g. "load this approach", "save the current state", "spawn traffic nearby") rather than driving them by hand in the sim's own UI. `msfs_create_ai_object` is confirmed live end-to-end — spawned, verified to answer a targeted SimVar request, then removed again — by `tests/live/test_live_flight.py`. `msfs_save_flight` was also confirmed live, including the multi-second post-save SimConnect stall documented in CLAUDE.md's Known Sim Behaviours; its own live tests were retired in the 2026-08-29 live-suite trim once that finding was captured there, since what remained (the overwrite-guard logic) is pure Python already covered by `tests/test_flight.py`'s mocks. `msfs_load_flight` and `msfs_load_flight_plan` are mock-only by design — see `tests/live/test_live_flight.py`'s module docstring for why. See [Running the live tests](#running-the-live-tests) below.
 
 ## Variable Catalogs
 
@@ -385,11 +385,15 @@ Tests mock SimConnect so the suite above runs without MSFS. `tests/conftest.py` 
 
 A second suite under `tests/live/` exercises the real SimConnect DLL and is marked `@pytest.mark.live`. `pyproject.toml` deselects it by default (`addopts = "-m 'not live'"`), so it never runs on a machine without MSFS — including CI.
 
+This suite is deliberately small and stays that way on purpose: a test belongs here only if a self-consistent mock could agree with itself regardless of whether the code is right — for example, a round trip that writes and reads back a single L-var name proves nothing about encoding, because a mangled datum name would make the write and the read-back agree with each other on the wrong variable (see `test_two_distinct_lvars_do_not_collide` in `tests/live/test_live_lvars.py`). What's left after that filter is real DLL/DLL-adjacent behaviour a mock can only assume rather than verify: unit conversion against the physical constant, wire-decode of structs whose third-party bindings this project has already caught wrong once, which real SimVars/events actually accept a write versus reject or silently ignore it, undocumented MobiFlight/WASM protocol quirks, and whether a real PMDG's binary client-data area answers a probe the way its struct decode expects.
+
+Where a live finding can instead be frozen into a committed fixture and replayed offline, that's preferred over a live test: `tests/fixtures/facilities/` holds real SimConnect wire bytes captured once, replayed by the *mocked* `tests/test_facilities_parsing.py` on every run, with no simulator and no flakiness — it pins the same discovery deterministically instead of depending on whatever aircraft happens to be loaded that day.
+
 ```bash
 uv run pytest -m live
 ```
 
-Requires MSFS running with an aircraft loaded; a test whose connection attempt fails is skipped rather than failed (see `tests/live/conftest.py`'s `live_manager` fixture). Some files assume a specific aircraft is loaded — for example `tests/live/test_live_pmdg.py` asserts against a loaded PMDG 737 NG3 and will fail outright, not skip, against a different airframe. Check a file's own module docstring before running it against an arbitrary aircraft, or run the specific file you know matches what's loaded, e.g. `uv run pytest tests/live/test_live_simvars.py -m live -v`.
+Requires MSFS running with an aircraft loaded; a test whose connection attempt fails is skipped rather than failed (see `tests/live/conftest.py`'s `live_manager` fixture). `tests/live/test_live_pmdg.py`'s tests need a real PMDG 737/777 loaded and skip — rather than fail — when the loaded aircraft doesn't look like one (see that file's gate in `tests/live/conftest.py`).
 
 ## License
 

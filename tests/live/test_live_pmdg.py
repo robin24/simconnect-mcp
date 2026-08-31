@@ -9,13 +9,22 @@ probe added in tools.pmdg._probe_pmdg_variant correctly identifies the
 loaded 737 NG3 instead, against a real running MSFS + PMDG 737-600 (loaded
 cold and dark). Every operation here is read-only.
 
-Every test below except test_title_and_model_carry_no_pmdg_branding needs
-a real PMDG loaded to mean anything -- run against any other aircraft (a
-Cessna Citation Longitude, say), they depend on `require_pmdg`
-(conftest.py) to skip instead of failing for a reason that has nothing to
-do with the code under test. See conftest.py's "PMDG gate" section for why
-that check is a plain TITLE substring match rather than the very
-detect/probe logic these tests exist to verify.
+Every test below needs a real PMDG loaded to mean anything -- run against
+any other aircraft (a Cessna Citation Longitude, say), they depend on
+`require_pmdg` (conftest.py) to skip instead of failing for a reason that
+has nothing to do with the code under test. See conftest.py's "PMDG gate"
+section for why that check is a plain TITLE substring match rather than the
+very detect/probe logic these tests exist to verify.
+
+(The 2026-08-29 live-suite trim removed this file's fifth test,
+test_title_and_model_carry_no_pmdg_branding: its title/model detection
+assertion ran unconditionally, against whatever aircraft happened to be
+loaded, but that exact "no false positive" property -- given a controlled
+title/model string -- is already covered precisely by
+test_detect_pmdg_variant_no_false_positive_on_pmdg_777f_telemetry in
+tests/test_title_detection.py, with no sim required. See
+.superpowers/sdd/2026-08-29-mcp-modernization-phase2-capability/
+live-trim-report.md for the full reasoning.)
 
 Run only this file, not the full live suite:
     uv run pytest tests/live/test_live_pmdg.py -m live -v -s
@@ -25,24 +34,6 @@ from __future__ import annotations
 import pytest
 
 pytestmark = pytest.mark.live
-
-
-async def test_title_and_model_carry_no_pmdg_branding(live_manager):
-    """Documents the actual live defect condition for this session -- if
-    this ever starts matching a catalog's title_pattern, the probe-based
-    fallback verified below is no longer the interesting code path for this
-    aircraft."""
-    from simconnect_mcp.tools.pmdg import _detect_pmdg_variant
-
-    title, model = await live_manager.detect_aircraft_identity()
-    print(f"\nLive TITLE={title!r} ATC_MODEL={model!r}")
-
-    detected = await _detect_pmdg_variant()
-    print(f"_detect_pmdg_variant() -> {detected!r}")
-    assert detected is None, (
-        f"title/model detection unexpectedly succeeded ({detected!r}) -- "
-        "the probe fallback this test targets was not exercised"
-    )
 
 
 async def test_probe_identifies_the_737_ng3_data_area(live_manager, require_pmdg):

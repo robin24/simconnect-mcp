@@ -100,34 +100,6 @@ def test_variable_outside_the_library_table_is_readable(live_manager):
     assert value > 0
 
 
-async def test_failed_lvar_detection_is_disclosed_not_guessed(live_manager):
-    """Aircraft-catalog auto-detection must say so when it finds nothing --
-    never silently fall back to a guessed catalog.
-
-    Verified live: this session's TITLE ('777F') and ATC_MODEL
-    ('ATCCOM.AC_MODEL B77L.0.text') match none of the bundled catalogs'
-    title_pattern ('Fenix', 'PMDG 737', 'PMDG 777'), so detection legitimately
-    fails for the aircraft actually loaded right now. This test depends on
-    that: if a catalog-matching aircraft (e.g. a PMDG 777) is loaded when this
-    suite is re-run, this specific test -- and only this one -- would need the
-    aircraft swapped back, which is expected, not a regression.
-    """
-    from simconnect_mcp.tools.lvars import search_lvars
-
-    title, model = await live_manager.detect_aircraft_identity()
-    assert title  # TITLE should never be empty with an aircraft loaded
-
-    from simconnect_mcp.data.catalog import detect_catalog
-
-    assert detect_catalog(title, model) is None
-
-    result = await search_lvars("engine")
-    assert result.status == "ok"
-    assert result.filters["catalog"] == "all"
-    assert result.message is not None
-    assert "auto-detected" in result.message.lower()
-
-
 def test_a_full_size_bulk_read_is_not_starved_by_its_own_budget(live_manager):
     """Finding A1, as measured.
 

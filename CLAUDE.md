@@ -191,4 +191,45 @@ uv run pytest -m live   # live suite against a real, running MSFS instance
 
 Tests mock SimConnect so the default run happens without MSFS. The `conftest.py` fixture provides a mock SimConnect with realistic SimVar values.
 
+### What the live suite is for
+
+`tests/live/` is deliberately small, and stays that way by one rule: **a
+live test earns its place only if a self-consistent mock could agree with
+itself regardless of whether the code is right.** A round trip on one L-var
+name proves nothing about encoding, because a mangled datum name would make
+the write and the read-back agree with each other on the wrong variable —
+see `test_two_distinct_lvars_do_not_collide` in `test_live_lvars.py` for the
+test that actually closes that gap, and its docstring for the full
+reasoning. Anything a mock *can* settle — pure Python logic, cache
+bookkeeping, message wording, string matching against a catalog — belongs
+in the mocked suite instead, however tempting it is to also check it live.
+
+What's left after that filter is a short, specific list: does the real DLL's
+own unit conversion match the physical constant we assume; does a real
+SimConnect wire reply decode correctly through structs this project has
+already caught the installed package mis-declaring once (`RecvException` in
+`dispatch.py`); does a real airframe's calculated variables actually reject
+a write (or silently ignore it, which is the bug this layer replaces); does
+the real MobiFlight WASM module's undocumented quirks (repeated-command
+drop, definition-ID-0 routing) behave the way the workaround assumes; and
+whether a real PMDG's binary client-data area answers a probe the way its
+struct decode expects. None of that can be established by a mock inventing
+its own answer and checking it against itself.
+
+Prefer freezing a live finding into a committed fixture over adding another
+live test. `tests/fixtures/facilities/` holds real SimConnect wire bytes
+captured once from a live session, replayed by the *mocked*
+`tests/test_facilities_parsing.py` on every run, with no simulator and no
+flakiness — strictly better than a live test for anything it can cover,
+because it pins the exact discovery deterministically instead of
+re-discovering it (or failing to) on whatever aircraft happens to be loaded
+that day. Reach for that pattern first; reach for `tests/live/` only for the
+residue no fixture can freeze because the claim is about behaviour, not
+about a fixed byte layout.
+
+`tests/live/test_live_pmdg.py`'s tests need a real PMDG 737/777 loaded and
+skip -- rather than fail -- when the loaded aircraft doesn't look like one
+(see that file's gate in `conftest.py`); a connection failure skips the
+whole suite the same way.
+
 The live suite under `tests/live/` is marked `@pytest.mark.live` and deselected by default (`pyproject.toml`'s `addopts = "-m 'not live'"`), so it never runs on a machine without MSFS — including CI. It requires MSFS running with an aircraft loaded; a connection failure is skipped rather than failed, but some files assume a specific aircraft is loaded (check that file's own module docstring before running it against an arbitrary airframe).

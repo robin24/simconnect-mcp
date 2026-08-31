@@ -21,8 +21,6 @@ import asyncio
 
 import pytest
 
-from simconnect_mcp.simvar_access import SimVarNotFoundError
-
 pytestmark = pytest.mark.live
 
 PROBE_A = "CLAUDE_LIVE_PROBE_A"
@@ -80,43 +78,6 @@ def test_write_verify_reports_zero_honestly(live_manager, zero_probes):
     """
     live_manager.set_lvar(PROBE_A, 44.0)
     assert live_manager.set_lvar(PROBE_A, 0.0, verify=True) is True
-
-
-def test_repeated_writes_reuse_one_definition(live_manager):
-    """The leak: connection.set_lvar called new_def_id() on every write,
-    and CLAUDE.md's documented Fenix FCU procedure issues one write per
-    knob click at 15 ms intervals.
-
-    Measured against the real accessor's own cache, so this fails against
-    any reimplementation that builds a definition per write (delta 5).
-
-    The variable name is unique to this test because `live_manager` is
-    session-scoped: a name another test already wrote would still be in
-    the cache, making the delta 0 and the assertion order-dependent.
-    """
-    accessor = live_manager.accessor
-    name = "CLAUDE_LIVE_DEFCACHE"
-    before = len(accessor._definitions)
-
-    for value in (1.0, 2.0, 3.0, 4.0, 5.0):
-        live_manager.set_lvar(name, value)
-
-    # One definition for the write path; the read path is not exercised here.
-    assert len(accessor._definitions) - before == 1, (
-        "five writes to one L-var must share a single data definition, got "
-        f"{len(accessor._definitions) - before}"
-    )
-    live_manager.set_lvar(name, 0.0)
-
-
-def test_non_ascii_lvar_name_raises_a_typed_error(live_manager):
-    """The old path let name.encode("ascii") raise a bare
-    UnicodeEncodeError into handle_simconnect_errors' catch-all, producing
-    an UNEXPECTED envelope leaking Python exception text. Confirmed live
-    against that path before the fix.
-    """
-    with pytest.raises(SimVarNotFoundError):
-        live_manager.set_lvar("CLAUDE_LIVE_DEGREE_\N{DEGREE SIGN}", 1.0)
 
 
 async def test_set_lvar_tool_returns_a_verified_envelope(live_manager, zero_probes):
