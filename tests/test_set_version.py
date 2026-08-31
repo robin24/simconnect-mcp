@@ -79,3 +79,16 @@ def test_is_idempotent(repo: Path):
     first = (repo / "pyproject.toml").read_text(encoding="utf-8")
     set_version.set_version("9.8.7", repo)
     assert (repo / "pyproject.toml").read_text(encoding="utf-8") == first
+
+
+def test_writes_lf_line_endings_on_every_platform(repo: Path):
+    """The release runs this on Linux; a developer may run it on Windows.
+
+    Path.write_text() translates "\n" to the platform default, so without an
+    explicit newline= the same script produces different bytes on Windows than
+    the ones CI commits, dirtying the file for no reason.
+    """
+    set_version = _load_module()
+    set_version.set_version("9.8.7", repo)
+    for name in ("pyproject.toml", "server.json"):
+        assert b"\r\n" not in (repo / name).read_bytes(), name

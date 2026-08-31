@@ -27,6 +27,9 @@ PYPROJECT_VERSION_RE = re.compile(r'(?m)^(version = ")[^"]*(")')
 def set_version(version: str, repo_root: Path) -> list[Path]:
     """Write `version` into pyproject.toml and server.json.
 
+    Writes are pinned to LF so the bytes are identical whether this runs on
+    the Linux release runner or a developer's Windows checkout.
+
     Returns the files whose content changed.
     """
     if not VERSION_RE.match(version):
@@ -40,7 +43,7 @@ def set_version(version: str, repo_root: Path) -> list[Path]:
     if count != 1:
         raise RuntimeError(f"no 'version = \"...\"' line found in {pyproject}")
     if updated != original:
-        pyproject.write_text(updated, encoding="utf-8")
+        pyproject.write_text(updated, encoding="utf-8", newline="\n")
     changed.append(pyproject)
 
     server_json = repo_root / "server.json"
@@ -48,7 +51,7 @@ def set_version(version: str, repo_root: Path) -> list[Path]:
     doc["version"] = version
     for package in doc.get("packages", []):
         package["version"] = version
-    server_json.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    server_json.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8", newline="\n")
     changed.append(server_json)
 
     return changed
