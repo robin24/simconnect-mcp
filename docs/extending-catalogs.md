@@ -13,6 +13,8 @@ The MCP server ships two kinds of variable catalogs:
 
 Aircraft catalogs are auto-discovered on startup -- drop a `.json` file into the `data/` directory and it's live.
 
+> **No Fenix catalog ships.** A prior `fenix_a320.json` (1,433 plain L-vars, hand-curated) was removed in favor of HubHop's own broader, community-maintained `FenixSim` coverage (2,273 presets and growing, vs. a bundled snapshot that could only go stale). To get it back, follow Option A below with `--vendor FenixSim` in place of `PMDG` (see the `--vendor FenixSim` examples further down, under "Updating an Existing Catalog", for the exact syntax) and drop the result into `data/` -- it is auto-discovered the same as any other catalog, with no code change. Or skip the file entirely and search HubHop live via `msfs_search_hubhop(vendor="FenixSim")`.
+
 ## Quick Start: Adding a New Aircraft
 
 ### Option A: Generate from HubHop (recommended)
@@ -210,7 +212,7 @@ Don't add `values` for continuous ranges (volumes, positions, counters) -- the n
 
 - A catalog with 200 well-categorized, accurately-described variables is more useful than one with 2,000 unlabeled names.
 - After generating from HubHop, review the output. Fix display names that are just abbreviations. Add `values` maps for important switches.
-- The Fenix A320 catalog (`fenix_a320.json`) is a good reference for what a polished catalog looks like.
+- The PMDG 737 NG3 catalog (`pmdg_737.json`) is a good reference for what a polished catalog looks like.
 
 ### Testing after changes
 

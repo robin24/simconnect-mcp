@@ -13,7 +13,7 @@ An [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that 
 - **Facilities lookup** — nearby airports sorted by distance and detail lookup for a specific airport, waypoint, NDB or VOR by ICAO identifier, read directly from SimConnect's facility subscription
 - **Flight and scenario tools** — load and save `.FLT` flights, load a `.PLN` flight plan, and spawn an AI aircraft or object, for scripting test scenarios instead of setting them up by hand
 - **Embedded documentation** — SimConnect reference docs served as MCP resources, available offline
-- **Aircraft-specific catalogs** — pre-built variable databases with panel groupings, display names, and value descriptions. Ships with 1,433 Fenix A320/A321 variables, 1,607 PMDG 777 variables (777-200LR/200F/300ER/F), and 1,861 PMDG 737 NG3 variables (-600/700/800/900 incl. BBJ/BDSF/BCF).
+- **Aircraft-specific catalogs** — pre-built variable databases with panel groupings, display names, and value descriptions. Ships with 1,607 PMDG 777 variables (777-200LR/200F/300ER/F) and 1,861 PMDG 737 NG3 variables (-600/700/800/900 incl. BBJ/BDSF/BCF).
 - **HubHop integration** — search the [MobiFlight HubHop](https://hubhop.mobiflight.com) community preset database directly as an MCP tool, or use the built-in client to generate and extend L-var catalogs for any supported aircraft
 
 ## Prerequisites
@@ -252,11 +252,12 @@ L-var catalogs provide searchable, human-readable databases for specific aircraf
 
 | Aircraft | Variables | Panels | Source |
 |----------|-----------|--------|--------|
-| Fenix A319/A320/A321 | 1,433 | 26 | HubHop + manual curation |
 | PMDG 777 (all variants) | 1,607 | 28 | SDK header parse + HubHop |
 | PMDG 737 NG3 (-600/700/800/900/BBJ/BDSF/BCF) | 1,861 | 27 | SDK header parse + HubHop |
 
 Each variable includes a display name, category, writability flag, and (where applicable) a map of valid values.
+
+No Fenix catalog ships — a prior `fenix_a320.json` (1,433 plain L-vars) was removed in favor of HubHop's own broader, community-maintained `FenixSim` coverage (2,273 presets, current the moment Fenix ships an update, where a bundled snapshot would only go stale). Search it live with `msfs_search_hubhop(vendor="FenixSim")`, or regenerate a local catalog file with the HubHop client below and drop it into `src/simconnect_mcp/data/` — every `*.json` there is auto-discovered on startup, so it works immediately with no code change.
 
 ### Adding New Aircraft Catalogs
 
@@ -347,7 +348,6 @@ src/simconnect_mcp/
 │   ├── catalog.py         # L-var catalog loader and search engine
 │   ├── simvar_catalog.py  # SimVar catalog loader, unit resolution, string-var detection
 │   ├── hubhop.py          # MobiFlight HubHop API client (CLI + library), in-memory cache
-│   ├── fenix_a320.json    # Fenix A320/A321 catalog (1,433 vars, 26 panels)
 │   ├── pmdg_777.json      # PMDG 777 catalog (1,607 vars, 28 panels)
 │   ├── pmdg_737.json      # PMDG 737 NG3 catalog (1,861 vars, 27 panels)
 │   └── simvars_catalog.json  # Built-in SimVar catalog (1,080+ vars, 25 categories)

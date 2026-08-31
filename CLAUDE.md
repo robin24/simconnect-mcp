@@ -65,7 +65,6 @@ src/simconnect_mcp/
 │   ├── catalog.py         # L-var catalog loader and search engine
 │   ├── simvar_catalog.py  # SimVar catalog loader, unit resolution, string-var detection
 │   ├── hubhop.py          # MobiFlight HubHop API client (CLI + library), in-memory cache
-│   ├── fenix_a320.json    # Fenix A320/A321 catalog (1,433 vars, 26 panels)
 │   ├── pmdg_777.json      # PMDG 777 catalog (1,607 vars, 28 panels)
 │   ├── pmdg_737.json      # PMDG 737 NG3 catalog (1,861 vars, 27 panels)
 │   └── simvars_catalog.json  # Built-in SimVar catalog (1,080+ vars, 25 categories)
@@ -147,6 +146,9 @@ Create a JSON file in `src/simconnect_mcp/data/` (e.g., `fbw_a320.json`). All `*
 ## Fenix A320/A321 Notes
 
 The Fenix uses a proprietary internal system with specific patterns you need to know when interacting with it.
+
+**No catalog is bundled for the Fenix.** `data/fenix_a320.json` (1,433 plain L-vars, no SDK struct fields) was removed once HubHop's own `FenixSim` coverage overtook it (2,273 presets, community-maintained, current the moment Fenix ships an update). Search it live with `msfs_search_hubhop(vendor="FenixSim")`, or regenerate a local catalog file with `data/hubhop.py`'s CLI --
+`python -m simconnect_mcp.data.hubhop --vendor FenixSim --aircraft-name "Fenix A320/A321" --title-pattern Fenix -o fenix_a320.json` -- and drop it into `src/simconnect_mcp/data/`; every `*.json` there is auto-discovered on startup, so it starts working immediately with no code change. The prefix/FCU/button knowledge below still applies regardless of whether a catalog is loaded, since it describes the sim's behaviour, not catalog data.
 
 ### Variable Prefix Convention
 

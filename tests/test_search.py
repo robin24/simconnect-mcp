@@ -78,23 +78,19 @@ async def test_browse_with_no_arguments_lists_catalogs(mock_simconnect):
 
 
 async def test_browse_with_a_catalog_lists_its_panels(mock_simconnect):
-    result = await browse_lvar_catalog(catalog="fenix_a320", response_format=ResponseFormat.JSON)
+    result = await browse_lvar_catalog(catalog="pmdg_737", response_format=ResponseFormat.JSON)
     assert result.panels is not None
-    assert result.catalog == "fenix_a320"
+    assert result.catalog == "pmdg_737"
 
 
 async def test_browse_with_a_panel_lists_its_variables(mock_simconnect):
-    """Adapted from the task brief, which paired catalog='fenix_a320' with
-    panel='Signs'. Confirmed against src/simconnect_mcp/data/fenix_a320.json:
-    the Fenix catalog has no panel named 'Signs' (its 26 panels are ADIRS,
-    AIR CONDITIONING, ... SAFETY, WARNING, WEATHER RADAR) -- only pmdg_777
-    has one. Calling it with the brief's literal arguments would return
-    PANEL_NOT_FOUND, not the panel-found path this test exists to check, so
-    it would not actually discriminate a correct implementation from a
-    broken one. pmdg_777/'Signs' is real data (2 variables, verified via
-    data.catalog.get_panel_variables) and is also what
-    test_title_detection.py's test_panel_lookup_says_so_when_no_catalog_was_detected
-    already relies on for the same panel name."""
+    """Uses catalog='pmdg_777' with panel='Signs' -- real data (2 variables,
+    verified via data.catalog.get_panel_variables) that actually has a
+    'Signs' panel, so this exercises the panel-found path rather than
+    risking PANEL_NOT_FOUND on an arbitrary catalog/panel pairing. Also
+    relied on by test_title_detection.py's
+    test_panel_lookup_says_so_when_no_catalog_was_detected for the same
+    panel name."""
     result = await browse_lvar_catalog(
         catalog="pmdg_777", panel="Signs", response_format=ResponseFormat.JSON
     )

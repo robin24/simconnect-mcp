@@ -571,17 +571,21 @@ async def search_lvars(
     prefix: Annotated[
         str | None,
         Field(
-            description="Filter by Fenix prefix type: S (switch), N (numeric readout), "
-            "E (event counter), I (indicator), A (analog), B (boolean indicator)"
+            description="Filter by the catalog's variable-type prefix, matched exactly "
+            "against each entry's 'prefix' field, e.g. PMDG's 'MCP', 'ELEC', 'EVT'. A "
+            "catalog you build yourself (see msfs_browse_lvar_catalog) may use a "
+            "different convention -- browse a panel first if you're unsure what a "
+            "given catalog uses."
         ),
     ] = None,
     catalog: Annotated[
         str | None,
         Field(
-            description="Explicit catalog key to search, e.g. 'fenix_a320', 'pmdg_737', "
-            "'pmdg_777', overriding auto-detection. Use this when the loaded aircraft "
-            "isn't auto-detected, or to search a specific aircraft's catalog regardless "
-            "of what's loaded."
+            description="Explicit catalog key to search, e.g. 'pmdg_737', 'pmdg_777', "
+            "overriding auto-detection. Use this when the loaded aircraft isn't "
+            "auto-detected, or to search a specific aircraft's catalog regardless of "
+            "what's loaded. Call msfs_browse_lvar_catalog() with no arguments for the "
+            "full list of keys currently bundled or dropped into data/ locally."
         ),
     ] = None,
     limit: Annotated[int, Field(description="Maximum results", ge=1, le=200)] = DEFAULT_LIMIT,
@@ -649,7 +653,7 @@ async def browse_lvar_catalog(
     catalog: Annotated[
         str | None,
         Field(
-            description="Catalog key, e.g. 'fenix_a320', 'pmdg_737', 'pmdg_777'. "
+            description="Catalog key, e.g. 'pmdg_737', 'pmdg_777'. "
             "Omit to auto-detect from the loaded aircraft, or to "
             "list all available catalogs."
         ),
