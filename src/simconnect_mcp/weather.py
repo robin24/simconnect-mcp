@@ -30,6 +30,11 @@ from pydantic import BaseModel, Field, model_validator
 WPR_VERSION = "1,4"
 
 
+def _escape(text: str) -> str:
+    """Escape XML character data. Preset names reach here from tool callers."""
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
 class CloudLayer(BaseModel):
     """One cloud layer. Ranges are SDK-documented except where noted."""
 
@@ -114,3 +119,56 @@ class WeatherPreset(BaseModel):
         False, description="Treat layer altitudes as above ground rather than MSL")
     compute_wind_from_departure: bool = Field(
         False, description="Let the sim derive wind from the departure airport")
+
+
+def _element(indent: int, tag: str, value: float, unit: str) -> list[str]:
+    """One `<Tag Value="..." Unit="...">` pair, in the open/close form working
+    presets on disk use (the simulator's own writers do not self-close these)."""
+    pad = " " * indent
+    return [f'{pad}<{tag} Value="{value:.3f}" Unit="{unit}">', f"{pad}</{tag}>"]
+
+
+def render(preset: WeatherPreset) -> str:
+    """Serialise a preset to .WPR XML, LF-separated.
+
+    Use to_bytes() to write it: the file must be UTF-8 with a BOM and CRLF
+    line endings, matching what the simulator's own writers produce.
+    """
+    out: list[str] = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        "",
+        f'<SimBase.Document Type="WeatherPreset" version="{WPR_VERSION}">',
+        "    <WeatherPreset.Preset>",
+        f"        <Name>{_escape(preset.name)}</Name>",
+        f"        <IsAltitudeAMGL>{preset.is_altitude_amgl}</IsAltitudeAMGL>",
+        "        <ComputeWindFromDeparture>"
+        f"{preset.compute_wind_from_departure}</ComputeWindFromDeparture>",
+    ]
+    for c in preset.cloud_layers:
+        out.append("        <CloudLayer>")
+        out += _element(12, "CloudLayerDensity", c.density, "(0 - 1)")
+        out += _element(12, "CloudLayerCoverage", c.coverage, "(0 - 1)")
+        out += _element(12, "CloudLayerAltitudeBot", c.altitude_bot_m, "m")
+        out += _element(12, "CloudLayerAltitudeTop", c.altitude_top_m, "m")
+        out += _element(12, "CloudLayerScattering", c.scattering, "(0 - 1)")
+        out.append("        </CloudLayer>")
+    for w in preset.wind_layers:
+        out.append("        <WindLayer>")
+        out += _element(12, "WindLayerAltitude", w.altitude_m, "m")
+        out += _element(12, "WindLayerAngle", w.angle_deg, "degrees")
+        out += _element(12, "WindLayerSpeed", w.speed_kt, "knts")
+        out.append("        </WindLayer>")
+    out += _element(8, "MSLPressure", preset.msl_pressure_pa, "pa")
+    out += _element(8, "MSLTemperature", preset.msl_temperature_k, "k")
+    out += _element(8, "AerosolDensity", preset.aerosol_density, "m")
+    out += _element(8, "Pollution", preset.pollution, "(0 - 1)")
+    out += _element(8, "Precipitations", preset.precipitation_mm_h, "mm/h")
+    out += _element(8, "SnowCover", preset.snow_cover_m, "m")
+    out += _element(8, "ThunderstormIntensity", preset.thunderstorm_intensity, "(0 - 1)")
+    out += ["    </WeatherPreset.Preset>", "</SimBase.Document>"]
+    return "\n".join(out)
+
+
+def to_bytes(preset: WeatherPreset) -> bytes:
+    """Render to the exact on-disk encoding: UTF-8 with BOM, CRLF endings."""
+    return b"\xef\xbb\xbf" + render(preset).replace("\n", "\r\n").encode("utf-8")
