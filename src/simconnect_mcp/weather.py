@@ -36,6 +36,9 @@ class CloudLayer(BaseModel):
     density: float = Field(
         0.5, ge=0.0, le=1.0,
         description="Cloud density, 0.0 (almost none) to 1.0 (very dense)")
+    # Neither appears in any SDK page, but Active Sky writes both and the
+    # simulator accepts them. Their 0.0-1.0 bounds are inferred from the
+    # Unit="(0 - 1)" string those elements carry in working presets.
     coverage: float = Field(
         0.5, ge=0.0, le=1.0,
         description="Cloud coverage, 0.0 to 1.0")
