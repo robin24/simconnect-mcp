@@ -202,6 +202,31 @@ These special events set MCP values directly without simulating knob rotation:
 | `EVT_MCP_VS_SET` | 14506 | VS + 10000 (e.g., 8200 = −1800 fpm) |
 | `EVT_MCP_FPA_SET` | 14507 | FPA × 10 + 100 (e.g., 82 = −1.8°) |
 
+### CDU Key Events
+
+The 777 has three CDUs and `msfs_get_pmdg_cdu` reads all three, but **key
+events only reach the left (captain's) unit.** `EVT_CDU_C_*` (center) and
+`EVT_CDU_R_*` (right) are accepted by SimConnect and then silently ignored by
+the aircraft — measured live on a 777-200ER through both the `ROTOR_BRAKE`
+carrier and a direct `PMDG_777X_Control` write that returned `S_OK`, while the
+matching `EVT_CDU_L_*` events paged the captain's screen every time. The event
+ids are genuine: the blocks sit at offsets 328–400 (left), 401–473 (right) and
+653–725 (center). The aircraft simply does not act on two of the three.
+
+Because that failure is invisible at every layer, `msfs_send_pmdg_event`
+refuses center and right CDU events with `PMDG_EVENT_NOT_IMPLEMENTED` and
+names the left-CDU equivalent, rather than returning a success no caller
+could falsify:
+
+```
+msfs_send_pmdg_event("EVT_CDU_L_LEGS")   # dispatched
+msfs_send_pmdg_event("EVT_CDU_C_LEGS")   # refused -> use EVT_CDU_L_LEGS
+```
+
+Reading is unaffected — `msfs_get_pmdg_cdu(cdu=1)` and `(cdu=2)` still return
+their screens. This refusal is 777-only: the 737 NG3 has two CDUs and its
+`EVT_CDU_R_*` is the first officer's working unit.
+
 ---
 
 ## Panel Reference
