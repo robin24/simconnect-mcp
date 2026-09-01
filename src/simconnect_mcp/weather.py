@@ -172,3 +172,66 @@ def render(preset: WeatherPreset) -> str:
 def to_bytes(preset: WeatherPreset) -> bytes:
     """Render to the exact on-disk encoding: UTF-8 with BOM, CRLF endings."""
     return b"\xef\xbb\xbf" + render(preset).replace("\n", "\r\n").encode("utf-8")
+
+
+# --- Measured, not documented. These generate warnings and never bounds. ---
+#
+# Probed live at EDDF on 2026-09-01 against MSFS 2024. Single machine, single
+# sim version -- which is exactly why they are advisory. See the module
+# docstring and the design spec.
+
+# MSFS clamps wind layers at 150 kt (reported on MSFS DevSupport: the UI's
+# max/clamp overrides higher values). Consistent with measurement: 185 kt gave
+# 92-98 kt at 4 m AGL, while 400 kt collapsed the entire wind field to 0.3 kt
+# while every other field in the same preset still applied.
+MEASURED_WIND_CLAMP_KT = 150.0
+
+# Asking for 87000 pa produced ~949 hPa MSL-equivalent, though the SDK permits
+# 50000. A request of 100300 pa was honoured exactly, so the field works -- it
+# just has an undocumented floor.
+MEASURED_PRESSURE_FLOOR_PA = 95000.0
+
+
+def effective_limit_warnings(preset: WeatherPreset) -> list[str]:
+    """Advisory notes about limits the simulator enforces but the SDK omits.
+
+    Never raises and never modifies the preset. A caller is free to ignore
+    every one of these -- they exist so an agent is told which of its settings
+    the simulator is likely to alter, and which it cannot verify at all,
+    rather than assuming all of them took effect.
+    """
+    warnings: list[str] = []
+
+    fast = [w for w in preset.wind_layers if w.speed_kt > MEASURED_WIND_CLAMP_KT]
+    if fast:
+        altitudes = ", ".join(f"{w.altitude_m:g} m" for w in fast)
+        warnings.append(
+            f"{len(fast)} wind layer(s) exceed {MEASURED_WIND_CLAMP_KT:g} kt "
+            f"(at {altitudes}). MSFS clamps wind layers at "
+            f"{MEASURED_WIND_CLAMP_KT:g} kt, and a request of 400 kt was "
+            "measured to collapse the wind field to near zero rather than "
+            "clamp. The SDK documents no maximum, so this is not enforced."
+        )
+
+    if preset.msl_pressure_pa < MEASURED_PRESSURE_FLOOR_PA:
+        warnings.append(
+            f"msl_pressure_pa {preset.msl_pressure_pa:g} is below "
+            f"{MEASURED_PRESSURE_FLOOR_PA:g}, which was measured to be the "
+            "simulator's effective floor (87000 pa produced roughly 949 hPa). "
+            "The SDK permits 50000, so this is not enforced."
+        )
+
+    if preset.precipitation_mm_h > 0:
+        warnings.append(
+            "Precipitation rate cannot be verified: the only related SimVar is "
+            "AMBIENT_PRECIP_STATE, a mask (2 = none, 4 = rain) that reports "
+            "whether precipitation is falling, never how hard."
+        )
+
+    if preset.thunderstorm_intensity > 0:
+        warnings.append(
+            "Thunderstorm intensity cannot be verified: there is no SimVar for "
+            "thunder or lightning at all."
+        )
+
+    return warnings

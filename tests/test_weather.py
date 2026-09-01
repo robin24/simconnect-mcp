@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from simconnect_mcp.weather import CloudLayer, WeatherPreset, WindLayer, render, to_bytes
+from simconnect_mcp.weather import (
+    CloudLayer,
+    WeatherPreset,
+    WindLayer,
+    effective_limit_warnings,
+    render,
+    to_bytes,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "weather"
 
@@ -131,3 +138,51 @@ def test_to_bytes_matches_committed_fixture():
     """Byte-level guard on the structure, following tests/fixtures/facilities/.
     Regenerate deliberately if the format is intentionally changed."""
     assert to_bytes(_storm()) == (FIXTURES / "expected_storm.WPR").read_bytes()
+
+
+def test_no_warnings_for_an_ordinary_preset():
+    p = WeatherPreset(name="Mild", cloud_layers=[CloudLayer()],
+                      wind_layers=[WindLayer(speed_kt=12.0)])
+    assert effective_limit_warnings(p) == []
+
+
+def test_warns_above_the_measured_wind_clamp():
+    p = WeatherPreset(name="Gale", wind_layers=[WindLayer(speed_kt=185.0)])
+    warnings = effective_limit_warnings(p)
+    assert any("150" in w for w in warnings)
+
+
+def test_wind_warning_names_every_offending_layer_once():
+    p = WeatherPreset(name="Gale", wind_layers=[
+        WindLayer(altitude_m=4.0, speed_kt=200.0),
+        WindLayer(altitude_m=3000.0, speed_kt=10.0),
+        WindLayer(altitude_m=9000.0, speed_kt=400.0),
+    ])
+    wind = [w for w in effective_limit_warnings(p) if "150" in w]
+    assert len(wind) == 1, "one aggregated warning, not one per layer"
+
+
+def test_warns_below_the_measured_pressure_floor():
+    p = WeatherPreset(name="Low", msl_pressure_pa=87000.0)
+    assert any("95000" in w for w in effective_limit_warnings(p))
+
+
+def test_no_pressure_warning_at_a_normal_setting():
+    p = WeatherPreset(name="Normal", msl_pressure_pa=100300.0)
+    assert not any("95000" in w for w in effective_limit_warnings(p))
+
+
+def test_warns_that_precipitation_cannot_be_verified():
+    p = WeatherPreset(name="Rain", precipitation_mm_h=5.0)
+    assert any("AMBIENT_PRECIP_STATE" in w for w in effective_limit_warnings(p))
+
+
+def test_warns_that_thunderstorm_cannot_be_verified():
+    p = WeatherPreset(name="Storm", thunderstorm_intensity=0.9)
+    assert any("no SimVar" in w for w in effective_limit_warnings(p))
+
+
+def test_no_unverifiable_warnings_when_those_fields_are_zero():
+    p = WeatherPreset(name="Clear", precipitation_mm_h=0.0, thunderstorm_intensity=0.0)
+    text = " ".join(effective_limit_warnings(p))
+    assert "AMBIENT_PRECIP_STATE" not in text and "no SimVar" not in text
