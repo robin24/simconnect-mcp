@@ -845,7 +845,7 @@ wheels = [
 
 [[package]]
 name = "simconnect-mcp"
-version = "1.0.1"
+version = "1.0.2"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
