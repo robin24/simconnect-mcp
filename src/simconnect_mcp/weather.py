@@ -19,6 +19,9 @@ Do not move a number from the second group into the first.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 from pydantic import BaseModel, Field, model_validator
 
 # The SDK templates show version="1,3", but the only value confirmed to
@@ -235,3 +238,46 @@ def effective_limit_warnings(preset: WeatherPreset) -> list[str]:
         )
 
     return warnings
+
+
+# Where each MSFS edition keeps user weather presets, in resolution order.
+# 2024 first: a machine with both installed is far likelier to be flying the
+# newer one, and this only decides a default the caller can always override.
+_PRESET_SUBPATH = ("LocalState", "Weather", "Presets")
+_STORE_PACKAGES = (
+    "Microsoft.Limitless_8wekyb3d8bbwe",          # MSFS 2024
+    "Microsoft.FlightSimulator_8wekyb3d8bbwe",    # MSFS 2020
+)
+
+
+def _preset_dir_candidates() -> list[Path]:
+    """Every place a preset folder might live, most-likely first.
+
+    Reads the environment rather than hardcoding a user profile so this is
+    testable off-Windows and honest on a machine with a relocated profile.
+    """
+    candidates: list[Path] = []
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        for package in _STORE_PACKAGES:
+            candidates.append(Path(local) / "Packages" / package / Path(*_PRESET_SUBPATH))
+    roaming = os.environ.get("APPDATA")
+    if roaming:
+        candidates.append(
+            Path(roaming) / "Microsoft Flight Simulator" / "Weather" / "Presets"
+        )
+    return candidates
+
+
+def find_presets_dir() -> Path | None:
+    """Locate the simulator's weather-preset folder, or None.
+
+    Returns None rather than a best guess when nothing is found: a path no
+    simulator reads would send the caller's file into the void while
+    reporting success. The tool turns None into an error asking for an
+    explicit path.
+    """
+    for candidate in _preset_dir_candidates():
+        if candidate.is_dir():
+            return candidate
+    return None

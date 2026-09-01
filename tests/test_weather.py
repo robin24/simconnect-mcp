@@ -10,11 +10,15 @@ from simconnect_mcp.weather import (
     WeatherPreset,
     WindLayer,
     effective_limit_warnings,
+    find_presets_dir,
     render,
     to_bytes,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "weather"
+
+_MSFS2024 = "Packages/Microsoft.Limitless_8wekyb3d8bbwe/LocalState/Weather/Presets"
+_MSFS2020 = "Packages/Microsoft.FlightSimulator_8wekyb3d8bbwe/LocalState/Weather/Presets"
 
 
 def test_cloud_layer_accepts_documented_range():
@@ -186,3 +190,45 @@ def test_no_unverifiable_warnings_when_those_fields_are_zero():
     p = WeatherPreset(name="Clear", precipitation_mm_h=0.0, thunderstorm_intensity=0.0)
     text = " ".join(effective_limit_warnings(p))
     assert "AMBIENT_PRECIP_STATE" not in text and "no SimVar" not in text
+
+
+def test_returns_none_when_no_sim_folder_exists(tmp_path, monkeypatch):
+    """Must not return a plausible-looking path no simulator reads."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    assert find_presets_dir() is None
+
+
+def test_finds_the_msfs2024_store_folder(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    (local / _MSFS2024).mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    assert find_presets_dir() == local / _MSFS2024
+
+
+def test_prefers_2024_over_2020_when_both_exist(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    (local / _MSFS2024).mkdir(parents=True)
+    (local / _MSFS2020).mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    assert find_presets_dir() == local / _MSFS2024
+
+
+def test_falls_back_to_steam_location(tmp_path, monkeypatch):
+    roaming = tmp_path / "roaming"
+    steam = roaming / "Microsoft Flight Simulator" / "Weather" / "Presets"
+    steam.mkdir(parents=True)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("APPDATA", str(roaming))
+    assert find_presets_dir() == steam
+
+
+def test_ignores_a_candidate_that_is_a_file_not_a_directory(tmp_path, monkeypatch):
+    local = tmp_path / "local"
+    (local / _MSFS2024).parent.mkdir(parents=True)
+    (local / _MSFS2024).write_text("not a directory")
+    monkeypatch.setenv("LOCALAPPDATA", str(local))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "roaming"))
+    assert find_presets_dir() is None
