@@ -172,6 +172,41 @@ def render_cdu_grid(screen: PMDG_777X_CDU_Screen) -> list[list[dict]] | None:
 # ---------------------------------------------------------------------------
 
 
+# The PMDG 777 acts only on its LEFT CDU's key events. Measured live against a
+# real 777-200ER: EVT_CDU_C_L1 (70285), EVT_CDU_R_PREV_PAGE (70057) and
+# EVT_CDU_R_MENU (70055) each left their own screen completely unchanged, while
+# the matching EVT_CDU_L_* events paged the captain's screen every time. That
+# held through BOTH dispatch paths -- the (>K:ROTOR_BRAKE) route resolve_pmdg_event
+# returns below, and a direct PMDG_777X_Control client-data write that returned
+# S_OK -- so neither the event id nor the transport is at fault. The catalog ids
+# are genuine too: the three blocks sit at offsets 328-400 (left), 401-473
+# (right) and 653-725 (center), each contiguous with its neighbours. The
+# aircraft simply ignores two of the three.
+#
+# This is 777-only and must stay that way. The NG3 has two CDUs, and on it
+# EVT_CDU_R_* is the first officer's real, working unit -- which is why
+# pmdg_ng3.py deliberately carries no equivalent of this.
+_INERT_CDU_PREFIXES = (("EVT_CDU_C_", "center"), ("EVT_CDU_R_", "right"))
+
+
+def inert_cdu_event(event_name: str) -> tuple[str, str] | None:
+    """Classify a PMDG 777 CDU key the aircraft will never act on.
+
+    Returns ``(unit_label, left_equivalent_event)`` for a center or right
+    CDU key, or ``None`` for anything the 777 does respond to -- every left
+    CDU key and every non-CDU event.
+
+    Callers must refuse rather than dispatch: these sends are accepted all
+    the way down (SimConnect returns S_OK) and produce no error, so a
+    "sent; delivery is not confirmed" result for one is indistinguishable
+    from a left-CDU send that really did move the screen.
+    """
+    for prefix, unit in _INERT_CDU_PREFIXES:
+        if event_name.startswith(prefix):
+            return unit, "EVT_CDU_L_" + event_name[len(prefix) :]
+    return None
+
+
 def _is_direct_set_event(offset: int) -> bool:
     """Check if an event is a direct-set event that needs the Control data area.
 

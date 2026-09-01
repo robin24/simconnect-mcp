@@ -909,3 +909,105 @@ class TestUnassuredVariantWarning:
         from simconnect_mcp.tools.pmdg import _unassured_variant_warning
 
         assert _unassured_variant_warning("pmdg_777", source) is None
+
+
+# ---------------------------------------------------------------------------
+# Centre/right CDU key events the 777 never acts on
+# ---------------------------------------------------------------------------
+
+
+class TestInertCduEvents:
+    """The PMDG 777 acts only on its LEFT CDU's key events.
+
+    Measured live against a real 777-200ER, because no mock could have
+    settled it: ``EVT_CDU_C_L1`` (id 70285), ``EVT_CDU_R_PREV_PAGE``
+    (70057) and ``EVT_CDU_R_MENU`` (70055) each left their own screen
+    completely unchanged, while the matching ``EVT_CDU_L_*`` events paged
+    the captain's screen every single time. That was true through BOTH
+    dispatch paths -- the ``(>K:ROTOR_BRAKE)`` route this tool uses, and a
+    direct ``PMDG_777X_Control`` client-data write (which returned
+    ``S_OK``) -- so neither the event id nor the transport is at fault.
+    The aircraft simply ignores the center and right blocks. The catalog
+    ids are genuine, too: the blocks sit at offsets 328-400 (left),
+    401-473 (right) and 653-725 (center), contiguous with their
+    neighbours.
+
+    Reporting such a send as ``status: ok`` is a fabricated success -- the
+    caller gets an unfalsifiable "delivery is not confirmed" that reads
+    exactly like a working left-CDU send.
+    """
+
+    def test_center_cdu_event_is_inert_and_names_its_left_equivalent(self):
+        from simconnect_mcp.pmdg import inert_cdu_event
+
+        assert inert_cdu_event("EVT_CDU_C_RTE") == ("center", "EVT_CDU_L_RTE")
+
+    def test_right_cdu_event_is_inert_and_names_its_left_equivalent(self):
+        from simconnect_mcp.pmdg import inert_cdu_event
+
+        assert inert_cdu_event("EVT_CDU_R_PREV_PAGE") == (
+            "right",
+            "EVT_CDU_L_PREV_PAGE",
+        )
+
+    def test_left_cdu_event_is_not_inert(self):
+        from simconnect_mcp.pmdg import inert_cdu_event
+
+        assert inert_cdu_event("EVT_CDU_L_LEGS") is None
+
+    def test_non_cdu_event_is_not_inert(self):
+        from simconnect_mcp.pmdg import inert_cdu_event
+
+        assert inert_cdu_event("EVT_OH_ELEC_BATTERY_SWITCH") is None
+
+
+class TestSendPmdgEventRefusesInertCduKeys:
+    async def test_center_cdu_event_is_refused_rather_than_reported_as_sent(
+        self, mock_simconnect
+    ):
+        """Fails against the pre-fix implementation, which returned a
+        PmdgEventResult whose message was 'sent; delivery is not
+        confirmed' -- indistinguishable from a left-CDU send that really
+        did move the screen."""
+        from simconnect_mcp.tools.models import ToolError
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event("EVT_CDU_C_RTE", variant="pmdg_777")
+
+        assert isinstance(result, ToolError)
+        assert result.error == "PMDG_EVENT_NOT_IMPLEMENTED"
+
+    async def test_refusal_points_at_the_working_left_cdu_event(self, mock_simconnect):
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        result = await send_pmdg_event("EVT_CDU_R_MENU", variant="pmdg_777")
+
+        assert "EVT_CDU_L_MENU" in result.suggestion
+
+    async def test_left_cdu_event_still_dispatches(self, mock_simconnect):
+        """Guards the obvious over-correction: refusing every EVT_CDU_*."""
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        mock_simconnect["manager"]._mobiflight_available = True
+        mock_simconnect["manager"].mobiflight = MagicMock()
+
+        result = await send_pmdg_event("EVT_CDU_L_LEGS", variant="pmdg_777")
+
+        assert isinstance(result, PmdgEventResult)
+
+    async def test_737_first_officer_cdu_event_is_not_refused(self, mock_simconnect):
+        """The NG3 has two CDUs, and on it EVT_CDU_R_* is the F/O's real,
+        working unit -- not the 777's dead right block. A prefix check
+        applied to both catalogs would silently break the 737's F/O CDU,
+        so this pins the refusal to the 777 only. Untested against a live
+        737; that is exactly why it must not be blocked."""
+        from simconnect_mcp.tools.models import PmdgEventResult
+        from simconnect_mcp.tools.pmdg import send_pmdg_event
+
+        mock_simconnect["manager"]._mobiflight_available = True
+        mock_simconnect["manager"].mobiflight = MagicMock()
+
+        result = await send_pmdg_event("EVT_CDU_R_MENU", variant="pmdg_737")
+
+        assert isinstance(result, PmdgEventResult)

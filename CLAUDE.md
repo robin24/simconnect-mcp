@@ -85,6 +85,22 @@ Measured against a live sim during this project. Each cost real investigation to
 - **Only the airport facility list is world-wide** (85,249 records, unrelated to the aircraft's position). Waypoints, NDBs and VORs are a "reality bubble" scoped to wherever the aircraft currently is — all measured within ~193 nm of it — so they must not be cached across a reposition. Only AIRPORT is cached (`SimConnectManager._facility_cache`); the other three are recollected on every call.
 - **`MF.LVars.List` is capped at 1000 names and still sends its end sentinel**, so a truncated response is indistinguishable from a complete one at the protocol level. `msfs_list_lvars` reports `truncated: true` when the raw pre-filter wire count hits the cap. Treat any one source — a catalog or a live listing — as a starting point, not a guaranteed inventory: `msfs_get_lvar` reads any name you supply, whether or not it surfaced there.
 - **The WASM module ignores a repeated identical command.** Sending `MF.LVars.List` twice in a row returns nothing the second time. A trailing space does not help — this is not a byte-level dedupe check — and the state survives reconnection, so it lives in the WASM module itself, not the client. The fix that works reliably: send a different, zero-side-effect RPN command (a bare `MF.SimVars.Set.1` literal, which stores nothing) immediately before `MF.LVars.List` to re-arm it. See the call site in `tools/lvars.py` before "simplifying" this away.
+- **Only the PMDG 777's LEFT CDU accepts key events.** The aircraft has three
+  CDUs and `msfs_get_pmdg_cdu` reads all three, but `EVT_CDU_C_*` and
+  `EVT_CDU_R_*` are accepted by SimConnect and then ignored by the aircraft.
+  Measured on a live 777-200ER through *both* dispatch paths -- the
+  `(>K:ROTOR_BRAKE)` carrier and a direct `PMDG_777X_Control` client-data write
+  that returned `S_OK` -- while the matching `EVT_CDU_L_*` events paged the
+  captain's screen every time. So neither the event id nor the transport is at
+  fault, and the catalog ids are genuine (blocks at offsets 328-400 left,
+  401-473 right, 653-725 center, each contiguous with its neighbours). Because
+  nothing below reports a failure, `send_pmdg_event` refuses these with
+  `PMDG_EVENT_NOT_IMPLEMENTED` rather than returning a success no caller could
+  falsify -- see `pmdg.inert_cdu_event`. **This is 777-only:** the NG3 has two
+  CDUs and its `EVT_CDU_R_*` is the first officer's real, working unit, so
+  `pmdg_ng3.py` has no equivalent and the check is gated on the catalog. A
+  prefix test applied to both catalogs would silently break the 737's F/O CDU.
+
 - **PMDG aircraft ignore default key events.** A `(>K:PARKING_BRAKES)` that does nothing on a loaded PMDG aircraft is the aircraft's own behaviour — PMDG reimplements most default events internally rather than responding to them — not a broken mechanism. Use `msfs_send_pmdg_event` for PMDG control surfaces instead of `msfs_trigger_event`.
 
 - **Saving a flight freezes SimConnect for several seconds.** `FlightSave` writes its `.FLT` almost immediately (~0.13s for a 69 KB file) and returns `S_OK`, but MSFS then stops answering SimConnect requests entirely while it finishes — measured from 0.7s up to 14.5s on the same aircraft and session, with no identified cause for the variance. During that window every read fails with a timeout whose message blames a paused or loading sim, which is wrong. `msfs_save_flight` therefore polls until the sim answers again before returning, so its contract is "when this returns, the sim is usable"; `msfs_load_flight` and `msfs_load_flight_plan` use the same wait (a load's own stall measured only ~0.9s). Do not remove that wait, and do not "fix" it by reconnecting — the connection is fine, the sim is busy.

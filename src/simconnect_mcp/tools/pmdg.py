@@ -442,7 +442,35 @@ async def send_pmdg_event(
     if catalog_key == "pmdg_737":
         from simconnect_mcp.pmdg_ng3 import resolve_pmdg_event
     else:
-        from simconnect_mcp.pmdg import resolve_pmdg_event
+        from simconnect_mcp.pmdg import inert_cdu_event, resolve_pmdg_event
+
+        # Refuse center/right CDU keys before dispatching. The 777 ignores
+        # them, but every layer below still succeeds -- SimConnect returns
+        # S_OK and no exception is ever raised -- so dispatching would hand
+        # back a "sent; delivery is not confirmed" result identical to a
+        # left-CDU send that really did move the screen. See
+        # pmdg.inert_cdu_event for the live measurements. Deliberately gated
+        # to the 777: on the NG3, EVT_CDU_R_* is the first officer's real
+        # working CDU.
+        inert = inert_cdu_event(event_name)
+        if inert is not None:
+            unit, left_equivalent = inert
+            return ToolError(
+                error="PMDG_EVENT_NOT_IMPLEMENTED",
+                message=(
+                    f"The PMDG 777 does not act on {unit} CDU key events, so "
+                    f"'{event_name}' was not sent. SimConnect would accept it "
+                    f"and the aircraft would silently ignore it, which is "
+                    f"indistinguishable from success -- refusing is the only "
+                    f"honest answer. Only the left (captain's) CDU responds to "
+                    f"key events."
+                ),
+                suggestion=(
+                    f"Drive the left CDU with '{left_equivalent}' instead. "
+                    f"Reading is unaffected: msfs_get_pmdg_cdu still returns "
+                    f"all three screens, including this one."
+                ),
+            )
 
     try:
         dispatch = resolve_pmdg_event(event_name, parameter)
