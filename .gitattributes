@@ -1,0 +1,8 @@
+# tests/test_weather.py compares to_bytes() output against this fixture
+# byte-for-byte, and to_bytes() deliberately produces CRLF line endings (the
+# on-disk encoding real .WPR writers use). Without this, core.autocrlf
+# silently rewrites those CRLFs to LF on `git add` (measured: a committed
+# blob loses every CR) and, on a checkout where autocrlf does not mirror the
+# committing machine's setting, they never come back -- breaking the
+# byte-exact comparison. -text disables that conversion unconditionally.
+tests/fixtures/weather/*.WPR -text

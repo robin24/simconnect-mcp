@@ -118,6 +118,7 @@ _KEY_TO_URI = {
     "best-practices": "simconnect://docs/best-practices",
     "pmdg-777": "simconnect://docs/pmdg/777",
     "pmdg-737": "simconnect://docs/pmdg/737",
+    "weather": "simconnect://docs/weather",
 }
 
 
@@ -134,6 +135,29 @@ async def test_every_doc_file_is_reachable_through_a_resource(key):
     served = contents[0].content
 
     assert served == _read_doc(key)
+
+
+# ---------------------------------------------------------------------------
+# The weather doc exists specifically to carry the documented-vs-measured
+# distinction (see weather.py's module docstring and the design spec's "Two
+# sources of truth") to an agent that only ever sees the served resource, not
+# the code comments. A doc that dropped either the enforced ranges or the
+# advisory ones would defeat the reason this task exists.
+# ---------------------------------------------------------------------------
+
+
+async def test_weather_doc_is_served_and_separates_documented_from_measured():
+    from simconnect_mcp.server import mcp
+
+    uris = {str(r.uri) for r in await mcp.list_resources()}
+    assert "simconnect://docs/weather" in uris
+
+    text = _read_doc("weather")
+    # The whole point of the doc: an agent must be able to tell an enforced
+    # bound from an advisory one.
+    assert "msfs_write_weather_preset" in text
+    assert "150" in text and "95000" in text
+    assert "AMBIENT_PRECIP_STATE" in text
 
 
 # ---------------------------------------------------------------------------

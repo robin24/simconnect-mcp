@@ -480,3 +480,27 @@ class AiObjectResult(OkModel):
         "SimConnect fallback). See `message` for which of the three applies.",
     )
     message: str
+
+
+class WeatherPresetResult(OkModel):
+    """Confirmation that a .WPR weather preset file was written.
+
+    Writing the file is the whole of this tool's contract. It does NOT apply
+    the weather: that needs a .FLT's [Weather] section repointed and the
+    flight reloaded (which resets the aircraft), or the preset selected in
+    the simulator's own weather menu. `message` says so.
+
+    `warnings` carries limits the simulator enforces but the SDK does not
+    document, and the settings that cannot be verified at all. An empty list
+    means nothing in the preset is known to be altered or unverifiable -- not
+    that the simulator has confirmed anything, which it never does for a file
+    on disk.
+    """
+
+    path: str = Field(..., description="Absolute path of the file written")
+    name: str = Field(..., description="Preset name, as it appears in MSFS")
+    bytes_written: int = Field(..., description="Size of the file written")
+    warnings: list[str] = Field(
+        default_factory=list,
+        description="Effective-limit and unverifiability notes; may be empty")
+    message: str = Field(..., description="What was written and how to apply it")
