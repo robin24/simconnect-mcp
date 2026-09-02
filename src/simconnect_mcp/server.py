@@ -88,6 +88,7 @@ from simconnect_mcp.tools.utilities import (  # noqa: E402
     send_sim_text,
     set_aircraft_position,
 )
+from simconnect_mcp.tools.weather import write_weather_preset  # noqa: E402
 
 
 def _register(fn, name: str, title: str, *, read_only: bool, idempotent: bool = False,
@@ -219,6 +220,20 @@ _register(load_flight_plan, "msfs_load_flight_plan", "Load Flight Plan",
 # calling it twice leaves two.
 _register(create_ai_object, "msfs_create_ai_object", "Create AI Object",
           read_only=False)
+
+# --- Weather ---
+# Writes a .WPR preset file; it does not apply weather, so nothing in the sim
+# changes here.
+#
+# destructive=False for exactly the reason save_flight carries it: overwrite
+# defaults to False, so an existing preset is never replaced unless the caller
+# opts in. Without that guard this would be a false claim.
+#
+# idempotent=True, and unlike save_flight it genuinely is: the bytes are a
+# pure function of the arguments, with no live sim state folded in, so a
+# second identical call leaves the same file.
+_register(write_weather_preset, "msfs_write_weather_preset", "Write Weather Preset",
+          read_only=False, destructive=False, idempotent=True)
 
 # Register resources and prompts
 register_doc_resources(mcp)

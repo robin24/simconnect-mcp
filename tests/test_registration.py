@@ -79,7 +79,7 @@ async def test_every_tool_is_msfs_prefixed():
 
 
 async def test_expected_tool_count():
-    assert len(await _tools()) == 32
+    assert len(await _tools()) == 33
 
 
 async def test_phase_two_tools_are_registered():
@@ -87,6 +87,16 @@ async def test_phase_two_tools_are_registered():
     for name in ("msfs_search_hubhop", "msfs_list_hubhop_aircraft", "msfs_load_flight",
                  "msfs_save_flight", "msfs_load_flight_plan", "msfs_create_ai_object"):
         assert name in names
+
+
+async def test_weather_tool_is_registered_and_annotated():
+    tools = await _tools()
+    assert "msfs_write_weather_preset" in tools
+    ann = tools["msfs_write_weather_preset"].annotations
+    assert ann.readOnlyHint is False, "it writes a file"
+    # destructive=False holds only because overwrite defaults to False.
+    assert ann.destructiveHint is False
+    assert ann.idempotentHint is True, "same inputs produce the same bytes"
 
 
 async def test_consolidated_tools_replaced_their_predecessors():
