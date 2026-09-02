@@ -17,6 +17,7 @@ _DOC_FILES = {
     "best-practices": "best_practices.md",
     "pmdg-777": "pmdg_777.md",
     "pmdg-737": "pmdg_737.md",
+    "weather": "weather.md",
 }
 
 
@@ -102,6 +103,13 @@ def register_doc_resources(mcp: FastMCP) -> None:
     def docs_best_practices() -> str:
         """Common pitfalls, performance tips, and testing guidance."""
         return _read_doc("best-practices")
+
+    @mcp.resource(
+        "simconnect://docs/weather", mime_type="text/markdown", title="Weather Preset Guide"
+    )
+    def docs_weather() -> str:
+        """Weather preset (.WPR) authoring: documented vs. measured limits."""
+        return _read_doc("weather")
 
     @mcp.resource(
         "simconnect://docs/pmdg/{variant}", mime_type="text/markdown", title="PMDG SDK Reference"
