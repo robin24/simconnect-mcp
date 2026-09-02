@@ -70,6 +70,18 @@ async def test_overwrite_true_replaces_the_file(tmp_path):
     assert target.read_bytes() != b"original"
 
 
+async def test_does_not_create_a_missing_parent_directory(tmp_path):
+    """A typo'd explicit `path` must fail rather than silently fabricate the
+    directory it points into and report success somewhere the caller never
+    intended."""
+    missing_dir = tmp_path / "does_not_exist"
+    target = missing_dir / "Storm.WPR"
+    result = await write_weather_preset(name="Storm", path=str(target))
+    assert isinstance(result, ToolError)
+    assert result.error == "WRITE_FAILED"
+    assert not missing_dir.exists()
+
+
 async def test_rejects_a_relative_path(tmp_path):
     result = await write_weather_preset(name="X", path="relative/Storm.WPR")
     assert isinstance(result, ToolError)

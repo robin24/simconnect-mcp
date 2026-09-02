@@ -145,10 +145,11 @@ async def write_weather_preset(
         ) or "input"
         return ToolError(
             error="INVALID_WEATHER",
-            message=f"Rejected by the documented value ranges ({fields}): {e}",
+            message=f"{fields} rejected by the documented value ranges.",
             suggestion="These bounds come from the MSFS SDK's weather preset "
                        "documentation. Check the units -- pressure is pascals, "
-                       "temperature kelvin, precipitation mm/h (max 100).",
+                       "temperature kelvin, precipitation mm/h (max 100). "
+                       f"Validation detail: {e}",
         )
 
     if path is not None:
@@ -188,7 +189,16 @@ async def write_weather_preset(
 
     data = to_bytes(preset)
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
+        # Deliberately no mkdir here -- do not "helpfully" restore one. Auto-
+        # creating target.parent would let a typo'd explicit `path` silently
+        # fabricate a directory and report success somewhere the caller never
+        # intended, instead of failing honestly. That's the same "don't
+        # guess" principle find_presets_dir() (simconnect_mcp/weather.py)
+        # follows by returning None rather than a guess. This is a no-op for
+        # the auto-discovered branch above: find_presets_dir() only ever
+        # returns a directory that already passed is_dir(). A missing parent
+        # here surfaces as FileNotFoundError (an OSError), caught below as
+        # WRITE_FAILED.
         target.write_bytes(data)
     except OSError as e:
         return ToolError(
