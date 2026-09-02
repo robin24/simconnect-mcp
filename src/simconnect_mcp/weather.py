@@ -51,9 +51,9 @@ class CloudLayer(BaseModel):
         0.5, ge=0.0, le=1.0,
         description="Cloud coverage, 0.0 to 1.0")
     altitude_bot_m: float = Field(
-        600.0, description="Layer base in metres. May be negative.")
+        600.0, allow_inf_nan=False, description="Layer base in metres. May be negative.")
     altitude_top_m: float = Field(
-        3000.0, description="Layer top in metres")
+        3000.0, allow_inf_nan=False, description="Layer top in metres")
     scattering: float = Field(
         0.5, ge=0.0, le=1.0,
         description="Light scattering, 0.0 (dark/dense) to 1.0 (very scattered)")
@@ -79,11 +79,13 @@ class WindLayer(BaseModel):
     effective_limit_warnings(), not enforced here.
     """
 
-    altitude_m: float = Field(4.0, description="Layer altitude in metres")
+    altitude_m: float = Field(
+        4.0, allow_inf_nan=False, description="Layer altitude in metres")
     angle_deg: float = Field(
         0.0, ge=0.0, le=360.0,
         description="Direction the wind blows from, degrees, 0 is North")
-    speed_kt: float = Field(0.0, ge=0.0, description="Wind speed in knots")
+    speed_kt: float = Field(
+        0.0, ge=0.0, allow_inf_nan=False, description="Wind speed in knots")
 
 
 class WeatherPreset(BaseModel):
@@ -103,9 +105,10 @@ class WeatherPreset(BaseModel):
         101325.0, ge=50000.0, le=130000.0,
         description="Mean-sea-level pressure in pascals")
     msl_temperature_k: float = Field(
-        288.15, gt=0.0, description="Mean-sea-level temperature in kelvin")
+        288.15, gt=0.0, allow_inf_nan=False,
+        description="Mean-sea-level temperature in kelvin")
     aerosol_density: float = Field(
-        1.0, ge=0.0,
+        1.0, ge=0.0, allow_inf_nan=False,
         description="Aerosol density; 1.0 is the default, higher reduces transparency")
     # Neither appears in any SDK page, but Active Sky writes both and the
     # simulator accepts them. Their 0.0-1.0 bounds are inferred from the
@@ -118,6 +121,9 @@ class WeatherPreset(BaseModel):
     thunderstorm_intensity: float = Field(
         0.0, ge=0.0, le=1.0, description="Thunderstorm intensity, 0.0 to 1.0")
 
+    # Module-API-only: deliberately not parameters of write_weather_preset
+    # (tools/weather.py) and not documented there. Available to any caller
+    # constructing a WeatherPreset directly.
     is_altitude_amgl: bool = Field(
         False, description="Treat layer altitudes as above ground rather than MSL")
     compute_wind_from_departure: bool = Field(
@@ -263,6 +269,14 @@ def _preset_dir_candidates() -> list[Path]:
             candidates.append(Path(local) / "Packages" / package / Path(*_PRESET_SUBPATH))
     roaming = os.environ.get("APPDATA")
     if roaming:
+        # 2024 first, same reasoning as the Store packages above: Steam MSFS
+        # 2024 and 2020 keep presets under differently-named roaming folders
+        # ("Microsoft Flight Simulator 2024" vs. "Microsoft Flight
+        # Simulator"), and a machine with both is likelier flying the newer
+        # one.
+        candidates.append(
+            Path(roaming) / "Microsoft Flight Simulator 2024" / "Weather" / "Presets"
+        )
         candidates.append(
             Path(roaming) / "Microsoft Flight Simulator" / "Weather" / "Presets"
         )

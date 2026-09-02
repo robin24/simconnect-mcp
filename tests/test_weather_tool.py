@@ -94,10 +94,19 @@ async def test_rejects_a_wrong_suffix(tmp_path):
     assert result.error == "INVALID_PATH"
 
 
-@pytest.mark.parametrize("bad_name", ["../escape", "sub/dir", "back\\slash", ""])
+@pytest.mark.parametrize(
+    "bad_name", ["../escape", "sub/dir", "back\\slash", "", "Storm\n"]
+)
 async def test_rejects_names_that_could_escape_the_target_directory(bad_name, tmp_path):
     """`name` becomes the filename when `path` is omitted, so it must never
-    carry a path separator or traversal."""
+    carry a path separator or traversal.
+
+    "Storm\\n" covers a `re` gotcha, not a traversal: unanchored `$` matches
+    just before a trailing newline as well as at the true end of the string,
+    so `"Storm\\n"` (no separator at all) must still be rejected -- a
+    permissive match here would go on to attempt the filename `Storm\\n.WPR`,
+    which Windows itself refuses.
+    """
     result = await write_weather_preset(name=bad_name)
     assert isinstance(result, ToolError)
     assert result.error == "INVALID_PRESET_NAME"

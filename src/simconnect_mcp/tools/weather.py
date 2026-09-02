@@ -6,7 +6,6 @@ it -- see write_weather_preset's docstring.
 """
 from __future__ import annotations
 
-import logging
 import re
 from pathlib import Path
 from typing import Annotated
@@ -24,13 +23,20 @@ from simconnect_mcp.weather import (
     to_bytes,
 )
 
-logger = logging.getLogger(__name__)
-
 # `name` becomes a filename when `path` is omitted, so it must not carry a
 # separator, a traversal, or anything a filesystem would reject. Enforced
 # rather than sanitised: silently rewriting a caller's name would leave them
-# holding a path that does not match what they asked for.
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$")
+# holding a path that does not match what they asked for. ASCII-only is
+# deliberate too, not an oversight: it is the simplest rule that is safe as
+# a filename across filesystems, so no non-ASCII preset name reaches even
+# the <Name> element, regardless of whether `path` is supplied -- even
+# though the file itself is written as UTF-8 (see to_bytes() in weather.py).
+#
+# `\Z` rather than `$`: unanchored, `$` also matches just before a trailing
+# newline, so `.match()` on "Storm\n" would accept it and go on to attempt
+# the filename "Storm\n.WPR" -- rejected by Windows, surfacing as a
+# misdiagnosed WRITE_FAILED instead of this check's own INVALID_PRESET_NAME.
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}\Z")
 
 # Defaults used when the caller supplies no layers. Chosen to be unsurprising
 # rather than dramatic: a caller wanting a storm passes the scalars.
@@ -42,6 +48,15 @@ _DEFAULT_CLOUD_WHEN_WET = 0.9
 _DEFAULT_WIND_ALTITUDE_M = 4.0
 
 
+# This tool never touches SimConnect -- it is pure file I/O, same situation
+# as tools/hubhop.py (see the comment on its imports for the full reasoning).
+# @handle_simconnect_errors is kept anyway, as the safety net every tool in
+# this package uses to guarantee it returns ToolError rather than raising,
+# not because a failure here is SimConnect-shaped: an escaping OSError would
+# be mapped to CONNECTION_LOST, a false diagnosis for a tool that has no
+# connection to lose. Low-risk in practice, since the write below has its
+# own `except OSError` and returns WRITE_FAILED before this decorator ever
+# sees the exception.
 @handle_simconnect_errors
 async def write_weather_preset(
     name: Annotated[
