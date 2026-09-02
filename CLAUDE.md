@@ -17,6 +17,7 @@ MCP Protocol (FastMCP, stdio)
           → vendored SimConnectMobiFlight (client-data support for the WASM bridge)
             → SimConnect DLL / MSFS
             → MobiFlight WASM Module (L-vars, calculator code)
+      → weather.py (WeatherPreset validation + .WPR render — pure Python, no SimConnect; feeds tools/weather.py)
 ```
 
 ### Key Design Decisions
@@ -43,6 +44,7 @@ src/simconnect_mcp/
 ├── pmdg.py                # PMDG 777 SDK structs, CDU rendering, data manager
 ├── pmdg_ng3.py            # PMDG 737 NG3 SDK structs, CDU rendering, data manager
 ├── pmdg_detect.py         # PMDG variant detection/probe, shared by tools/pmdg.py and tools/lvars.py
+├── weather.py             # WeatherPreset validation + .WPR render — pure, no SimConnect
 ├── tools/
 │   ├── __init__.py        # @handle_simconnect_errors, @require_connection decorators
 │   ├── connection_tools.py # connect_to_sim, disconnect_from_sim, get_connection_status
@@ -54,6 +56,7 @@ src/simconnect_mcp/
 │   ├── facilities.py      # Airport/navaid lookup on top of facilities.py
 │   ├── flight.py          # load/save flight, load flight plan, spawn AI object
 │   ├── hubhop.py          # HubHop preset search, exposed as MCP tools
+│   ├── weather.py         # write_weather_preset — MCP envelope over weather.py
 │   ├── utilities.py       # send_sim_text, set_aircraft_position
 │   ├── models.py          # Shared Pydantic result/error models
 │   └── formatting.py      # Pagination and markdown-table helpers
@@ -74,7 +77,8 @@ src/simconnect_mcp/
 │   └── mobiflight_variable_requests.py   # log-level demotion + response-channel routing
 └── docs/                  # Embedded markdown documentation, served as MCP resources
     ├── overview.md, simvars.md, events.md, rpn.md, lvars.md, best_practices.md
-    └── pmdg_777.md, pmdg_737.md
+    ├── pmdg_777.md, pmdg_737.md
+    └── weather.md
 ```
 
 ## Known Sim Behaviours

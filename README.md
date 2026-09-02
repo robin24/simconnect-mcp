@@ -137,7 +137,7 @@ uv run mcp dev src/simconnect_mcp/server.py
 > `uvx simconnect-mcp` with `uv run --directory /path/to/simconnect-mcp simconnect-mcp`,
 > using the absolute path to your clone.
 
-## Tools (32)
+## Tools (33)
 
 Every tool is prefixed `msfs_`, carries explicit `readOnlyHint`/`destructiveHint` annotations, and returns a typed result or a structured error — never a fabricated success. The tables below are generated from the live server (name, kind, and title come straight from each tool's `ToolAnnotations`); descriptions are the one-line summary from the tool's own docstring:
 
@@ -246,6 +246,14 @@ Unlike every other tool, these two reach HubHop's HTTP API rather than the simul
 
 These wrap the underlying SimConnect flight/scenario file operations for scripting test setups (e.g. "load this approach", "save the current state", "spawn traffic nearby") rather than driving them by hand in the sim's own UI. `msfs_create_ai_object` is confirmed live end-to-end — spawned, verified to answer a targeted SimVar request, then removed again — by `tests/live/test_live_flight.py`. `msfs_save_flight` was also confirmed live, including the multi-second post-save SimConnect stall documented in CLAUDE.md's Known Sim Behaviours; its own live tests were retired in the 2026-08-29 live-suite trim once that finding was captured there, since what remained (the overwrite-guard logic) is pure Python already covered by `tests/test_flight.py`'s mocks. `msfs_load_flight` and `msfs_load_flight_plan` are mock-only by design — see `tests/live/test_live_flight.py`'s module docstring for why. See [Running the live tests](#running-the-live-tests) below.
 
+### Weather (1)
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `msfs_write_weather_preset` | write | Write an MSFS weather preset (`.WPR`) file — cloud/wind layers, pressure, temperature, precipitation and more |
+
+MSFS removed the legacy SimConnect weather API, so a `.WPR` file is the only way to set weather. This tool writes the file only — it does not change the weather in a running sim; select the preset in the simulator's weather menu, or point a `.FLT`'s `[Weather]` section at it (`UseWeatherFile=True`) and reload with `msfs_load_flight`. Value ranges are enforced from the MSFS SDK's documented limits; a handful of limits the simulator applies but does not document (a wind clamp, a pressure floor) are reported in the result's `warnings` rather than enforced, since they were measured on one machine and one sim version. Omit `path` to write into the simulator's own preset folder, auto-detected across both Store editions and both Steam editions. See [Weather Preset Guide](src/simconnect_mcp/docs/weather.md) for the full documented-vs-measured breakdown.
+
 ## Variable Catalogs
 
 The server ships with comprehensive variable catalogs for search and discovery, so that AI agents can find the right variable names without guessing.
@@ -338,6 +346,7 @@ Or create catalogs manually by placing a JSON file in `src/simconnect_mcp/data/`
 | `simconnect://docs/lvars` | `text/markdown` | L-var usage for add-on development |
 | `simconnect://docs/best-practices` | `text/markdown` | Common pitfalls and performance tips |
 | `simconnect://docs/pmdg/{variant}` | `text/markdown` | PMDG SDK reference; `variant` is `777` or `737` (a leading `B` is accepted, case-insensitive) |
+| `simconnect://docs/weather` | `text/markdown` | Weather preset (`.WPR`) authoring: documented vs. measured limits |
 | `simconnect://state/connection` | `application/json` | Live connection status |
 | `simconnect://state/aircraft` | `application/json` | Current aircraft title, type, and position |
 
